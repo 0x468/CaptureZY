@@ -1,5 +1,7 @@
 #include "feature_capture/capture_overlay.h"
 
+#include <algorithm>
+
 namespace capturezy::feature_capture
 {
     namespace
@@ -7,7 +9,7 @@ namespace capturezy::feature_capture
         constexpr wchar_t const *kOverlayWindowClassName = L"CaptureZY.CaptureOverlay";
         constexpr COLORREF kOverlayColor = RGB(0, 0, 0);
         constexpr BYTE kOverlayAlpha = 96;
-        constexpr wchar_t const *kOverlayInstruction = L"截图覆盖层原型已启动，左键占位完成，Esc 取消";
+        constexpr wchar_t const *kOverlayInstruction = L"拖拽选择区域，松开左键完成，Esc 取消";
 
         void SetWindowUserData(HWND window, CaptureOverlay *overlay)
         {
@@ -27,6 +29,11 @@ namespace capturezy::feature_capture
     bool CaptureOverlay::Show(HWND owner_window)
     {
         owner_window_ = owner_window;
+        drag_start_ = {};
+        drag_current_ = {};
+        drag_in_progress_ = false;
+        has_selection_ = false;
+
         if (overlay_window_ != nullptr)
         {
             ShowWindow(overlay_window_, SW_SHOW);
@@ -76,6 +83,16 @@ namespace capturezy::feature_capture
         return overlay_window_ != nullptr && IsWindowVisible(overlay_window_) != FALSE;
     }
 
+    RECT CaptureOverlay::CurrentSelectionRect() const noexcept
+    {
+        RECT selection{};
+        selection.left = std::min(drag_start_.x, drag_current_.x);
+        selection.top = std::min(drag_start_.y, drag_current_.y);
+        selection.right = std::max(drag_start_.x, drag_current_.x);
+        selection.bottom = std::max(drag_start_.y, drag_current_.y);
+        return selection;
+    }
+
     ATOM CaptureOverlay::RegisterWindowClass() const
     {
         WNDCLASSEXW window_class{};
@@ -111,7 +128,33 @@ namespace capturezy::feature_capture
             break;
 
         case WM_LBUTTONDOWN:
-            Finish(OverlayResult::PlaceholderCaptured);
+            drag_start_.x = GET_X_LPARAM(l_param);
+            drag_start_.y = GET_Y_LPARAM(l_param);
+            drag_current_ = drag_start_;
+            drag_in_progress_ = true;
+            has_selection_ = true;
+            SetCapture(overlay_window_);
+            InvalidateRect(overlay_window_, nullptr, TRUE);
+            return 0;
+
+        case WM_MOUSEMOVE:
+            if (drag_in_progress_)
+            {
+                drag_current_.x = GET_X_LPARAM(l_param);
+                drag_current_.y = GET_Y_LPARAM(l_param);
+                InvalidateRect(overlay_window_, nullptr, TRUE);
+            }
+            return 0;
+
+        case WM_LBUTTONUP:
+            if (drag_in_progress_)
+            {
+                drag_current_.x = GET_X_LPARAM(l_param);
+                drag_current_.y = GET_Y_LPARAM(l_param);
+                drag_in_progress_ = false;
+                ReleaseCapture();
+                Finish(OverlayResult::PlaceholderCaptured);
+            }
             return 0;
 
         case WM_PAINT: {
@@ -123,13 +166,37 @@ namespace capturezy::feature_capture
             FillRect(device_context, &client_rect, GetSysColorBrush(COLOR_WINDOWTEXT));
             SetBkMode(device_context, TRANSPARENT);
             SetTextColor(device_context, RGB(255, 255, 255));
-            DrawTextW(device_context, kOverlayInstruction, -1, &client_rect, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+            DrawTextW(device_context, kOverlayInstruction, -1, &client_rect, DT_CENTER | DT_SINGLELINE | DT_TOP);
+
+            if (has_selection_)
+            {
+                RECT selection_rect = CurrentSelectionRect();
+                HPEN selection_pen = CreatePen(PS_SOLID, 2, RGB(255, 255, 255));
+                HGDIOBJ old_pen = SelectObject(device_context, selection_pen);
+                HGDIOBJ old_brush = SelectObject(device_context, GetStockObject(HOLLOW_BRUSH));
+                Rectangle(device_context, selection_rect.left, selection_rect.top, selection_rect.right,
+                          selection_rect.bottom);
+                SelectObject(device_context, old_brush);
+                SelectObject(device_context, old_pen);
+                DeleteObject(selection_pen);
+            }
 
             EndPaint(overlay_window_, &paint);
             return 0;
         }
 
+        case WM_CAPTURECHANGED:
+            if (drag_in_progress_)
+            {
+                drag_in_progress_ = false;
+            }
+            return 0;
+
         case WM_DESTROY:
+            if (GetCapture() == overlay_window_)
+            {
+                ReleaseCapture();
+            }
             overlay_window_ = nullptr;
             return 0;
 

@@ -1,12 +1,16 @@
 #pragma once
 
+#include <cstdint>
+
 // clang-format off
 #include <windows.h>
 // clang-format on
 
+#include <windowsx.h>
+
 namespace capturezy::feature_capture
 {
-    enum class OverlayResult
+    enum class OverlayResult : std::uint8_t
     {
         Cancelled,
         PlaceholderCaptured,
@@ -27,6 +31,7 @@ namespace capturezy::feature_capture
         }
 
       private:
+        [[nodiscard]] RECT CurrentSelectionRect() const noexcept;
         [[nodiscard]] ATOM RegisterWindowClass() const;
         [[nodiscard]] LRESULT HandleMessage(UINT message, WPARAM w_param, LPARAM l_param);
         void Finish(OverlayResult result) noexcept;
@@ -36,5 +41,9 @@ namespace capturezy::feature_capture
         HINSTANCE instance_;
         HWND owner_window_{};
         HWND overlay_window_{};
+        POINT drag_start_{};
+        POINT drag_current_{};
+        bool drag_in_progress_{false};
+        bool has_selection_{false};
     };
 } // namespace capturezy::feature_capture
