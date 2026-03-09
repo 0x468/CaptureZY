@@ -1,13 +1,10 @@
 #include "platform_win/main_window.h"
 
-#include <array>
-#include <chrono>
-#include <commdlg.h>
-#include <ctime>
 #include <string>
 #include <utility>
 
 #include "core/app_metadata.h"
+#include "feature_capture/capture_file_dialog.h"
 #include "feature_capture/screen_capture.h"
 
 namespace capturezy::platform_win
@@ -16,28 +13,19 @@ namespace capturezy::platform_win
     {
         constexpr UINT kTrayIconId = 1;
         constexpr UINT kTrayMessage = WM_APP + 1;
+        constexpr UINT kExecutePendingCaptureMessage = WM_APP + 2;
         constexpr UINT_PTR kShowWindowCommandId = 1001;
         constexpr UINT_PTR kBeginCaptureCommandId = 1002;
         constexpr UINT_PTR kBeginCaptureAndSaveCommandId = 1003;
-        constexpr UINT_PTR kShowAllPinsCommandId = 1004;
-        constexpr UINT_PTR kHideAllPinsCommandId = 1005;
-        constexpr UINT_PTR kCloseAllPinsCommandId = 1006;
-        constexpr UINT_PTR kExitApplicationCommandId = 1007;
+        constexpr UINT_PTR kBeginFullScreenCaptureCommandId = 1004;
+        constexpr UINT_PTR kBeginFullScreenCaptureAndSaveCommandId = 1005;
+        constexpr UINT_PTR kShowAllPinsCommandId = 1006;
+        constexpr UINT_PTR kHideAllPinsCommandId = 1007;
+        constexpr UINT_PTR kCloseAllPinsCommandId = 1008;
+        constexpr UINT_PTR kExitApplicationCommandId = 1009;
         constexpr int kCaptureHotkeyId = 1;
         constexpr UINT kCaptureHotkeyModifiers = MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT;
         constexpr UINT kCaptureHotkeyVirtualKey = 0x41;
-        constexpr auto kSaveDialogFilter = std::to_array(L"PNG Files (*.png)\0*.png\0");
-
-        [[nodiscard]] std::wstring BuildDefaultFileName(feature_capture::CaptureResult::Timestamp captured_at)
-        {
-            std::time_t const captured_time = std::chrono::system_clock::to_time_t(captured_at);
-            std::tm local_time{};
-            localtime_s(&local_time, &captured_time);
-
-            std::array<wchar_t, 64> file_name{};
-            wcsftime(file_name.data(), file_name.size(), L"CaptureZY_%Y%m%d_%H%M%S.png", &local_time);
-            return file_name.data();
-        }
 
         // Win32 约定上经常需要把对象指针塞进 GWLP_USERDATA，这里统一封装并局部抑制告警。
         void SetWindowUserData(HWND window, MainWindow *main_window)
@@ -50,6 +38,16 @@ namespace capturezy::platform_win
         {
             // NOLINTNEXTLINE(performance-no-int-to-ptr,cppcoreguidelines-pro-type-reinterpret-cast)
             return reinterpret_cast<MainWindow *>(GetWindowLongPtrW(window, GWLP_USERDATA));
+        }
+
+        [[nodiscard]] RECT VirtualScreenRect() noexcept
+        {
+            RECT screen_rect{};
+            screen_rect.left = GetSystemMetrics(SM_XVIRTUALSCREEN);
+            screen_rect.top = GetSystemMetrics(SM_YVIRTUALSCREEN);
+            screen_rect.right = screen_rect.left + GetSystemMetrics(SM_CXVIRTUALSCREEN);
+            screen_rect.bottom = screen_rect.top + GetSystemMetrics(SM_CYVIRTUALSCREEN);
+            return screen_rect;
         }
     } // namespace
 
@@ -123,19 +121,18 @@ namespace capturezy::platform_win
         InvalidateRect(window_, nullptr, TRUE);
     }
 
-    void MainWindow::BeginCaptureEntry(CaptureAction capture_action)
+    void MainWindow::BeginCaptureEntry()
     {
-        pending_capture_action_ = capture_action;
+        BeginCaptureEntry(CaptureRequest{});
+    }
+
+    void MainWindow::BeginCaptureEntry(CaptureRequest capture_request)
+    {
+        pending_capture_request_ = capture_request;
         app_state_->BeginCapture();
         UpdateWindowPresentation();
         HideToTray();
-
-        if (!capture_overlay_.Show(window_))
-        {
-            app_state_->ReturnToIdle();
-            ShowWindowAndActivate();
-            UpdateWindowPresentation();
-        }
+        PostMessageW(window_, kExecutePendingCaptureMessage, 0, 0);
     }
 
     bool MainWindow::CreateTrayIcon()
@@ -217,6 +214,8 @@ namespace capturezy::platform_win
         AppendMenuW(menu, MF_STRING, kShowWindowCommandId, L"显示窗口");
         AppendMenuW(menu, MF_STRING, kBeginCaptureCommandId, L"开始截图");
         AppendMenuW(menu, MF_STRING, kBeginCaptureAndSaveCommandId, L"开始截图并保存");
+        AppendMenuW(menu, MF_STRING, kBeginFullScreenCaptureCommandId, L"全屏截图");
+        AppendMenuW(menu, MF_STRING, kBeginFullScreenCaptureAndSaveCommandId, L"全屏截图并保存");
         AppendMenuW(menu, show_all_pins_flags, kShowAllPinsCommandId, L"显示全部贴图");
         AppendMenuW(menu, hide_all_pins_flags, kHideAllPinsCommandId, L"隐藏全部贴图");
         AppendMenuW(menu, close_all_pins_flags, kCloseAllPinsCommandId, L"关闭全部贴图");
@@ -242,51 +241,55 @@ namespace capturezy::platform_win
         EndPaint(window_, &paint);
     }
 
-    void MainWindow::HandleOverlayResult(feature_capture::OverlayResult result)
+    void MainWindow::ExecutePendingCaptureRequest()
+    {
+        if (pending_capture_request_.scope == CaptureScope::FullScreen)
+        {
+            ProcessCaptureResult(feature_capture::ScreenCapture::CaptureRegion(VirtualScreenRect()));
+            return;
+        }
+
+        if (!capture_overlay_.Show(window_))
+        {
+            app_state_->ReturnToIdle();
+            ShowWindowAndActivate();
+            UpdateWindowPresentation();
+        }
+    }
+
+    void MainWindow::ProcessCaptureResult(feature_capture::CaptureResult capture_result)
     {
         bool capture_completed = false;
         bool capture_saved = false;
         bool pin_created = false;
 
-        if (result == feature_capture::OverlayResult::PlaceholderCaptured)
+        if (capture_result.IsValid())
         {
-            auto capture_result = feature_capture::ScreenCapture::CaptureRegion(capture_overlay_.LastSelectionRect());
-            if (capture_result.IsValid())
+            switch (pending_capture_request_.action)
             {
-                switch (pending_capture_action_)
+            case CaptureAction::SaveToFile:
+                if (feature_capture::SaveCaptureResultWithPngDialog(window_, capture_result))
                 {
-                case CaptureAction::SaveToFile: {
-                    std::array<wchar_t, 32768> file_path{};
-                    std::wstring const default_file_name = BuildDefaultFileName(capture_result.CapturedAt());
-                    wcsncpy_s(file_path.data(), file_path.size(), default_file_name.c_str(), _TRUNCATE);
-
-                    OPENFILENAMEW dialog{};
-                    dialog.lStructSize = sizeof(dialog);
-                    dialog.hwndOwner = window_;
-                    dialog.lpstrFilter = kSaveDialogFilter.data();
-                    dialog.lpstrFile = file_path.data();
-                    dialog.nMaxFile = static_cast<DWORD>(file_path.size());
-                    dialog.lpstrDefExt = L"png";
-                    dialog.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_EXPLORER;
-
-                    if (GetSaveFileNameW(&dialog) != FALSE &&
-                        feature_capture::ScreenCapture::SaveBitmapToPng(capture_result, file_path.data()))
-                    {
-                        capture_completed = true;
-                        capture_saved = true;
-                    }
-                    break;
+                    capture_completed = true;
+                    capture_saved = true;
                 }
+                break;
 
-                case CaptureAction::CopyAndPin:
-                default:
-                    if (feature_capture::ScreenCapture::CopyBitmapToClipboard(window_, capture_result))
-                    {
-                        capture_completed = true;
-                        pin_created = pin_manager_.CreatePin(std::move(capture_result));
-                    }
-                    break;
+            case CaptureAction::CopyOnly:
+                if (feature_capture::ScreenCapture::CopyBitmapToClipboard(window_, capture_result))
+                {
+                    capture_completed = true;
                 }
+                break;
+
+            case CaptureAction::CopyAndPin:
+            default:
+                if (feature_capture::ScreenCapture::CopyBitmapToClipboard(window_, capture_result))
+                {
+                    capture_completed = true;
+                    pin_created = pin_manager_.CreatePin(std::move(capture_result));
+                }
+                break;
             }
         }
 
@@ -314,6 +317,19 @@ namespace capturezy::platform_win
         UpdateWindowPresentation();
     }
 
+    void MainWindow::HandleOverlayResult(feature_capture::OverlayResult result)
+    {
+        if (result == feature_capture::OverlayResult::PlaceholderCaptured)
+        {
+            ProcessCaptureResult(feature_capture::ScreenCapture::CaptureRegion(capture_overlay_.LastSelectionRect()));
+            return;
+        }
+
+        app_state_->ReturnToIdle();
+        ShowWindowAndActivate();
+        UpdateWindowPresentation();
+    }
+
     bool MainWindow::HandleCommand(WPARAM w_param)
     {
         switch (LOWORD(w_param))
@@ -327,7 +343,15 @@ namespace capturezy::platform_win
             return true;
 
         case kBeginCaptureAndSaveCommandId:
-            BeginCaptureEntry(CaptureAction::SaveToFile);
+            BeginCaptureEntry(CaptureRequest{CaptureScope::Region, CaptureAction::SaveToFile});
+            return true;
+
+        case kBeginFullScreenCaptureCommandId:
+            BeginCaptureEntry(CaptureRequest{CaptureScope::FullScreen, CaptureAction::CopyOnly});
+            return true;
+
+        case kBeginFullScreenCaptureAndSaveCommandId:
+            BeginCaptureEntry(CaptureRequest{CaptureScope::FullScreen, CaptureAction::SaveToFile});
             return true;
 
         case kShowAllPinsCommandId:
@@ -430,6 +454,10 @@ namespace capturezy::platform_win
 
         case WM_PAINT:
             PaintWindow();
+            return 0;
+
+        case kExecutePendingCaptureMessage:
+            ExecutePendingCaptureRequest();
             return 0;
 
         case feature_capture::CaptureOverlay::ResultMessage():

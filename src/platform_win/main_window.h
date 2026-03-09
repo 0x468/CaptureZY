@@ -24,20 +24,42 @@ namespace capturezy::platform_win
       private:
         enum class CaptureAction : std::uint8_t
         {
+            CopyOnly,
             CopyAndPin,
             SaveToFile,
+        };
+
+        enum class CaptureScope : std::uint8_t
+        {
+            Region,
+            FullScreen,
+        };
+
+        struct CaptureRequest final
+        {
+            constexpr CaptureRequest() noexcept = default;
+            constexpr CaptureRequest(CaptureScope requested_scope, CaptureAction requested_action) noexcept
+                : scope(requested_scope), action(requested_action)
+            {
+            }
+
+            CaptureScope scope{CaptureScope::Region};
+            CaptureAction action{CaptureAction::CopyAndPin};
         };
 
         [[nodiscard]] bool RegisterHotkeys() const noexcept;
         void UnregisterHotkeys() const noexcept;
         void UpdateWindowPresentation();
-        void BeginCaptureEntry(CaptureAction capture_action = CaptureAction::CopyAndPin);
+        void BeginCaptureEntry();
+        void BeginCaptureEntry(CaptureRequest capture_request);
         [[nodiscard]] bool CreateTrayIcon();
         void RemoveTrayIcon() noexcept;
         void ShowWindowAndActivate() noexcept;
         void HideToTray() noexcept;
         void ShowTrayMenu() noexcept;
         void PaintWindow() const noexcept;
+        void ExecutePendingCaptureRequest();
+        void ProcessCaptureResult(feature_capture::CaptureResult capture_result);
         void HandleOverlayResult(feature_capture::OverlayResult result);
         [[nodiscard]] bool HandleCommand(WPARAM w_param);
         [[nodiscard]] bool HandleHotkey(WPARAM w_param);
@@ -53,7 +75,7 @@ namespace capturezy::platform_win
         feature_capture::CaptureOverlay capture_overlay_;
         feature_pin::PinManager pin_manager_;
         NOTIFYICONDATAW tray_icon_{};
-        CaptureAction pending_capture_action_{CaptureAction::CopyAndPin};
+        CaptureRequest pending_capture_request_{};
         bool tray_icon_added_{false};
         bool hotkeys_registered_{false};
         bool allow_close_{false};
