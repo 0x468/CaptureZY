@@ -14,7 +14,7 @@ CaptureZY 是一个面向 Windows 的原生截图与贴图工具。
 仓库目前包含第一版工程骨架：
 
 - 基于 CMake 的构建配置
-- 最小可运行的 Win32 程序入口
+- 最小可运行的 Win32 应用壳层
 - 基础格式化与静态检查配置
 - 首轮产品、架构与路线规划文档
 
@@ -46,9 +46,12 @@ cmake --build --preset windows-clang-cl-debug
 ## 仓库结构
 
 ```text
-cmake/          CMake 辅助模块
-docs/           产品、架构、路线图与开发文档
-src/            源代码
+cmake/              CMake 辅助模块
+docs/               产品、架构、路线图与开发文档
+src/core/           平台无关的应用元信息与基础类型
+src/platform_win/   Win32 窗口与平台接入
+src/render_d2d/     Direct2D 渲染层占位
+src/app/            进程入口与应用组装
 ```
 
 开始实现功能前，建议先阅读 [docs/product.md](/home/gwf/Projects/captureZY/docs/product.md)、[docs/architecture.md](/home/gwf/Projects/captureZY/docs/architecture.md) 和 [docs/decisions.md](/home/gwf/Projects/captureZY/docs/decisions.md)。

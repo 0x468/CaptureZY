@@ -1,6 +1,7 @@
 .vs/
 .vscode/
 .idea/
+.zed/
 
 build/
 build-*/
@@ -9,6 +10,7 @@ out/
 CMakeUserPresets.json
 CMakeCache.txt
 compile_commands.json
+run-clang-tidy.py
 
 *.user
 *.VC.db
