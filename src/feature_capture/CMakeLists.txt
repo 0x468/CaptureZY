@@ -19,6 +19,8 @@ target_link_libraries(
   PUBLIC
     capturezy_core
   PRIVATE
+    ole32
     user32
     gdi32
+    windowscodecs
 )

@@ -18,6 +18,7 @@ target_link_libraries(
   PUBLIC
     capturezy_feature_capture
   PRIVATE
+    comdlg32
     user32
     gdi32
 )

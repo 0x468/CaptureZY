@@ -36,6 +36,7 @@ namespace capturezy::feature_pin
         bool UpdateScale(short wheel_delta, POINT anchor_screen_point) noexcept;
         void SetTopmost(bool topmost) noexcept;
         void CopyToClipboard() const noexcept;
+        void SaveToFile() const;
         void ShowContextMenu(POINT anchor_screen_point) noexcept;
         void PaintWindow() const noexcept;
         void PaintScaleOverlay(HWND overlay_window) const;

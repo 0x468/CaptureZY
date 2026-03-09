@@ -37,5 +37,7 @@ namespace capturezy::feature_capture
         [[nodiscard]] static CaptureResult CaptureRegion(RECT screen_rect) noexcept;
         [[nodiscard]] static bool CopyBitmapToClipboard(HWND owner_window,
                                                         CaptureResult const &capture_result) noexcept;
+        [[nodiscard]] static bool SaveBitmapToPng(CaptureResult const &capture_result,
+                                                  wchar_t const *file_path) noexcept;
     };
 } // namespace capturezy::feature_capture

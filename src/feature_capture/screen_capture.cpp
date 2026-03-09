@@ -2,6 +2,8 @@
 
 #include <chrono>
 #include <utility>
+#include <wincodec.h>
+#include <wrl/client.h>
 
 #include "feature_capture/capture_result.h"
 
@@ -9,6 +11,8 @@ namespace capturezy::feature_capture
 {
     namespace
     {
+        using Microsoft::WRL::ComPtr;
+
         [[nodiscard]] int RectWidth(RECT rect) noexcept
         {
             return rect.right - rect.left;
@@ -17,6 +21,85 @@ namespace capturezy::feature_capture
         [[nodiscard]] int RectHeight(RECT rect) noexcept
         {
             return rect.bottom - rect.top;
+        }
+
+        [[nodiscard]] bool WriteBitmapToPng(IWICImagingFactory *imaging_factory, HBITMAP bitmap, SIZE bitmap_size,
+                                            wchar_t const *file_path) noexcept
+        {
+            ComPtr<IWICBitmap> wic_bitmap;
+            HRESULT result = imaging_factory->CreateBitmapFromHBITMAP(bitmap, nullptr, WICBitmapUseAlpha,
+                                                                      wic_bitmap.GetAddressOf());
+            if (FAILED(result))
+            {
+                return false;
+            }
+
+            ComPtr<IWICStream> stream;
+            result = imaging_factory->CreateStream(stream.GetAddressOf());
+            if (FAILED(result))
+            {
+                return false;
+            }
+
+            result = stream->InitializeFromFilename(file_path, GENERIC_WRITE);
+            if (FAILED(result))
+            {
+                return false;
+            }
+
+            ComPtr<IWICBitmapEncoder> encoder;
+            result = imaging_factory->CreateEncoder(GUID_ContainerFormatPng, nullptr, encoder.GetAddressOf());
+            if (FAILED(result))
+            {
+                return false;
+            }
+
+            result = encoder->Initialize(stream.Get(), WICBitmapEncoderNoCache);
+            if (FAILED(result))
+            {
+                return false;
+            }
+
+            ComPtr<IWICBitmapFrameEncode> frame;
+            ComPtr<IPropertyBag2> property_bag;
+            result = encoder->CreateNewFrame(frame.GetAddressOf(), property_bag.GetAddressOf());
+            if (FAILED(result))
+            {
+                return false;
+            }
+
+            result = frame->Initialize(property_bag.Get());
+            if (FAILED(result))
+            {
+                return false;
+            }
+
+            result = frame->SetSize(static_cast<UINT>(bitmap_size.cx), static_cast<UINT>(bitmap_size.cy));
+            if (FAILED(result))
+            {
+                return false;
+            }
+
+            WICPixelFormatGUID pixel_format = GUID_WICPixelFormat32bppBGRA;
+            result = frame->SetPixelFormat(&pixel_format);
+            if (FAILED(result))
+            {
+                return false;
+            }
+
+            result = frame->WriteSource(wic_bitmap.Get(), nullptr);
+            if (FAILED(result))
+            {
+                return false;
+            }
+
+            result = frame->Commit();
+            if (FAILED(result))
+            {
+                return false;
+            }
+
+            return SUCCEEDED(encoder->Commit());
         }
     } // namespace
 
@@ -208,5 +291,24 @@ namespace capturezy::feature_capture
 
         CloseClipboard();
         return true;
+    }
+
+    bool ScreenCapture::SaveBitmapToPng(CaptureResult const &capture_result, wchar_t const *file_path) noexcept
+    {
+        if (!capture_result.IsValid() || file_path == nullptr || *file_path == L'\0')
+        {
+            return false;
+        }
+
+        ComPtr<IWICImagingFactory> imaging_factory;
+        HRESULT const factory_result = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
+                                                        IID_PPV_ARGS(imaging_factory.GetAddressOf()));
+        if (FAILED(factory_result) || imaging_factory == nullptr)
+        {
+            return false;
+        }
+
+        return WriteBitmapToPng(imaging_factory.Get(), capture_result.Bitmap().Get(), capture_result.PixelSize(),
+                                file_path);
     }
 } // namespace capturezy::feature_capture
