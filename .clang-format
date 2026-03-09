@@ -1,0 +1,24 @@
+BasedOnStyle: LLVM
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 120
+PointerAlignment: Right
+ReferenceAlignment: Right
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterClass: true
+  AfterControlStatement: Always
+  AfterEnum: true
+  AfterFunction: true
+  AfterNamespace: true
+  AfterStruct: true
+  AfterUnion: true
+  BeforeCatch: true
+  BeforeElse: true
+DerivePointerAlignment: false
+AllowShortFunctionsOnASingleLine: Empty
+SortIncludes: CaseSensitive
+NamespaceIndentation: All
+Cpp11BracedListStyle: true
+PenaltyBreakAssignment: 1000
