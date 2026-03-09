@@ -17,6 +17,7 @@ target_link_libraries(
   PUBLIC
     capturezy_core
   PRIVATE
+    shell32
     user32
     gdi32
 )

@@ -13,6 +13,7 @@ CaptureZY 采用 Win32 原生桌面应用路线，并明确区分业务逻辑、
 - `platform_win`
   - Win32、COM、Shell、剪贴板、热键、DPI 与显示器集成
   - 原生窗口生命周期辅助能力
+  - 托盘图标与驻留式应用行为
 - `render_d2d`
   - Direct2D 与 DirectWrite 渲染
   - 位图、画刷与文字资源管理

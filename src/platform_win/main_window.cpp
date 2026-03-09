@@ -1,5 +1,7 @@
 #include "platform_win/main_window.h"
 
+#include <strsafe.h>
+
 #include "core/app_metadata.h"
 
 namespace capturezy::platform_win
@@ -7,6 +9,10 @@ namespace capturezy::platform_win
     namespace
     {
         constexpr wchar_t const *kWindowBootstrapMessage = L"CaptureZY 启动骨架已就绪";
+        constexpr UINT kTrayIconId = 1;
+        constexpr UINT kTrayMessage = WM_APP + 1;
+        constexpr UINT_PTR kShowWindowCommandId = 1001;
+        constexpr UINT_PTR kExitApplicationCommandId = 1002;
 
         // Win32 约定上经常需要把对象指针塞进 GWLP_USERDATA，这里统一封装并局部抑制告警。
         void SetWindowUserData(HWND window, MainWindow *main_window)
@@ -42,6 +48,12 @@ namespace capturezy::platform_win
             return false;
         }
 
+        if (!CreateTrayIcon())
+        {
+            DestroyWindow(window_);
+            return false;
+        }
+
         ShowWindow(window_, show_command);
         UpdateWindow(window_);
         return true;
@@ -57,6 +69,76 @@ namespace capturezy::platform_win
         }
 
         return static_cast<int>(message.wParam);
+    }
+
+    bool MainWindow::CreateTrayIcon()
+    {
+        tray_icon_.cbSize = sizeof(tray_icon_);
+        tray_icon_.hWnd = window_;
+        tray_icon_.uID = kTrayIconId;
+        tray_icon_.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
+        tray_icon_.uCallbackMessage = kTrayMessage;
+        tray_icon_.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
+
+        HRESULT const copy_result = StringCchCopyW(tray_icon_.szTip, ARRAYSIZE(tray_icon_.szTip),
+                                                   core::AppMetadata::ProductName());
+        if (FAILED(copy_result))
+        {
+            return false;
+        }
+
+        tray_icon_added_ = Shell_NotifyIconW(NIM_ADD, &tray_icon_) == TRUE;
+        if (!tray_icon_added_)
+        {
+            return false;
+        }
+
+        tray_icon_.uVersion = NOTIFYICON_VERSION;
+        Shell_NotifyIconW(NIM_SETVERSION, &tray_icon_);
+        return true;
+    }
+
+    void MainWindow::RemoveTrayIcon() noexcept
+    {
+        if (!tray_icon_added_)
+        {
+            return;
+        }
+
+        Shell_NotifyIconW(NIM_DELETE, &tray_icon_);
+        tray_icon_added_ = false;
+    }
+
+    void MainWindow::ShowWindowAndActivate() noexcept
+    {
+        ShowWindow(window_, SW_SHOWNORMAL);
+        SetForegroundWindow(window_);
+    }
+
+    void MainWindow::HideToTray() noexcept
+    {
+        ShowWindow(window_, SW_HIDE);
+    }
+
+    void MainWindow::ShowTrayMenu() noexcept
+    {
+        HMENU menu = CreatePopupMenu();
+        if (menu == nullptr)
+        {
+            return;
+        }
+
+        AppendMenuW(menu, MF_STRING, kShowWindowCommandId, L"显示窗口");
+        AppendMenuW(menu, MF_STRING, kExitApplicationCommandId, L"退出");
+
+        POINT cursor_position{};
+        GetCursorPos(&cursor_position);
+        SetForegroundWindow(window_);
+        TrackPopupMenu(menu, TPM_BOTTOMALIGN | TPM_LEFTALIGN | TPM_RIGHTBUTTON, cursor_position.x, cursor_position.y, 0,
+                       window_, nullptr);
+        PostMessageW(window_, WM_NULL, 0, 0);
+
+        DestroyMenu(menu);
     }
 
     ATOM MainWindow::RegisterWindowClass() const
@@ -82,9 +164,36 @@ namespace capturezy::platform_win
     {
         switch (message)
         {
+        case WM_CLOSE:
+            if (!allow_close_)
+            {
+                HideToTray();
+                return 0;
+            }
+
+            return DefWindowProcW(window_, message, w_param, l_param);
+
         case WM_DESTROY:
+            RemoveTrayIcon();
             PostQuitMessage(0);
             return 0;
+
+        case WM_COMMAND:
+            switch (LOWORD(w_param))
+            {
+            case kShowWindowCommandId:
+                ShowWindowAndActivate();
+                return 0;
+
+            case kExitApplicationCommandId:
+                allow_close_ = true;
+                DestroyWindow(window_);
+                return 0;
+
+            default:
+                break;
+            }
+            break;
 
         case WM_PAINT: {
             PAINTSTRUCT paint{};
@@ -97,9 +206,29 @@ namespace capturezy::platform_win
             return 0;
         }
 
+        case kTrayMessage:
+            switch (static_cast<UINT>(l_param))
+            {
+            case WM_CONTEXTMENU:
+            case WM_RBUTTONUP:
+                ShowTrayMenu();
+                return 0;
+
+            case WM_LBUTTONUP:
+            case WM_LBUTTONDBLCLK:
+                ShowWindowAndActivate();
+                return 0;
+
+            default:
+                break;
+            }
+            break;
+
         default:
-            return DefWindowProcW(window_, message, w_param, l_param);
+            break;
         }
+
+        return DefWindowProcW(window_, message, w_param, l_param);
     }
 
     LRESULT CALLBACK MainWindow::WindowProc(HWND window, UINT message, WPARAM w_param, LPARAM l_param)

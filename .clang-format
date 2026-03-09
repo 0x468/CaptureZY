@@ -19,6 +19,16 @@ BraceWrapping:
 DerivePointerAlignment: false
 AllowShortFunctionsOnASingleLine: Empty
 SortIncludes: CaseSensitive
+IncludeBlocks: Regroup
+IncludeCategories:
+  - Regex: '^<windows\\.h>$'
+    Priority: 1
+  - Regex: '^<[^/].*\\.h>$'
+    Priority: 2
+  - Regex: '^<.*>$'
+    Priority: 3
+  - Regex: '^".*"$'
+    Priority: 4
 NamespaceIndentation: All
 Cpp11BracedListStyle: true
 PenaltyBreakAssignment: 1000
