@@ -1,6 +1,7 @@
 add_library(
   capturezy_feature_capture
   STATIC
+    capture_file_dialog.cpp
     capture_result.cpp
     capture_overlay.cpp
     screen_capture.cpp
@@ -19,6 +20,7 @@ target_link_libraries(
   PUBLIC
     capturezy_core
   PRIVATE
+    comdlg32
     ole32
     user32
     gdi32
