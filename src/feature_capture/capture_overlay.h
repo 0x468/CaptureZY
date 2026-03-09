@@ -24,6 +24,7 @@ namespace capturezy::feature_capture
         [[nodiscard]] bool Show(HWND owner_window);
         void Close() noexcept;
         [[nodiscard]] bool IsVisible() const noexcept;
+        [[nodiscard]] RECT LastSelectionRect() const noexcept;
 
         static constexpr UINT ResultMessage() noexcept
         {
@@ -32,6 +33,7 @@ namespace capturezy::feature_capture
 
       private:
         [[nodiscard]] RECT CurrentSelectionRect() const noexcept;
+        [[nodiscard]] RECT CurrentSelectionRectScreen() const noexcept;
         [[nodiscard]] ATOM RegisterWindowClass() const;
         [[nodiscard]] LRESULT HandleMessage(UINT message, WPARAM w_param, LPARAM l_param);
         void Finish(OverlayResult result) noexcept;
@@ -41,6 +43,9 @@ namespace capturezy::feature_capture
         HINSTANCE instance_;
         HWND owner_window_{};
         HWND overlay_window_{};
+        int origin_left_{0};
+        int origin_top_{0};
+        RECT last_selection_rect_{};
         POINT drag_start_{};
         POINT drag_current_{};
         bool drag_in_progress_{false};

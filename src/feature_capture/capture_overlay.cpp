@@ -29,6 +29,9 @@ namespace capturezy::feature_capture
     bool CaptureOverlay::Show(HWND owner_window)
     {
         owner_window_ = owner_window;
+        origin_left_ = 0;
+        origin_top_ = 0;
+        last_selection_rect_ = {};
         drag_start_ = {};
         drag_current_ = {};
         drag_in_progress_ = false;
@@ -50,6 +53,8 @@ namespace capturezy::feature_capture
         int const top = GetSystemMetrics(SM_YVIRTUALSCREEN);
         int const width = GetSystemMetrics(SM_CXVIRTUALSCREEN);
         int const height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+        origin_left_ = left;
+        origin_top_ = top;
 
         overlay_window_ = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED, kOverlayWindowClassName,
                                           L"CaptureZY Overlay", WS_POPUP, left, top, width, height, owner_window_,
@@ -83,6 +88,11 @@ namespace capturezy::feature_capture
         return overlay_window_ != nullptr && IsWindowVisible(overlay_window_) != FALSE;
     }
 
+    RECT CaptureOverlay::LastSelectionRect() const noexcept
+    {
+        return last_selection_rect_;
+    }
+
     RECT CaptureOverlay::CurrentSelectionRect() const noexcept
     {
         RECT selection{};
@@ -90,6 +100,13 @@ namespace capturezy::feature_capture
         selection.top = std::min(drag_start_.y, drag_current_.y);
         selection.right = std::max(drag_start_.x, drag_current_.x);
         selection.bottom = std::max(drag_start_.y, drag_current_.y);
+        return selection;
+    }
+
+    RECT CaptureOverlay::CurrentSelectionRectScreen() const noexcept
+    {
+        RECT selection = CurrentSelectionRect();
+        OffsetRect(&selection, origin_left_, origin_top_);
         return selection;
     }
 
@@ -153,7 +170,16 @@ namespace capturezy::feature_capture
                 drag_current_.y = GET_Y_LPARAM(l_param);
                 drag_in_progress_ = false;
                 ReleaseCapture();
-                Finish(OverlayResult::PlaceholderCaptured);
+                last_selection_rect_ = CurrentSelectionRectScreen();
+                if ((last_selection_rect_.right - last_selection_rect_.left) > 0 &&
+                    (last_selection_rect_.bottom - last_selection_rect_.top) > 0)
+                {
+                    Finish(OverlayResult::PlaceholderCaptured);
+                }
+                else
+                {
+                    Finish(OverlayResult::Cancelled);
+                }
             }
             return 0;
 

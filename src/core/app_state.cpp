@@ -7,6 +7,11 @@ namespace capturezy::core
         mode_ = AppMode::CapturePending;
     }
 
+    void AppState::CompleteCapture() noexcept
+    {
+        mode_ = AppMode::CaptureCompleted;
+    }
+
     void AppState::ReturnToIdle() noexcept
     {
         mode_ = AppMode::Idle;
@@ -21,6 +26,9 @@ namespace capturezy::core
     {
         switch (mode_)
         {
+        case AppMode::CaptureCompleted:
+            return L" - 已复制截图";
+
         case AppMode::CapturePending:
             return L" - 准备截图";
 
@@ -34,8 +42,11 @@ namespace capturezy::core
     {
         switch (mode_)
         {
+        case AppMode::CaptureCompleted:
+            return L"选区截图已复制到剪贴板";
+
         case AppMode::CapturePending:
-            return L"截图入口已触发，下一步接入覆盖层与选区逻辑";
+            return L"拖拽选择区域，松开左键完成，Esc 取消";
 
         case AppMode::Idle:
         default:

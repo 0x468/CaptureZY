@@ -2,6 +2,7 @@ add_library(
   capturezy_feature_capture
   STATIC
     capture_overlay.cpp
+    screen_capture.cpp
 )
 
 capturezy_apply_defaults(capturezy_feature_capture)

@@ -3,6 +3,7 @@
 #include <string>
 
 #include "core/app_metadata.h"
+#include "feature_capture/screen_capture.h"
 
 namespace capturezy::platform_win
 {
@@ -254,7 +255,16 @@ namespace capturezy::platform_win
         }
 
         case feature_capture::CaptureOverlay::ResultMessage():
-            app_state_->ReturnToIdle();
+            if (static_cast<feature_capture::OverlayResult>(w_param) ==
+                    feature_capture::OverlayResult::PlaceholderCaptured &&
+                feature_capture::ScreenCapture::CopyRegionToClipboard(window_, capture_overlay_.LastSelectionRect()))
+            {
+                app_state_->CompleteCapture();
+            }
+            else
+            {
+                app_state_->ReturnToIdle();
+            }
             ShowWindowAndActivate();
             UpdateWindowPresentation();
             return 0;
