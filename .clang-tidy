@@ -6,9 +6,12 @@ Checks: >
   performance-*,
   readability-*,
   -cppcoreguidelines-avoid-magic-numbers,
+  -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
   -cppcoreguidelines-owning-memory,
+  -modernize-avoid-c-arrays,
   -modernize-use-trailing-return-type,
-  -readability-identifier-length
+  -readability-identifier-length,
+  -readability-magic-numbers
 WarningsAsErrors: ''
 HeaderFilterRegex: 'src/.*'
 FormatStyle: none
