@@ -93,6 +93,7 @@ namespace capturezy::platform_win
             return false;
         }
 
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-union-access)
         tray_icon_.uVersion = NOTIFYICON_VERSION;
         Shell_NotifyIconW(NIM_SETVERSION, &tray_icon_);
         return true;

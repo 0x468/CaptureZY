@@ -18,12 +18,13 @@ if ($Jobs -le 0) {
 }
 
 $runClangTidyScript = $null
-$pythonScript = $false
+$invokeWithPython = $false
 foreach ($candidate in @("run-clang-tidy.py", "run-clang-tidy")) {
     $commandInfo = Get-Command $candidate -ErrorAction SilentlyContinue
     if ($commandInfo) {
         $runClangTidyScript = $commandInfo.Source
-        $pythonScript = $runClangTidyScript.EndsWith(".py")
+        $extension = [System.IO.Path]::GetExtension($runClangTidyScript)
+        $invokeWithPython = [string]::IsNullOrEmpty($extension) -or $extension -eq ".py"
         break
     }
 }
@@ -32,7 +33,7 @@ if (-not $runClangTidyScript) {
     $repoLocalScript = Join-Path $PSScriptRoot "..\run-clang-tidy.py"
     if (Test-Path $repoLocalScript) {
         $runClangTidyScript = $repoLocalScript
-        $pythonScript = $true
+        $invokeWithPython = $true
     } else {
         Write-Error "未找到 run-clang-tidy.py 或 run-clang-tidy。请安装 LLVM 附带脚本，或将 run-clang-tidy.py 放到仓库根目录。"
         exit 1
@@ -40,7 +41,7 @@ if (-not $runClangTidyScript) {
 }
 
 $command = @()
-if ($pythonScript) {
+if ($invokeWithPython) {
     $command += @("python", $runClangTidyScript)
 } else {
     $command += $runClangTidyScript

@@ -1,7 +1,10 @@
 #pragma once
 
-#include <shellapi.h>
+// clang-format off
 #include <windows.h>
+// clang-format on
+
+#include <shellapi.h>
 
 namespace capturezy::platform_win
 {
