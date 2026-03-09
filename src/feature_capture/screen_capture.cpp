@@ -79,7 +79,55 @@ namespace capturezy::feature_capture
             return {};
         }
 
-        return {static_cast<HBITMAP>(CopyImage(bitmap_, IMAGE_BITMAP, 0, 0, LR_CREATEDIBSECTION)), size_};
+        HDC screen_device_context = GetDC(nullptr);
+        if (screen_device_context == nullptr)
+        {
+            return {};
+        }
+
+        HDC source_device_context = CreateCompatibleDC(screen_device_context);
+        HDC destination_device_context = CreateCompatibleDC(screen_device_context);
+        if (source_device_context == nullptr || destination_device_context == nullptr)
+        {
+            if (destination_device_context != nullptr)
+            {
+                DeleteDC(destination_device_context);
+            }
+            if (source_device_context != nullptr)
+            {
+                DeleteDC(source_device_context);
+            }
+            ReleaseDC(nullptr, screen_device_context);
+            return {};
+        }
+
+        HBITMAP cloned_bitmap = CreateCompatibleBitmap(screen_device_context, size_.cx, size_.cy);
+        if (cloned_bitmap == nullptr)
+        {
+            DeleteDC(destination_device_context);
+            DeleteDC(source_device_context);
+            ReleaseDC(nullptr, screen_device_context);
+            return {};
+        }
+
+        HGDIOBJ previous_source_bitmap = SelectObject(source_device_context, bitmap_);
+        HGDIOBJ previous_destination_bitmap = SelectObject(destination_device_context, cloned_bitmap);
+        bool const copied = BitBlt(destination_device_context, 0, 0, size_.cx, size_.cy, source_device_context, 0, 0,
+                                   SRCCOPY) != FALSE;
+
+        SelectObject(destination_device_context, previous_destination_bitmap);
+        SelectObject(source_device_context, previous_source_bitmap);
+        DeleteDC(destination_device_context);
+        DeleteDC(source_device_context);
+        ReleaseDC(nullptr, screen_device_context);
+
+        if (!copied)
+        {
+            DeleteObject(cloned_bitmap);
+            return {};
+        }
+
+        return {cloned_bitmap, size_};
     }
 
     CaptureResult ScreenCapture::CaptureRegion(RECT screen_rect) noexcept

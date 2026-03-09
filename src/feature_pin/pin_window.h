@@ -34,6 +34,9 @@ namespace capturezy::feature_pin
         [[nodiscard]] ATOM RegisterWindowClass() const;
         [[nodiscard]] ATOM RegisterScaleOverlayClass() const;
         bool UpdateScale(short wheel_delta, POINT anchor_screen_point) noexcept;
+        void SetTopmost(bool topmost) noexcept;
+        void CopyToClipboard() const noexcept;
+        void ShowContextMenu(POINT anchor_screen_point) noexcept;
         void PaintWindow() const noexcept;
         void PaintScaleOverlay(HWND overlay_window) const;
         void ShowScaleOverlay() noexcept;
@@ -49,5 +52,6 @@ namespace capturezy::feature_pin
         HWND scale_overlay_window_{};
         feature_capture::CaptureResult capture_result_{};
         std::int32_t scale_percent_{100};
+        bool topmost_{true};
     };
 } // namespace capturezy::feature_pin

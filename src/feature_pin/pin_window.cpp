@@ -5,6 +5,8 @@
 #include <utility>
 #include <windowsx.h>
 
+#include "feature_capture/screen_capture.h"
+
 namespace capturezy::feature_pin
 {
     namespace
@@ -25,6 +27,9 @@ namespace capturezy::feature_pin
         constexpr int kScaleOverlayMargin = 12;
         constexpr COLORREF kScaleOverlayBackgroundColor = RGB(32, 32, 32);
         constexpr COLORREF kScaleOverlayTextColor = RGB(255, 255, 255);
+        constexpr UINT_PTR kToggleTopmostCommandId = 2001;
+        constexpr UINT_PTR kCopyPinCommandId = 2002;
+        constexpr UINT_PTR kClosePinCommandId = 2003;
 
         void SetWindowUserData(HWND window, PinWindow *pin_window)
         {
@@ -69,6 +74,7 @@ namespace capturezy::feature_pin
         Close();
         capture_result_ = std::move(capture_result);
         scale_percent_ = kDefaultScalePercent;
+        topmost_ = true;
 
         RECT const window_rect = CalculateWindowRect(capture_result_.ScreenRect(), CurrentClientSize());
         window_ = CreateWindowExW(kPinWindowExStyle, kPinWindowClassName, kPinWindowTitle, kPinWindowStyle,
@@ -128,6 +134,59 @@ namespace capturezy::feature_pin
     bool PinWindow::IsVisible() const noexcept
     {
         return window_ != nullptr && IsWindowVisible(window_) != FALSE;
+    }
+
+    void PinWindow::SetTopmost(bool topmost) noexcept
+    {
+        if (window_ == nullptr || topmost_ == topmost)
+        {
+            return;
+        }
+
+        topmost_ = topmost;
+        SetWindowPos(window_, topmost_ ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+
+        if (scale_overlay_window_ != nullptr)
+        {
+            SetWindowPos(scale_overlay_window_, topmost_ ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        }
+    }
+
+    void PinWindow::CopyToClipboard() const noexcept
+    {
+        if (window_ == nullptr || !capture_result_.IsValid())
+        {
+            return;
+        }
+
+        (void)feature_capture::ScreenCapture::CopyBitmapToClipboard(window_, capture_result_);
+    }
+
+    void PinWindow::ShowContextMenu(POINT anchor_screen_point) noexcept
+    {
+        if (window_ == nullptr)
+        {
+            return;
+        }
+
+        HMENU menu = CreatePopupMenu();
+        if (menu == nullptr)
+        {
+            return;
+        }
+
+        AppendMenuW(menu, MF_STRING, kToggleTopmostCommandId, topmost_ ? L"取消置顶" : L"置顶显示");
+        AppendMenuW(menu, MF_STRING, kCopyPinCommandId, L"复制截图");
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(menu, MF_STRING, kClosePinCommandId, L"关闭贴图");
+
+        SetForegroundWindow(window_);
+        TrackPopupMenu(menu, TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RIGHTBUTTON, anchor_screen_point.x,
+                       anchor_screen_point.y, 0, window_, nullptr);
+        PostMessageW(window_, WM_NULL, 0, 0);
+        DestroyMenu(menu);
     }
 
     SIZE PinWindow::CurrentClientSize() const noexcept
@@ -360,8 +419,8 @@ namespace capturezy::feature_pin
         int const overlay_left = std::clamp(desired_left, min_left, std::max(min_left, max_left));
         int const overlay_top = std::clamp(desired_top, min_top, std::max(min_top, max_top));
 
-        SetWindowPos(scale_overlay_window_, HWND_TOPMOST, overlay_left, overlay_top, kScaleOverlayWidth,
-                     kScaleOverlayHeight, SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_SHOWWINDOW);
+        SetWindowPos(scale_overlay_window_, topmost_ ? HWND_TOPMOST : HWND_NOTOPMOST, overlay_left, overlay_top,
+                     kScaleOverlayWidth, kScaleOverlayHeight, SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_SHOWWINDOW);
     }
 
     LRESULT PinWindow::HandleMessage(UINT message, WPARAM w_param, LPARAM l_param)
@@ -371,16 +430,47 @@ namespace capturezy::feature_pin
         case WM_ERASEBKGND:
             return 1;
 
+        case WM_COMMAND:
+            switch (LOWORD(w_param))
+            {
+            case kToggleTopmostCommandId:
+                SetTopmost(!topmost_);
+                return 0;
+
+            case kCopyPinCommandId:
+                CopyToClipboard();
+                return 0;
+
+            case kClosePinCommandId:
+                DestroyWindow(window_);
+                return 0;
+
+            default:
+                break;
+            }
+            break;
+
         case WM_NCHITTEST:
             return HTCAPTION;
 
-        case WM_NCRBUTTONUP:
         case WM_NCLBUTTONDBLCLK:
-        case WM_RBUTTONUP:
         case WM_LBUTTONDBLCLK:
         case WM_CLOSE:
             DestroyWindow(window_);
             return 0;
+
+        case WM_NCRBUTTONUP: {
+            POINT const anchor_screen_point{.x = GET_X_LPARAM(l_param), .y = GET_Y_LPARAM(l_param)};
+            ShowContextMenu(anchor_screen_point);
+            return 0;
+        }
+
+        case WM_RBUTTONUP: {
+            POINT anchor_screen_point{.x = GET_X_LPARAM(l_param), .y = GET_Y_LPARAM(l_param)};
+            ClientToScreen(window_, &anchor_screen_point);
+            ShowContextMenu(anchor_screen_point);
+            return 0;
+        }
 
         case WM_MOUSEWHEEL: {
             POINT const anchor_screen_point{.x = GET_X_LPARAM(l_param), .y = GET_Y_LPARAM(l_param)};
