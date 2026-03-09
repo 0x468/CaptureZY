@@ -7,6 +7,7 @@
 #include <shellapi.h>
 
 #include "core/app_state.h"
+#include "feature_capture/capture_overlay.h"
 
 namespace capturezy::platform_win
 {
@@ -36,6 +37,7 @@ namespace capturezy::platform_win
         HINSTANCE instance_;
         core::AppState *app_state_;
         HWND window_{};
+        feature_capture::CaptureOverlay capture_overlay_;
         NOTIFYICONDATAW tray_icon_{};
         bool tray_icon_added_{false};
         bool hotkeys_registered_{false};

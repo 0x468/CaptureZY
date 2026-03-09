@@ -16,6 +16,7 @@ target_link_libraries(
   capturezy_platform_win
   PUBLIC
     capturezy_core
+    capturezy_feature_capture
   PRIVATE
     shell32
     user32

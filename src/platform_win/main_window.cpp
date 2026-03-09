@@ -32,7 +32,7 @@ namespace capturezy::platform_win
     } // namespace
 
     MainWindow::MainWindow(HINSTANCE instance, core::AppState &app_state) noexcept
-        : instance_(instance), app_state_(&app_state)
+        : instance_(instance), app_state_(&app_state), capture_overlay_(instance)
     {
     }
 
@@ -105,7 +105,14 @@ namespace capturezy::platform_win
     {
         app_state_->BeginCapture();
         UpdateWindowPresentation();
-        ShowWindowAndActivate();
+        HideToTray();
+
+        if (!capture_overlay_.Show(window_))
+        {
+            app_state_->ReturnToIdle();
+            ShowWindowAndActivate();
+            UpdateWindowPresentation();
+        }
     }
 
     bool MainWindow::CreateTrayIcon()
@@ -245,6 +252,12 @@ namespace capturezy::platform_win
             EndPaint(window_, &paint);
             return 0;
         }
+
+        case feature_capture::CaptureOverlay::ResultMessage():
+            app_state_->ReturnToIdle();
+            ShowWindowAndActivate();
+            UpdateWindowPresentation();
+            return 0;
 
         case WM_HOTKEY:
             if (static_cast<int>(w_param) == kCaptureHotkeyId)
