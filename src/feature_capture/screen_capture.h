@@ -6,9 +6,33 @@
 
 namespace capturezy::feature_capture
 {
+    class CapturedBitmap final
+    {
+      public:
+        CapturedBitmap() noexcept = default;
+        CapturedBitmap(HBITMAP bitmap, SIZE size) noexcept;
+        ~CapturedBitmap() noexcept;
+
+        CapturedBitmap(CapturedBitmap const &) = delete;
+        CapturedBitmap &operator=(CapturedBitmap const &) = delete;
+        CapturedBitmap(CapturedBitmap &&other) noexcept;
+        CapturedBitmap &operator=(CapturedBitmap &&other) noexcept;
+
+        [[nodiscard]] bool IsValid() const noexcept;
+        [[nodiscard]] HBITMAP Get() const noexcept;
+        [[nodiscard]] HBITMAP Release() noexcept;
+        [[nodiscard]] SIZE Size() const noexcept;
+        [[nodiscard]] CapturedBitmap Clone() const noexcept;
+
+      private:
+        HBITMAP bitmap_{};
+        SIZE size_{};
+    };
+
     class ScreenCapture final
     {
       public:
-        [[nodiscard]] static bool CopyRegionToClipboard(HWND owner_window, RECT screen_rect) noexcept;
+        [[nodiscard]] static CapturedBitmap CaptureRegion(RECT screen_rect) noexcept;
+        [[nodiscard]] static bool CopyBitmapToClipboard(HWND owner_window, CapturedBitmap bitmap) noexcept;
     };
 } // namespace capturezy::feature_capture

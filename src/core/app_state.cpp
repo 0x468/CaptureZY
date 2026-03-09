@@ -12,6 +12,11 @@ namespace capturezy::core
         mode_ = AppMode::CaptureCompleted;
     }
 
+    void AppState::CompleteCaptureAndPin() noexcept
+    {
+        mode_ = AppMode::CapturePinned;
+    }
+
     void AppState::ReturnToIdle() noexcept
     {
         mode_ = AppMode::Idle;
@@ -26,6 +31,9 @@ namespace capturezy::core
     {
         switch (mode_)
         {
+        case AppMode::CapturePinned:
+            return L" - 已复制并贴图";
+
         case AppMode::CaptureCompleted:
             return L" - 已复制截图";
 
@@ -42,6 +50,9 @@ namespace capturezy::core
     {
         switch (mode_)
         {
+        case AppMode::CapturePinned:
+            return L"选区截图已复制到剪贴板，并打开贴图窗口";
+
         case AppMode::CaptureCompleted:
             return L"选区截图已复制到剪贴板";
 

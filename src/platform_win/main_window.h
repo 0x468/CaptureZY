@@ -4,10 +4,13 @@
 #include <windows.h>
 // clang-format on
 
+#include <memory>
 #include <shellapi.h>
+#include <vector>
 
 #include "core/app_state.h"
 #include "feature_capture/capture_overlay.h"
+#include "feature_pin/pin_window.h"
 
 namespace capturezy::platform_win
 {
@@ -29,6 +32,13 @@ namespace capturezy::platform_win
         void ShowWindowAndActivate() noexcept;
         void HideToTray() noexcept;
         void ShowTrayMenu() noexcept;
+        void PaintWindow() const noexcept;
+        void HandleOverlayResult(feature_capture::OverlayResult result);
+        [[nodiscard]] bool HandleCommand(WPARAM w_param);
+        [[nodiscard]] bool HandleHotkey(WPARAM w_param);
+        [[nodiscard]] bool HandleTrayMessage(LPARAM l_param);
+        [[nodiscard]] bool CreatePinWindow(RECT selection_rect, feature_capture::CapturedBitmap bitmap);
+        void PruneClosedPinWindows() noexcept;
         [[nodiscard]] ATOM RegisterWindowClass() const;
         [[nodiscard]] LRESULT HandleMessage(UINT message, WPARAM w_param, LPARAM l_param);
 
@@ -38,6 +48,7 @@ namespace capturezy::platform_win
         core::AppState *app_state_;
         HWND window_{};
         feature_capture::CaptureOverlay capture_overlay_;
+        std::vector<std::unique_ptr<feature_pin::PinWindow>> pin_windows_{};
         NOTIFYICONDATAW tray_icon_{};
         bool tray_icon_added_{false};
         bool hotkeys_registered_{false};

@@ -17,6 +17,7 @@ target_link_libraries(
   PUBLIC
     capturezy_core
     capturezy_feature_capture
+    capturezy_feature_pin
   PRIVATE
     shell32
     user32

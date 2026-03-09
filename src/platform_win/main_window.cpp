@@ -1,6 +1,8 @@
 #include "platform_win/main_window.h"
 
+#include <algorithm>
 #include <string>
+#include <utility>
 
 #include "core/app_metadata.h"
 #include "feature_capture/screen_capture.h"
@@ -184,6 +186,136 @@ namespace capturezy::platform_win
         DestroyMenu(menu);
     }
 
+    void MainWindow::PaintWindow() const noexcept
+    {
+        PAINTSTRUCT paint{};
+        HDC device_context = BeginPaint(window_, &paint);
+        RECT client_rect{};
+        GetClientRect(window_, &client_rect);
+        DrawTextW(device_context, app_state_->StatusText(), -1, &client_rect, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+        EndPaint(window_, &paint);
+    }
+
+    void MainWindow::HandleOverlayResult(feature_capture::OverlayResult result)
+    {
+        bool capture_completed = false;
+        bool pin_created = false;
+        RECT const selection_rect = capture_overlay_.LastSelectionRect();
+
+        if (result == feature_capture::OverlayResult::PlaceholderCaptured)
+        {
+            auto captured_bitmap = feature_capture::ScreenCapture::CaptureRegion(selection_rect);
+            if (captured_bitmap.IsValid())
+            {
+                auto pin_bitmap = captured_bitmap.Clone();
+                if (feature_capture::ScreenCapture::CopyBitmapToClipboard(window_, std::move(captured_bitmap)))
+                {
+                    capture_completed = true;
+                    if (pin_bitmap.IsValid())
+                    {
+                        pin_created = CreatePinWindow(selection_rect, std::move(pin_bitmap));
+                    }
+                }
+            }
+        }
+
+        if (capture_completed)
+        {
+            if (pin_created)
+            {
+                app_state_->CompleteCaptureAndPin();
+            }
+            else
+            {
+                app_state_->CompleteCapture();
+            }
+        }
+        else
+        {
+            app_state_->ReturnToIdle();
+        }
+
+        ShowWindowAndActivate();
+        UpdateWindowPresentation();
+    }
+
+    bool MainWindow::HandleCommand(WPARAM w_param)
+    {
+        switch (LOWORD(w_param))
+        {
+        case kShowWindowCommandId:
+            ShowWindowAndActivate();
+            return true;
+
+        case kBeginCaptureCommandId:
+            BeginCaptureEntry();
+            return true;
+
+        case kExitApplicationCommandId:
+            allow_close_ = true;
+            DestroyWindow(window_);
+            return true;
+
+        default:
+            return false;
+        }
+    }
+
+    bool MainWindow::HandleHotkey(WPARAM w_param)
+    {
+        if (static_cast<int>(w_param) != kCaptureHotkeyId)
+        {
+            return false;
+        }
+
+        BeginCaptureEntry();
+        return true;
+    }
+
+    bool MainWindow::HandleTrayMessage(LPARAM l_param)
+    {
+        switch (static_cast<UINT>(l_param))
+        {
+        case WM_CONTEXTMENU:
+        case WM_RBUTTONUP:
+            ShowTrayMenu();
+            return true;
+
+        case WM_LBUTTONUP:
+        case WM_LBUTTONDBLCLK:
+            ShowWindowAndActivate();
+            return true;
+
+        default:
+            return false;
+        }
+    }
+
+    bool MainWindow::CreatePinWindow(RECT selection_rect, feature_capture::CapturedBitmap bitmap)
+    {
+        if (!bitmap.IsValid())
+        {
+            return false;
+        }
+
+        PruneClosedPinWindows();
+
+        auto pin_window = std::make_unique<feature_pin::PinWindow>(instance_);
+        if (!pin_window->Create(selection_rect, std::move(bitmap)))
+        {
+            return false;
+        }
+
+        pin_windows_.push_back(std::move(pin_window));
+        return true;
+    }
+
+    void MainWindow::PruneClosedPinWindows() noexcept
+    {
+        std::erase_if(pin_windows_,
+                      [](std::unique_ptr<feature_pin::PinWindow> const &pin_window) { return !pin_window->IsOpen(); });
+    }
+
     ATOM MainWindow::RegisterWindowClass() const
     {
         WNDCLASSEXW window_class{};
@@ -217,81 +349,38 @@ namespace capturezy::platform_win
             return DefWindowProcW(window_, message, w_param, l_param);
 
         case WM_DESTROY:
+            pin_windows_.clear();
             UnregisterHotkeys();
             RemoveTrayIcon();
             PostQuitMessage(0);
             return 0;
 
         case WM_COMMAND:
-            switch (LOWORD(w_param))
+            if (HandleCommand(w_param))
             {
-            case kShowWindowCommandId:
-                ShowWindowAndActivate();
                 return 0;
-
-            case kBeginCaptureCommandId:
-                BeginCaptureEntry();
-                return 0;
-
-            case kExitApplicationCommandId:
-                allow_close_ = true;
-                DestroyWindow(window_);
-                return 0;
-
-            default:
-                break;
             }
             break;
 
-        case WM_PAINT: {
-            PAINTSTRUCT paint{};
-            HDC device_context = BeginPaint(window_, &paint);
-            RECT client_rect{};
-            GetClientRect(window_, &client_rect);
-            DrawTextW(device_context, app_state_->StatusText(), -1, &client_rect,
-                      DT_CENTER | DT_SINGLELINE | DT_VCENTER);
-            EndPaint(window_, &paint);
+        case WM_PAINT:
+            PaintWindow();
             return 0;
-        }
 
         case feature_capture::CaptureOverlay::ResultMessage():
-            if (static_cast<feature_capture::OverlayResult>(w_param) ==
-                    feature_capture::OverlayResult::PlaceholderCaptured &&
-                feature_capture::ScreenCapture::CopyRegionToClipboard(window_, capture_overlay_.LastSelectionRect()))
-            {
-                app_state_->CompleteCapture();
-            }
-            else
-            {
-                app_state_->ReturnToIdle();
-            }
-            ShowWindowAndActivate();
-            UpdateWindowPresentation();
+            HandleOverlayResult(static_cast<feature_capture::OverlayResult>(w_param));
             return 0;
 
         case WM_HOTKEY:
-            if (static_cast<int>(w_param) == kCaptureHotkeyId)
+            if (HandleHotkey(w_param))
             {
-                BeginCaptureEntry();
                 return 0;
             }
             break;
 
         case kTrayMessage:
-            switch (static_cast<UINT>(l_param))
+            if (HandleTrayMessage(l_param))
             {
-            case WM_CONTEXTMENU:
-            case WM_RBUTTONUP:
-                ShowTrayMenu();
                 return 0;
-
-            case WM_LBUTTONUP:
-            case WM_LBUTTONDBLCLK:
-                ShowWindowAndActivate();
-                return 0;
-
-            default:
-                break;
             }
             break;
 

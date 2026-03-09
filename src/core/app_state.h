@@ -9,6 +9,7 @@ namespace capturezy::core
         Idle,
         CapturePending,
         CaptureCompleted,
+        CapturePinned,
     };
 
     class AppState final
@@ -16,6 +17,7 @@ namespace capturezy::core
       public:
         void BeginCapture() noexcept;
         void CompleteCapture() noexcept;
+        void CompleteCaptureAndPin() noexcept;
         void ReturnToIdle() noexcept;
 
         [[nodiscard]] AppMode Mode() const noexcept;
