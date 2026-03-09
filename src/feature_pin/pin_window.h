@@ -24,6 +24,9 @@ namespace capturezy::feature_pin
         [[nodiscard]] bool Create(feature_capture::CaptureResult capture_result);
         void Close() noexcept;
         [[nodiscard]] bool IsOpen() const noexcept;
+        void Show() noexcept;
+        void Hide() noexcept;
+        [[nodiscard]] bool IsVisible() const noexcept;
 
       private:
         [[nodiscard]] static RECT CalculateWindowRect(RECT anchor_rect, SIZE bitmap_size) noexcept;

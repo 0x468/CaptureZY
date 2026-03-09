@@ -100,6 +100,36 @@ namespace capturezy::feature_pin
         return window_ != nullptr;
     }
 
+    void PinWindow::Show() noexcept
+    {
+        if (window_ == nullptr)
+        {
+            return;
+        }
+
+        ShowWindow(window_, SW_SHOWNOACTIVATE);
+        if (scale_overlay_window_ != nullptr && IsWindowVisible(scale_overlay_window_) != FALSE)
+        {
+            UpdateScaleOverlayPosition();
+        }
+    }
+
+    void PinWindow::Hide() noexcept
+    {
+        if (window_ == nullptr)
+        {
+            return;
+        }
+
+        HideScaleOverlay();
+        ShowWindow(window_, SW_HIDE);
+    }
+
+    bool PinWindow::IsVisible() const noexcept
+    {
+        return window_ != nullptr && IsWindowVisible(window_) != FALSE;
+    }
+
     SIZE PinWindow::CurrentClientSize() const noexcept
     {
         SIZE const bitmap_size = capture_result_.PixelSize();

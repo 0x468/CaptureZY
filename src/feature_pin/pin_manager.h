@@ -15,9 +15,13 @@ namespace capturezy::feature_pin
         explicit PinManager(HINSTANCE instance) noexcept;
 
         [[nodiscard]] bool CreatePin(feature_capture::CaptureResult capture_result);
+        void ShowAll() noexcept;
+        void HideAll() noexcept;
         void CloseAll() noexcept;
         void PruneClosedPins() noexcept;
         [[nodiscard]] std::size_t OpenPinCount() noexcept;
+        [[nodiscard]] std::size_t VisiblePinCount() noexcept;
+        [[nodiscard]] std::size_t HiddenPinCount() noexcept;
 
       private:
         HINSTANCE instance_;

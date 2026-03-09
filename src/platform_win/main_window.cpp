@@ -15,8 +15,10 @@ namespace capturezy::platform_win
         constexpr UINT kTrayMessage = WM_APP + 1;
         constexpr UINT_PTR kShowWindowCommandId = 1001;
         constexpr UINT_PTR kBeginCaptureCommandId = 1002;
-        constexpr UINT_PTR kCloseAllPinsCommandId = 1003;
-        constexpr UINT_PTR kExitApplicationCommandId = 1004;
+        constexpr UINT_PTR kShowAllPinsCommandId = 1003;
+        constexpr UINT_PTR kHideAllPinsCommandId = 1004;
+        constexpr UINT_PTR kCloseAllPinsCommandId = 1005;
+        constexpr UINT_PTR kExitApplicationCommandId = 1006;
         constexpr int kCaptureHotkeyId = 1;
         constexpr UINT kCaptureHotkeyModifiers = MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT;
         constexpr UINT kCaptureHotkeyVirtualKey = 0x41;
@@ -173,14 +175,32 @@ namespace capturezy::platform_win
             return;
         }
 
+        std::size_t const open_pin_count = pin_manager_.OpenPinCount();
+        std::size_t const visible_pin_count = pin_manager_.VisiblePinCount();
+        std::size_t const hidden_pin_count = pin_manager_.HiddenPinCount();
+
+        UINT show_all_pins_flags = MF_STRING;
+        if (hidden_pin_count == 0)
+        {
+            show_all_pins_flags |= MF_GRAYED;
+        }
+
+        UINT hide_all_pins_flags = MF_STRING;
+        if (visible_pin_count == 0)
+        {
+            hide_all_pins_flags |= MF_GRAYED;
+        }
+
         UINT close_all_pins_flags = MF_STRING;
-        if (pin_manager_.OpenPinCount() == 0)
+        if (open_pin_count == 0)
         {
             close_all_pins_flags |= MF_GRAYED;
         }
 
         AppendMenuW(menu, MF_STRING, kShowWindowCommandId, L"显示窗口");
         AppendMenuW(menu, MF_STRING, kBeginCaptureCommandId, L"开始截图");
+        AppendMenuW(menu, show_all_pins_flags, kShowAllPinsCommandId, L"显示全部贴图");
+        AppendMenuW(menu, hide_all_pins_flags, kHideAllPinsCommandId, L"隐藏全部贴图");
         AppendMenuW(menu, close_all_pins_flags, kCloseAllPinsCommandId, L"关闭全部贴图");
         AppendMenuW(menu, MF_STRING, kExitApplicationCommandId, L"退出");
 
@@ -252,6 +272,14 @@ namespace capturezy::platform_win
 
         case kBeginCaptureCommandId:
             BeginCaptureEntry();
+            return true;
+
+        case kShowAllPinsCommandId:
+            pin_manager_.ShowAll();
+            return true;
+
+        case kHideAllPinsCommandId:
+            pin_manager_.HideAll();
             return true;
 
         case kCloseAllPinsCommandId:

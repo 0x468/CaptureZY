@@ -26,6 +26,28 @@ namespace capturezy::feature_pin
         return true;
     }
 
+    void PinManager::ShowAll() noexcept
+    {
+        for (auto &pin_window : pin_windows_)
+        {
+            if (pin_window != nullptr)
+            {
+                pin_window->Show();
+            }
+        }
+    }
+
+    void PinManager::HideAll() noexcept
+    {
+        for (auto &pin_window : pin_windows_)
+        {
+            if (pin_window != nullptr)
+            {
+                pin_window->Hide();
+            }
+        }
+    }
+
     void PinManager::CloseAll() noexcept
     {
         for (auto &pin_window : pin_windows_)
@@ -50,5 +72,22 @@ namespace capturezy::feature_pin
     {
         PruneClosedPins();
         return pin_windows_.size();
+    }
+
+    std::size_t PinManager::VisiblePinCount() noexcept
+    {
+        PruneClosedPins();
+
+        return static_cast<std::size_t>(
+            std::count_if(pin_windows_.cbegin(), pin_windows_.cend(), [](std::unique_ptr<PinWindow> const &pin_window) {
+                return pin_window != nullptr && pin_window->IsVisible();
+            }));
+    }
+
+    std::size_t PinManager::HiddenPinCount() noexcept
+    {
+        std::size_t const open_pin_count = OpenPinCount();
+        std::size_t const visible_pin_count = VisiblePinCount();
+        return open_pin_count >= visible_pin_count ? open_pin_count - visible_pin_count : 0;
     }
 } // namespace capturezy::feature_pin
