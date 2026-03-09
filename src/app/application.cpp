@@ -4,7 +4,7 @@
 
 namespace capturezy::app
 {
-    Application::Application(HINSTANCE instance) noexcept : main_window_(instance) {}
+    Application::Application(HINSTANCE instance) noexcept : main_window_(instance, app_state_) {}
 
     int Application::Run(int show_command)
     {

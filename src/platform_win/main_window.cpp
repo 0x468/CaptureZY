@@ -1,6 +1,6 @@
 #include "platform_win/main_window.h"
 
-#include <strsafe.h>
+#include <string>
 
 #include "core/app_metadata.h"
 
@@ -8,11 +8,14 @@ namespace capturezy::platform_win
 {
     namespace
     {
-        constexpr wchar_t const *kWindowBootstrapMessage = L"CaptureZY 启动骨架已就绪";
         constexpr UINT kTrayIconId = 1;
         constexpr UINT kTrayMessage = WM_APP + 1;
         constexpr UINT_PTR kShowWindowCommandId = 1001;
-        constexpr UINT_PTR kExitApplicationCommandId = 1002;
+        constexpr UINT_PTR kBeginCaptureCommandId = 1002;
+        constexpr UINT_PTR kExitApplicationCommandId = 1003;
+        constexpr int kCaptureHotkeyId = 1;
+        constexpr UINT kCaptureHotkeyModifiers = MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT;
+        constexpr UINT kCaptureHotkeyVirtualKey = 0x41;
 
         // Win32 约定上经常需要把对象指针塞进 GWLP_USERDATA，这里统一封装并局部抑制告警。
         void SetWindowUserData(HWND window, MainWindow *main_window)
@@ -28,7 +31,10 @@ namespace capturezy::platform_win
         }
     } // namespace
 
-    MainWindow::MainWindow(HINSTANCE instance) noexcept : instance_(instance) {}
+    MainWindow::MainWindow(HINSTANCE instance, core::AppState &app_state) noexcept
+        : instance_(instance), app_state_(&app_state)
+    {
+    }
 
     bool MainWindow::Create(int show_command)
     {
@@ -54,7 +60,10 @@ namespace capturezy::platform_win
             return false;
         }
 
+        hotkeys_registered_ = RegisterHotkeys();
+
         ShowWindow(window_, show_command);
+        UpdateWindowPresentation();
         UpdateWindow(window_);
         return true;
     }
@@ -71,6 +80,34 @@ namespace capturezy::platform_win
         return static_cast<int>(message.wParam);
     }
 
+    bool MainWindow::RegisterHotkeys() const noexcept
+    {
+        return RegisterHotKey(window_, kCaptureHotkeyId, kCaptureHotkeyModifiers, kCaptureHotkeyVirtualKey) != FALSE;
+    }
+
+    void MainWindow::UnregisterHotkeys() const noexcept
+    {
+        if (hotkeys_registered_)
+        {
+            UnregisterHotKey(window_, kCaptureHotkeyId);
+        }
+    }
+
+    void MainWindow::UpdateWindowPresentation()
+    {
+        std::wstring title = core::AppMetadata::ProductName();
+        title += app_state_->WindowTitleSuffix();
+        SetWindowTextW(window_, title.c_str());
+        InvalidateRect(window_, nullptr, TRUE);
+    }
+
+    void MainWindow::BeginCaptureEntry()
+    {
+        app_state_->BeginCapture();
+        UpdateWindowPresentation();
+        ShowWindowAndActivate();
+    }
+
     bool MainWindow::CreateTrayIcon()
     {
         tray_icon_.cbSize = sizeof(tray_icon_);
@@ -80,12 +117,8 @@ namespace capturezy::platform_win
         tray_icon_.uCallbackMessage = kTrayMessage;
         tray_icon_.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
 
-        HRESULT const copy_result = StringCchCopyW(tray_icon_.szTip, ARRAYSIZE(tray_icon_.szTip),
-                                                   core::AppMetadata::ProductName());
-        if (FAILED(copy_result))
-        {
-            return false;
-        }
+        std::wstring const tray_tooltip = core::AppMetadata::ProductName();
+        wcsncpy_s(tray_icon_.szTip, tray_tooltip.c_str(), _TRUNCATE);
 
         tray_icon_added_ = Shell_NotifyIconW(NIM_ADD, &tray_icon_) == TRUE;
         if (!tray_icon_added_)
@@ -130,6 +163,7 @@ namespace capturezy::platform_win
         }
 
         AppendMenuW(menu, MF_STRING, kShowWindowCommandId, L"显示窗口");
+        AppendMenuW(menu, MF_STRING, kBeginCaptureCommandId, L"开始截图");
         AppendMenuW(menu, MF_STRING, kExitApplicationCommandId, L"退出");
 
         POINT cursor_position{};
@@ -175,6 +209,7 @@ namespace capturezy::platform_win
             return DefWindowProcW(window_, message, w_param, l_param);
 
         case WM_DESTROY:
+            UnregisterHotkeys();
             RemoveTrayIcon();
             PostQuitMessage(0);
             return 0;
@@ -184,6 +219,10 @@ namespace capturezy::platform_win
             {
             case kShowWindowCommandId:
                 ShowWindowAndActivate();
+                return 0;
+
+            case kBeginCaptureCommandId:
+                BeginCaptureEntry();
                 return 0;
 
             case kExitApplicationCommandId:
@@ -201,11 +240,19 @@ namespace capturezy::platform_win
             HDC device_context = BeginPaint(window_, &paint);
             RECT client_rect{};
             GetClientRect(window_, &client_rect);
-            DrawTextW(device_context, kWindowBootstrapMessage, -1, &client_rect,
+            DrawTextW(device_context, app_state_->StatusText(), -1, &client_rect,
                       DT_CENTER | DT_SINGLELINE | DT_VCENTER);
             EndPaint(window_, &paint);
             return 0;
         }
+
+        case WM_HOTKEY:
+            if (static_cast<int>(w_param) == kCaptureHotkeyId)
+            {
+                BeginCaptureEntry();
+                return 0;
+            }
+            break;
 
         case kTrayMessage:
             switch (static_cast<UINT>(l_param))

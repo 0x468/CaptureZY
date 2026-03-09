@@ -2,6 +2,7 @@
 
 #include <windows.h>
 
+#include "core/app_state.h"
 #include "platform_win/main_window.h"
 
 namespace capturezy::app
@@ -14,6 +15,7 @@ namespace capturezy::app
         [[nodiscard]] int Run(int show_command);
 
       private:
+        core::AppState app_state_{};
         platform_win::MainWindow main_window_;
     };
 } // namespace capturezy::app

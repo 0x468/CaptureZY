@@ -1,6 +1,7 @@
 add_library(
   capturezy_core
   STATIC
+    app_state.cpp
     app_metadata.cpp
 )
 
