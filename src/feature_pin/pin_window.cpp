@@ -59,25 +59,25 @@ namespace capturezy::feature_pin
         Close();
     }
 
-    bool PinWindow::Create(RECT anchor_rect, feature_capture::CapturedBitmap bitmap)
+    bool PinWindow::Create(feature_capture::CaptureResult capture_result)
     {
-        if (!bitmap.IsValid() || RegisterWindowClass() == 0)
+        if (!capture_result.IsValid() || RegisterWindowClass() == 0)
         {
             return false;
         }
 
         Close();
-        bitmap_ = std::move(bitmap);
+        capture_result_ = std::move(capture_result);
         scale_percent_ = kDefaultScalePercent;
 
-        RECT const window_rect = CalculateWindowRect(anchor_rect, CurrentClientSize());
+        RECT const window_rect = CalculateWindowRect(capture_result_.ScreenRect(), CurrentClientSize());
         window_ = CreateWindowExW(kPinWindowExStyle, kPinWindowClassName, kPinWindowTitle, kPinWindowStyle,
                                   window_rect.left, window_rect.top, window_rect.right - window_rect.left,
                                   window_rect.bottom - window_rect.top, nullptr, nullptr, instance_, this);
 
         if (window_ == nullptr)
         {
-            bitmap_ = {};
+            capture_result_ = {};
             return false;
         }
 
@@ -102,7 +102,7 @@ namespace capturezy::feature_pin
 
     SIZE PinWindow::CurrentClientSize() const noexcept
     {
-        SIZE const bitmap_size = bitmap_.Size();
+        SIZE const bitmap_size = capture_result_.PixelSize();
         SIZE client_size{};
         client_size.cx = std::max(1, MulDiv(bitmap_size.cx, scale_percent_, kDefaultScalePercent));
         client_size.cy = std::max(1, MulDiv(bitmap_size.cy, scale_percent_, kDefaultScalePercent));
@@ -111,7 +111,7 @@ namespace capturezy::feature_pin
 
     RECT PinWindow::CalculateWindowRect(RECT anchor_rect, SIZE bitmap_size) noexcept
     {
-        RECT window_rect{0, 0, bitmap_size.cx, bitmap_size.cy};
+        RECT window_rect{.left = 0, .top = 0, .right = bitmap_size.cx, .bottom = bitmap_size.cy};
         OffsetRect(&window_rect, anchor_rect.left, anchor_rect.top);
         return window_rect;
     }
@@ -224,10 +224,10 @@ namespace capturezy::feature_pin
         FillRect(canvas_device_context, &client_rect, GetSysColorBrush(COLOR_WINDOW));
 
         HDC image_device_context = CreateCompatibleDC(device_context);
-        if (image_device_context != nullptr && bitmap_.IsValid())
+        if (image_device_context != nullptr && capture_result_.IsValid())
         {
-            HGDIOBJ previous_image_bitmap = SelectObject(image_device_context, bitmap_.Get());
-            SIZE const size = bitmap_.Size();
+            HGDIOBJ previous_image_bitmap = SelectObject(image_device_context, capture_result_.Bitmap().Get());
+            SIZE const size = capture_result_.PixelSize();
             SetStretchBltMode(canvas_device_context, HALFTONE);
             StretchBlt(canvas_device_context, 0, 0, client_width, client_height, image_device_context, 0, 0, size.cx,
                        size.cy, SRCCOPY);
@@ -246,7 +246,7 @@ namespace capturezy::feature_pin
         EndPaint(window_, &paint);
     }
 
-    void PinWindow::PaintScaleOverlay(HWND overlay_window) const noexcept
+    void PinWindow::PaintScaleOverlay(HWND overlay_window) const
     {
         PAINTSTRUCT paint{};
         HDC device_context = BeginPaint(overlay_window, &paint);
@@ -353,7 +353,7 @@ namespace capturezy::feature_pin
             return 0;
 
         case WM_MOUSEWHEEL: {
-            POINT const anchor_screen_point{GET_X_LPARAM(l_param), GET_Y_LPARAM(l_param)};
+            POINT const anchor_screen_point{.x = GET_X_LPARAM(l_param), .y = GET_Y_LPARAM(l_param)};
             UpdateScale(GET_WHEEL_DELTA_WPARAM(w_param), anchor_screen_point);
             return 0;
         }
@@ -384,7 +384,7 @@ namespace capturezy::feature_pin
                 DestroyWindow(scale_overlay_window_);
                 scale_overlay_window_ = nullptr;
             }
-            bitmap_ = {};
+            capture_result_ = {};
             window_ = nullptr;
             return 0;
 

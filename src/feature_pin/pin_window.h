@@ -6,7 +6,7 @@
 
 #include <cstdint>
 
-#include "feature_capture/screen_capture.h"
+#include "feature_capture/capture_result.h"
 
 namespace capturezy::feature_pin
 {
@@ -21,7 +21,7 @@ namespace capturezy::feature_pin
         PinWindow(PinWindow &&) = delete;
         PinWindow &operator=(PinWindow &&) = delete;
 
-        [[nodiscard]] bool Create(RECT anchor_rect, feature_capture::CapturedBitmap bitmap);
+        [[nodiscard]] bool Create(feature_capture::CaptureResult capture_result);
         void Close() noexcept;
         [[nodiscard]] bool IsOpen() const noexcept;
 
@@ -32,7 +32,7 @@ namespace capturezy::feature_pin
         [[nodiscard]] ATOM RegisterScaleOverlayClass() const;
         bool UpdateScale(short wheel_delta, POINT anchor_screen_point) noexcept;
         void PaintWindow() const noexcept;
-        void PaintScaleOverlay(HWND overlay_window) const noexcept;
+        void PaintScaleOverlay(HWND overlay_window) const;
         void ShowScaleOverlay() noexcept;
         void HideScaleOverlay() noexcept;
         void UpdateScaleOverlayPosition() const noexcept;
@@ -44,7 +44,7 @@ namespace capturezy::feature_pin
         HINSTANCE instance_;
         HWND window_{};
         HWND scale_overlay_window_{};
-        feature_capture::CapturedBitmap bitmap_{};
+        feature_capture::CaptureResult capture_result_{};
         std::int32_t scale_percent_{100};
     };
 } // namespace capturezy::feature_pin

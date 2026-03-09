@@ -1,6 +1,9 @@
 #include "feature_capture/screen_capture.h"
 
+#include <chrono>
 #include <utility>
+
+#include "feature_capture/capture_result.h"
 
 namespace capturezy::feature_capture
 {
@@ -79,7 +82,7 @@ namespace capturezy::feature_capture
         return {static_cast<HBITMAP>(CopyImage(bitmap_, IMAGE_BITMAP, 0, 0, LR_CREATEDIBSECTION)), size_};
     }
 
-    CapturedBitmap ScreenCapture::CaptureRegion(RECT screen_rect) noexcept
+    CaptureResult ScreenCapture::CaptureRegion(RECT screen_rect) noexcept
     {
         int const width = RectWidth(screen_rect);
         int const height = RectHeight(screen_rect);
@@ -124,17 +127,24 @@ namespace capturezy::feature_capture
             return {};
         }
 
-        return {bitmap, SIZE{width, height}};
+        return {CapturedBitmap(bitmap, SIZE{.cx = width, .cy = height}), screen_rect, std::chrono::system_clock::now()};
     }
 
-    bool ScreenCapture::CopyBitmapToClipboard(HWND owner_window, CapturedBitmap bitmap) noexcept
+    bool ScreenCapture::CopyBitmapToClipboard(HWND owner_window, CaptureResult const &capture_result) noexcept
     {
-        if (!bitmap.IsValid() || OpenClipboard(owner_window) == FALSE)
+        if (!capture_result.IsValid() || OpenClipboard(owner_window) == FALSE)
         {
             return false;
         }
 
         if (EmptyClipboard() == FALSE)
+        {
+            CloseClipboard();
+            return false;
+        }
+
+        CapturedBitmap bitmap = capture_result.CloneBitmap();
+        if (!bitmap.IsValid())
         {
             CloseClipboard();
             return false;

@@ -1,6 +1,7 @@
 add_library(
   capturezy_feature_pin
   STATIC
+    pin_manager.cpp
     pin_window.cpp
 )
 

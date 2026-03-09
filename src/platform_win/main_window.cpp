@@ -15,7 +15,8 @@ namespace capturezy::platform_win
         constexpr UINT kTrayMessage = WM_APP + 1;
         constexpr UINT_PTR kShowWindowCommandId = 1001;
         constexpr UINT_PTR kBeginCaptureCommandId = 1002;
-        constexpr UINT_PTR kExitApplicationCommandId = 1003;
+        constexpr UINT_PTR kCloseAllPinsCommandId = 1003;
+        constexpr UINT_PTR kExitApplicationCommandId = 1004;
         constexpr int kCaptureHotkeyId = 1;
         constexpr UINT kCaptureHotkeyModifiers = MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT;
         constexpr UINT kCaptureHotkeyVirtualKey = 0x41;
@@ -35,7 +36,7 @@ namespace capturezy::platform_win
     } // namespace
 
     MainWindow::MainWindow(HINSTANCE instance, core::AppState &app_state) noexcept
-        : instance_(instance), app_state_(&app_state), capture_overlay_(instance)
+        : instance_(instance), app_state_(&app_state), capture_overlay_(instance), pin_manager_(instance)
     {
     }
 
@@ -172,8 +173,15 @@ namespace capturezy::platform_win
             return;
         }
 
+        UINT close_all_pins_flags = MF_STRING;
+        if (pin_manager_.OpenPinCount() == 0)
+        {
+            close_all_pins_flags |= MF_GRAYED;
+        }
+
         AppendMenuW(menu, MF_STRING, kShowWindowCommandId, L"显示窗口");
         AppendMenuW(menu, MF_STRING, kBeginCaptureCommandId, L"开始截图");
+        AppendMenuW(menu, close_all_pins_flags, kCloseAllPinsCommandId, L"关闭全部贴图");
         AppendMenuW(menu, MF_STRING, kExitApplicationCommandId, L"退出");
 
         POINT cursor_position{};
@@ -200,21 +208,16 @@ namespace capturezy::platform_win
     {
         bool capture_completed = false;
         bool pin_created = false;
-        RECT const selection_rect = capture_overlay_.LastSelectionRect();
 
         if (result == feature_capture::OverlayResult::PlaceholderCaptured)
         {
-            auto captured_bitmap = feature_capture::ScreenCapture::CaptureRegion(selection_rect);
-            if (captured_bitmap.IsValid())
+            auto capture_result = feature_capture::ScreenCapture::CaptureRegion(capture_overlay_.LastSelectionRect());
+            if (capture_result.IsValid())
             {
-                auto pin_bitmap = captured_bitmap.Clone();
-                if (feature_capture::ScreenCapture::CopyBitmapToClipboard(window_, std::move(captured_bitmap)))
+                if (feature_capture::ScreenCapture::CopyBitmapToClipboard(window_, capture_result))
                 {
                     capture_completed = true;
-                    if (pin_bitmap.IsValid())
-                    {
-                        pin_created = CreatePinWindow(selection_rect, std::move(pin_bitmap));
-                    }
+                    pin_created = pin_manager_.CreatePin(std::move(capture_result));
                 }
             }
         }
@@ -249,6 +252,10 @@ namespace capturezy::platform_win
 
         case kBeginCaptureCommandId:
             BeginCaptureEntry();
+            return true;
+
+        case kCloseAllPinsCommandId:
+            pin_manager_.CloseAll();
             return true;
 
         case kExitApplicationCommandId:
@@ -291,31 +298,6 @@ namespace capturezy::platform_win
         }
     }
 
-    bool MainWindow::CreatePinWindow(RECT selection_rect, feature_capture::CapturedBitmap bitmap)
-    {
-        if (!bitmap.IsValid())
-        {
-            return false;
-        }
-
-        PruneClosedPinWindows();
-
-        auto pin_window = std::make_unique<feature_pin::PinWindow>(instance_);
-        if (!pin_window->Create(selection_rect, std::move(bitmap)))
-        {
-            return false;
-        }
-
-        pin_windows_.push_back(std::move(pin_window));
-        return true;
-    }
-
-    void MainWindow::PruneClosedPinWindows() noexcept
-    {
-        std::erase_if(pin_windows_,
-                      [](std::unique_ptr<feature_pin::PinWindow> const &pin_window) { return !pin_window->IsOpen(); });
-    }
-
     ATOM MainWindow::RegisterWindowClass() const
     {
         WNDCLASSEXW window_class{};
@@ -349,7 +331,7 @@ namespace capturezy::platform_win
             return DefWindowProcW(window_, message, w_param, l_param);
 
         case WM_DESTROY:
-            pin_windows_.clear();
+            pin_manager_.CloseAll();
             UnregisterHotkeys();
             RemoveTrayIcon();
             PostQuitMessage(0);

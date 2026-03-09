@@ -6,6 +6,8 @@
 
 namespace capturezy::feature_capture
 {
+    class CaptureResult;
+
     class CapturedBitmap final
     {
       public:
@@ -32,7 +34,8 @@ namespace capturezy::feature_capture
     class ScreenCapture final
     {
       public:
-        [[nodiscard]] static CapturedBitmap CaptureRegion(RECT screen_rect) noexcept;
-        [[nodiscard]] static bool CopyBitmapToClipboard(HWND owner_window, CapturedBitmap bitmap) noexcept;
+        [[nodiscard]] static CaptureResult CaptureRegion(RECT screen_rect) noexcept;
+        [[nodiscard]] static bool CopyBitmapToClipboard(HWND owner_window,
+                                                        CaptureResult const &capture_result) noexcept;
     };
 } // namespace capturezy::feature_capture
