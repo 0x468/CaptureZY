@@ -16,6 +16,7 @@ namespace capturezy::feature_capture
         using Timestamp = std::chrono::system_clock::time_point;
 
         CaptureResult() noexcept = default;
+        ~CaptureResult() noexcept = default;
         CaptureResult(CapturedBitmap bitmap, RECT screen_rect, Timestamp captured_at) noexcept;
 
         CaptureResult(CaptureResult const &) = delete;
@@ -32,8 +33,8 @@ namespace capturezy::feature_capture
         [[nodiscard]] CaptureResult Clone() const noexcept;
 
       private:
-        CapturedBitmap bitmap_{};
+        CapturedBitmap bitmap_;
         RECT screen_rect_{};
-        Timestamp captured_at_{};
+        Timestamp captured_at_;
     };
 } // namespace capturezy::feature_capture

@@ -25,6 +25,6 @@ namespace capturezy::feature_pin
 
       private:
         HINSTANCE instance_;
-        std::vector<std::unique_ptr<PinWindow>> pin_windows_{};
+        std::vector<std::unique_ptr<PinWindow>> pin_windows_;
     };
 } // namespace capturezy::feature_pin

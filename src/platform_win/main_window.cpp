@@ -1,6 +1,5 @@
 #include "platform_win/main_window.h"
 
-#include <algorithm>
 #include <string>
 #include <utility>
 
