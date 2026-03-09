@@ -9,6 +9,7 @@ namespace capturezy::core
         Idle,
         CapturePending,
         CaptureCompleted,
+        CaptureSaved,
         CapturePinned,
     };
 
@@ -17,6 +18,7 @@ namespace capturezy::core
       public:
         void BeginCapture() noexcept;
         void CompleteCapture() noexcept;
+        void CompleteCaptureSaved() noexcept;
         void CompleteCaptureAndPin() noexcept;
         void ReturnToIdle() noexcept;
 

@@ -4,6 +4,7 @@
 #include <windows.h>
 // clang-format on
 
+#include <cstdint>
 #include <shellapi.h>
 
 #include "core/app_state.h"
@@ -21,10 +22,16 @@ namespace capturezy::platform_win
         [[nodiscard]] static int RunMessageLoop();
 
       private:
+        enum class CaptureAction : std::uint8_t
+        {
+            CopyAndPin,
+            SaveToFile,
+        };
+
         [[nodiscard]] bool RegisterHotkeys() const noexcept;
         void UnregisterHotkeys() const noexcept;
         void UpdateWindowPresentation();
-        void BeginCaptureEntry();
+        void BeginCaptureEntry(CaptureAction capture_action = CaptureAction::CopyAndPin);
         [[nodiscard]] bool CreateTrayIcon();
         void RemoveTrayIcon() noexcept;
         void ShowWindowAndActivate() noexcept;
@@ -46,6 +53,7 @@ namespace capturezy::platform_win
         feature_capture::CaptureOverlay capture_overlay_;
         feature_pin::PinManager pin_manager_;
         NOTIFYICONDATAW tray_icon_{};
+        CaptureAction pending_capture_action_{CaptureAction::CopyAndPin};
         bool tray_icon_added_{false};
         bool hotkeys_registered_{false};
         bool allow_close_{false};

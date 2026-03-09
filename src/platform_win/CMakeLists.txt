@@ -19,6 +19,7 @@ target_link_libraries(
     capturezy_feature_capture
     capturezy_feature_pin
   PRIVATE
+    comdlg32
     shell32
     user32
     gdi32
