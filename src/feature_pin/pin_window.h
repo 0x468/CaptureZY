@@ -24,8 +24,9 @@ namespace capturezy::feature_pin
         [[nodiscard]] bool IsOpen() const noexcept;
 
       private:
-        [[nodiscard]] RECT CalculateWindowRect(RECT anchor_rect) const noexcept;
+        [[nodiscard]] static RECT CalculateWindowRect(RECT anchor_rect, SIZE bitmap_size) noexcept;
         [[nodiscard]] ATOM RegisterWindowClass() const;
+        void PaintWindow() const noexcept;
         [[nodiscard]] LRESULT HandleMessage(UINT message, WPARAM w_param, LPARAM l_param);
 
         static LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM w_param, LPARAM l_param);

@@ -8,7 +8,7 @@ namespace capturezy::feature_pin
     {
         constexpr wchar_t const *kPinWindowClassName = L"CaptureZY.PinWindow";
         constexpr wchar_t const *kPinWindowTitle = L"CaptureZY 贴图";
-        constexpr DWORD kPinWindowStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU;
+        constexpr DWORD kPinWindowStyle = WS_POPUP;
         constexpr DWORD kPinWindowExStyle = WS_EX_TOPMOST | WS_EX_TOOLWINDOW;
 
         void SetWindowUserData(HWND window, PinWindow *pin_window)
@@ -41,7 +41,7 @@ namespace capturezy::feature_pin
         Close();
         bitmap_ = std::move(bitmap);
 
-        RECT const window_rect = CalculateWindowRect(anchor_rect);
+        RECT const window_rect = CalculateWindowRect(anchor_rect, bitmap_.Size());
         window_ = CreateWindowExW(kPinWindowExStyle, kPinWindowClassName, kPinWindowTitle, kPinWindowStyle,
                                   window_rect.left, window_rect.top, window_rect.right - window_rect.left,
                                   window_rect.bottom - window_rect.top, nullptr, nullptr, instance_, this);
@@ -71,11 +71,9 @@ namespace capturezy::feature_pin
         return window_ != nullptr;
     }
 
-    RECT PinWindow::CalculateWindowRect(RECT anchor_rect) const noexcept
+    RECT PinWindow::CalculateWindowRect(RECT anchor_rect, SIZE bitmap_size) noexcept
     {
-        SIZE const size = bitmap_.Size();
-        RECT window_rect{0, 0, size.cx, size.cy};
-        AdjustWindowRectEx(&window_rect, kPinWindowStyle, FALSE, kPinWindowExStyle);
+        RECT window_rect{0, 0, bitmap_size.cx, bitmap_size.cy};
         OffsetRect(&window_rect, anchor_rect.left, anchor_rect.top);
         return window_rect;
     }
@@ -99,41 +97,53 @@ namespace capturezy::feature_pin
         return 0;
     }
 
+    void PinWindow::PaintWindow() const noexcept
+    {
+        PAINTSTRUCT paint{};
+        HDC device_context = BeginPaint(window_, &paint);
+
+        RECT client_rect{};
+        GetClientRect(window_, &client_rect);
+        FillRect(device_context, &client_rect, GetSysColorBrush(COLOR_WINDOW));
+
+        HDC memory_device_context = CreateCompatibleDC(device_context);
+        if (memory_device_context != nullptr && bitmap_.IsValid())
+        {
+            HGDIOBJ previous_bitmap = SelectObject(memory_device_context, bitmap_.Get());
+            SIZE const size = bitmap_.Size();
+            BitBlt(device_context, 0, 0, size.cx, size.cy, memory_device_context, 0, 0, SRCCOPY);
+            SelectObject(memory_device_context, previous_bitmap);
+            DeleteDC(memory_device_context);
+        }
+
+        FrameRect(device_context, &client_rect, GetSysColorBrush(COLOR_WINDOWFRAME));
+        EndPaint(window_, &paint);
+    }
+
     LRESULT PinWindow::HandleMessage(UINT message, WPARAM w_param, LPARAM l_param)
     {
+        (void)w_param;
+        (void)l_param;
+
         switch (message)
         {
         case WM_ERASEBKGND:
             return 1;
 
+        case WM_NCHITTEST:
+            return HTCAPTION;
+
+        case WM_NCRBUTTONUP:
+        case WM_NCLBUTTONDBLCLK:
+        case WM_RBUTTONUP:
+        case WM_LBUTTONDBLCLK:
         case WM_CLOSE:
             DestroyWindow(window_);
             return 0;
 
-        case WM_PAINT: {
-            PAINTSTRUCT paint{};
-            HDC device_context = BeginPaint(window_, &paint);
-
-            RECT client_rect{};
-            GetClientRect(window_, &client_rect);
-            FillRect(device_context, &client_rect, GetSysColorBrush(COLOR_WINDOW));
-
-            HDC memory_device_context = CreateCompatibleDC(device_context);
-            if (memory_device_context != nullptr && bitmap_.IsValid())
-            {
-                HGDIOBJ previous_bitmap = SelectObject(memory_device_context, bitmap_.Get());
-                SIZE const size = bitmap_.Size();
-                SetStretchBltMode(device_context, HALFTONE);
-                StretchBlt(device_context, 0, 0, client_rect.right - client_rect.left,
-                           client_rect.bottom - client_rect.top, memory_device_context, 0, 0, size.cx, size.cy,
-                           SRCCOPY);
-                SelectObject(memory_device_context, previous_bitmap);
-                DeleteDC(memory_device_context);
-            }
-
-            EndPaint(window_, &paint);
+        case WM_PAINT:
+            PaintWindow();
             return 0;
-        }
 
         case WM_DESTROY:
             bitmap_ = {};
