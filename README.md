@@ -58,3 +58,5 @@ src/app/            进程入口与应用组装
 ```
 
 开始实现功能前，建议先阅读 [docs/product.md](/home/gwf/Projects/captureZY/docs/product.md)、[docs/architecture.md](/home/gwf/Projects/captureZY/docs/architecture.md) 和 [docs/decisions.md](/home/gwf/Projects/captureZY/docs/decisions.md)。
+
+如果需要了解项目当前已完成能力与下一阶段建议，可继续阅读 [docs/current-status.md](docs/current-status.md)。
