@@ -6,6 +6,7 @@
 
 #include <cstdint>
 
+#include "core/app_settings.h"
 #include "feature_capture/capture_result.h"
 
 namespace capturezy::feature_pin
@@ -13,7 +14,7 @@ namespace capturezy::feature_pin
     class PinWindow final
     {
       public:
-        explicit PinWindow(HINSTANCE instance) noexcept;
+        PinWindow(HINSTANCE instance, core::AppSettings const &app_settings) noexcept;
         ~PinWindow() noexcept;
 
         PinWindow(PinWindow const &) = delete;
@@ -49,6 +50,7 @@ namespace capturezy::feature_pin
         static LRESULT CALLBACK ScaleOverlayProc(HWND window, UINT message, WPARAM w_param, LPARAM l_param);
 
         HINSTANCE instance_;
+        core::AppSettings const *app_settings_;
         HWND window_{};
         HWND scale_overlay_window_{};
         feature_capture::CaptureResult capture_result_{};

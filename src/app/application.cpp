@@ -6,7 +6,7 @@
 
 namespace capturezy::app
 {
-    Application::Application(HINSTANCE instance) noexcept : main_window_(instance, app_state_) {}
+    Application::Application(HINSTANCE instance) : main_window_(instance, app_state_, app_settings_) {}
 
     Application::~Application() noexcept
     {
@@ -47,6 +47,8 @@ namespace capturezy::app
         {
             return -1;
         }
+
+        app_settings_ = core::AppSettingsStore::Load();
 
         if (!main_window_.Create(show_command))
         {

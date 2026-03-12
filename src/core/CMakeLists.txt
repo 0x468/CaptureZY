@@ -1,6 +1,8 @@
 add_library(
   capturezy_core
   STATIC
+    app_settings.cpp
+    app_settings_store.cpp
     app_state.cpp
     app_metadata.cpp
 )
@@ -11,4 +13,11 @@ target_include_directories(
   capturezy_core
   PUBLIC
     ${PROJECT_SOURCE_DIR}/src
+)
+
+target_link_libraries(
+  capturezy_core
+  PRIVATE
+    ole32
+    shell32
 )

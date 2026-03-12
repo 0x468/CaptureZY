@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <shellapi.h>
 
+#include "core/app_settings.h"
 #include "core/app_state.h"
 #include "feature_capture/capture_overlay.h"
 #include "feature_pin/pin_manager.h"
@@ -16,7 +17,7 @@ namespace capturezy::platform_win
     class MainWindow final
     {
       public:
-        MainWindow(HINSTANCE instance, core::AppState &app_state) noexcept;
+        MainWindow(HINSTANCE instance, core::AppState &app_state, core::AppSettings const &app_settings) noexcept;
 
         [[nodiscard]] bool Create(int show_command);
         [[nodiscard]] static int RunMessageLoop();
@@ -70,12 +71,13 @@ namespace capturezy::platform_win
         static LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM w_param, LPARAM l_param);
 
         HINSTANCE instance_;
+        core::AppSettings const *app_settings_;
         core::AppState *app_state_;
         HWND window_{};
         feature_capture::CaptureOverlay capture_overlay_;
         feature_pin::PinManager pin_manager_;
         NOTIFYICONDATAW tray_icon_{};
-        CaptureRequest pending_capture_request_{};
+        CaptureRequest pending_capture_request_;
         bool tray_icon_added_{false};
         bool hotkeys_registered_{false};
         bool allow_close_{false};

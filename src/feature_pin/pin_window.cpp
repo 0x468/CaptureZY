@@ -59,7 +59,10 @@ namespace capturezy::feature_pin
         }
     } // namespace
 
-    PinWindow::PinWindow(HINSTANCE instance) noexcept : instance_(instance) {}
+    PinWindow::PinWindow(HINSTANCE instance, core::AppSettings const &app_settings) noexcept
+        : instance_(instance), app_settings_(&app_settings)
+    {
+    }
 
     PinWindow::~PinWindow() noexcept
     {
@@ -173,7 +176,7 @@ namespace capturezy::feature_pin
             return;
         }
 
-        (void)feature_capture::SaveCaptureResultWithPngDialog(window_, capture_result_);
+        (void)feature_capture::SaveCaptureResultWithPngDialog(window_, capture_result_, *app_settings_);
     }
 
     void PinWindow::ShowContextMenu(POINT anchor_screen_point) noexcept

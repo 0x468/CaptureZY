@@ -24,8 +24,6 @@ namespace capturezy::platform_win
         constexpr UINT_PTR kCloseAllPinsCommandId = 1008;
         constexpr UINT_PTR kExitApplicationCommandId = 1009;
         constexpr int kCaptureHotkeyId = 1;
-        constexpr UINT kCaptureHotkeyModifiers = MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT;
-        constexpr UINT kCaptureHotkeyVirtualKey = 0x41;
 
         // Win32 约定上经常需要把对象指针塞进 GWLP_USERDATA，这里统一封装并局部抑制告警。
         void SetWindowUserData(HWND window, MainWindow *main_window)
@@ -51,8 +49,10 @@ namespace capturezy::platform_win
         }
     } // namespace
 
-    MainWindow::MainWindow(HINSTANCE instance, core::AppState &app_state) noexcept
-        : instance_(instance), app_state_(&app_state), capture_overlay_(instance), pin_manager_(instance)
+    MainWindow::MainWindow(HINSTANCE instance, core::AppState &app_state,
+                           core::AppSettings const &app_settings) noexcept
+        : instance_(instance), app_settings_(&app_settings), app_state_(&app_state), capture_overlay_(instance),
+          pin_manager_(instance, app_settings)
     {
     }
 
@@ -102,7 +102,8 @@ namespace capturezy::platform_win
 
     bool MainWindow::RegisterHotkeys() const noexcept
     {
-        return RegisterHotKey(window_, kCaptureHotkeyId, kCaptureHotkeyModifiers, kCaptureHotkeyVirtualKey) != FALSE;
+        return RegisterHotKey(window_, kCaptureHotkeyId, app_settings_->capture_hotkey.modifiers,
+                              app_settings_->capture_hotkey.virtual_key) != FALSE;
     }
 
     void MainWindow::UnregisterHotkeys() const noexcept
@@ -123,7 +124,30 @@ namespace capturezy::platform_win
 
     void MainWindow::BeginCaptureEntry()
     {
-        BeginCaptureEntry(CaptureRequest{});
+        CaptureScope capture_scope = CaptureScope::Region;
+        if (app_settings_->default_capture_scope == core::CaptureScopeSetting::FullScreen)
+        {
+            capture_scope = CaptureScope::FullScreen;
+        }
+
+        CaptureAction capture_action = CaptureAction::CopyAndPin;
+        switch (app_settings_->default_capture_action)
+        {
+        case core::CaptureActionSetting::CopyOnly:
+            capture_action = CaptureAction::CopyOnly;
+            break;
+
+        case core::CaptureActionSetting::SaveToFile:
+            capture_action = CaptureAction::SaveToFile;
+            break;
+
+        case core::CaptureActionSetting::CopyAndPin:
+        default:
+            capture_action = CaptureAction::CopyAndPin;
+            break;
+        }
+
+        BeginCaptureEntry(CaptureRequest{capture_scope, capture_action});
     }
 
     void MainWindow::BeginCaptureEntry(CaptureRequest capture_request)
@@ -268,7 +292,8 @@ namespace capturezy::platform_win
             switch (pending_capture_request_.action)
             {
             case CaptureAction::SaveToFile:
-                if (feature_capture::SaveCaptureResultWithPngDialog(window_, capture_result))
+                if (feature_capture::SaveCaptureResultToDefaultPath(capture_result, *app_settings_) ||
+                    feature_capture::SaveCaptureResultWithPngDialog(window_, capture_result, *app_settings_))
                 {
                     capture_completed = true;
                     capture_saved = true;

@@ -5,7 +5,10 @@
 
 namespace capturezy::feature_pin
 {
-    PinManager::PinManager(HINSTANCE instance) noexcept : instance_(instance) {}
+    PinManager::PinManager(HINSTANCE instance, core::AppSettings const &app_settings) noexcept
+        : instance_(instance), app_settings_(&app_settings)
+    {
+    }
 
     bool PinManager::CreatePin(feature_capture::CaptureResult capture_result)
     {
@@ -16,7 +19,7 @@ namespace capturezy::feature_pin
 
         PruneClosedPins();
 
-        auto pin_window = std::make_unique<PinWindow>(instance_);
+        auto pin_window = std::make_unique<PinWindow>(instance_, *app_settings_);
         if (!pin_window->Create(std::move(capture_result)))
         {
             return false;
