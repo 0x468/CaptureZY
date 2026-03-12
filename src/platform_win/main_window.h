@@ -5,7 +5,9 @@
 // clang-format on
 
 #include <cstdint>
+#include <optional>
 #include <shellapi.h>
+#include <string>
 
 #include "core/app_settings.h"
 #include "core/app_state.h"
@@ -57,6 +59,7 @@ namespace capturezy::platform_win
         void BeginCaptureEntry(CaptureRequest capture_request);
         [[nodiscard]] bool CreateTrayIcon();
         [[nodiscard]] bool SaveSettings(core::AppSettings previous_settings);
+        [[nodiscard]] std::optional<std::wstring> PickDefaultSaveDirectory() const;
         [[nodiscard]] bool OpenDefaultSaveDirectory() const;
         [[nodiscard]] bool OpenSettingsFileForEditing() const;
         [[nodiscard]] bool OpenSettingsDirectory() const;

@@ -1,8 +1,10 @@
 #include "platform_win/main_window.h"
 
 #include <filesystem>
+#include <shobjidl.h>
 #include <string>
 #include <utility>
+#include <wrl/client.h>
 
 #include "core/app_metadata.h"
 #include "core/app_settings_store.h"
@@ -35,7 +37,10 @@ namespace capturezy::platform_win
         constexpr UINT_PTR kSetDefaultActionSaveToFileCommandId = 1017;
         constexpr UINT_PTR kOpenDefaultSaveDirectoryCommandId = 1018;
         constexpr UINT_PTR kResetSettingsToDefaultsCommandId = 1019;
+        constexpr UINT_PTR kChooseDefaultSaveDirectoryCommandId = 1020;
         constexpr int kCaptureHotkeyId = 1;
+
+        using Microsoft::WRL::ComPtr;
 
         // Win32 约定上经常需要把对象指针塞进 GWLP_USERDATA，这里统一封装并局部抑制告警。
         void SetWindowUserData(HWND window, MainWindow *main_window)
@@ -209,6 +214,83 @@ namespace capturezy::platform_win
         *app_settings_ = std::move(previous_settings);
         ShowMessageDialog(L"CaptureZY", L"配置保存失败。", MB_ICONERROR);
         return false;
+    }
+
+    std::optional<std::wstring> MainWindow::PickDefaultSaveDirectory() const
+    {
+        ComPtr<IFileOpenDialog> dialog;
+        HRESULT result = CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER,
+                                          IID_PPV_ARGS(dialog.GetAddressOf()));
+        if (FAILED(result) || dialog == nullptr)
+        {
+            ShowMessageDialog(L"CaptureZY", L"无法创建文件夹选择对话框。", MB_ICONERROR);
+            return std::nullopt;
+        }
+
+        DWORD options = 0;
+        result = dialog->GetOptions(&options);
+        if (FAILED(result))
+        {
+            ShowMessageDialog(L"CaptureZY", L"无法初始化文件夹选择对话框。", MB_ICONERROR);
+            return std::nullopt;
+        }
+
+        result = dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST);
+        if (FAILED(result))
+        {
+            ShowMessageDialog(L"CaptureZY", L"无法设置文件夹选择选项。", MB_ICONERROR);
+            return std::nullopt;
+        }
+
+        result = dialog->SetTitle(L"选择默认保存目录");
+        if (FAILED(result))
+        {
+            ShowMessageDialog(L"CaptureZY", L"无法设置文件夹选择标题。", MB_ICONERROR);
+            return std::nullopt;
+        }
+
+        if (!app_settings_->default_save_directory.empty())
+        {
+            ComPtr<IShellItem> current_directory;
+            result = SHCreateItemFromParsingName(app_settings_->default_save_directory.c_str(), nullptr,
+                                                 IID_PPV_ARGS(current_directory.GetAddressOf()));
+            if (SUCCEEDED(result) && current_directory != nullptr)
+            {
+                (void)dialog->SetFolder(current_directory.Get());
+            }
+        }
+
+        result = dialog->Show(window_);
+        if (result == HRESULT_FROM_WIN32(ERROR_CANCELLED))
+        {
+            return std::nullopt;
+        }
+
+        if (FAILED(result))
+        {
+            ShowMessageDialog(L"CaptureZY", L"无法打开文件夹选择对话框。", MB_ICONERROR);
+            return std::nullopt;
+        }
+
+        ComPtr<IShellItem> selected_item;
+        result = dialog->GetResult(selected_item.GetAddressOf());
+        if (FAILED(result) || selected_item == nullptr)
+        {
+            ShowMessageDialog(L"CaptureZY", L"无法读取选择的保存目录。", MB_ICONERROR);
+            return std::nullopt;
+        }
+
+        PWSTR selected_path = nullptr;
+        result = selected_item->GetDisplayName(SIGDN_FILESYSPATH, &selected_path);
+        if (FAILED(result) || selected_path == nullptr)
+        {
+            ShowMessageDialog(L"CaptureZY", L"无法解析选择的保存目录。", MB_ICONERROR);
+            return std::nullopt;
+        }
+
+        std::wstring directory_path = selected_path;
+        CoTaskMemFree(selected_path);
+        return directory_path;
     }
 
     bool MainWindow::OpenSettingsFileForEditing() const
@@ -419,6 +501,7 @@ namespace capturezy::platform_win
         AppendMenuW(menu, MF_POPUP, default_action_menu_handle, L"默认截图动作");
         AppendMenuW(menu, MF_STRING, kEditSettingsFileCommandId, L"编辑配置文件");
         AppendMenuW(menu, MF_STRING, kOpenSettingsDirectoryCommandId, L"打开配置目录");
+        AppendMenuW(menu, MF_STRING, kChooseDefaultSaveDirectoryCommandId, L"选择默认保存目录");
         AppendMenuW(menu, MF_STRING, kOpenDefaultSaveDirectoryCommandId, L"打开默认保存目录");
         AppendMenuW(menu, MF_STRING, kReloadSettingsCommandId, L"重新加载配置");
         AppendMenuW(menu, MF_STRING, kResetSettingsToDefaultsCommandId, L"恢复默认配置");
@@ -603,6 +686,18 @@ namespace capturezy::platform_win
             if (!OpenSettingsDirectory())
             {
                 ShowMessageDialog(L"CaptureZY", L"无法打开配置目录。", MB_ICONERROR);
+            }
+            return true;
+
+        case kChooseDefaultSaveDirectoryCommandId:
+            if (auto selected_directory = PickDefaultSaveDirectory(); selected_directory.has_value())
+            {
+                core::AppSettings const previous_settings = *app_settings_;
+                app_settings_->default_save_directory = std::move(*selected_directory);
+                if (SaveSettings(previous_settings))
+                {
+                    ShowMessageDialog(L"CaptureZY", L"默认保存目录已更新。", MB_ICONINFORMATION);
+                }
             }
             return true;
 
