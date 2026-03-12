@@ -33,6 +33,8 @@ namespace capturezy::platform_win
         constexpr UINT_PTR kSetDefaultActionCopyOnlyCommandId = 1015;
         constexpr UINT_PTR kSetDefaultActionCopyAndPinCommandId = 1016;
         constexpr UINT_PTR kSetDefaultActionSaveToFileCommandId = 1017;
+        constexpr UINT_PTR kOpenDefaultSaveDirectoryCommandId = 1018;
+        constexpr UINT_PTR kResetSettingsToDefaultsCommandId = 1019;
         constexpr int kCaptureHotkeyId = 1;
 
         // Win32 约定上经常需要把对象指针塞进 GWLP_USERDATA，这里统一封装并局部抑制告警。
@@ -237,6 +239,55 @@ namespace capturezy::platform_win
         return ShellExecuteSucceeded(result);
     }
 
+    bool MainWindow::OpenDefaultSaveDirectory() const
+    {
+        std::filesystem::path const save_directory(app_settings_->default_save_directory);
+        if (save_directory.empty())
+        {
+            return false;
+        }
+
+        std::error_code error_code;
+        std::filesystem::create_directories(save_directory, error_code);
+        if (error_code)
+        {
+            return false;
+        }
+
+        HINSTANCE const result = ShellExecuteW(window_, L"open", save_directory.c_str(), nullptr, nullptr,
+                                               SW_SHOWNORMAL);
+        return ShellExecuteSucceeded(result);
+    }
+
+    bool MainWindow::ResetSettingsToDefaults()
+    {
+        core::AppSettings const previous_settings = *app_settings_;
+        core::AppSettings const default_settings = core::AppSettingsStore::LoadDefaults();
+
+        UnregisterHotkeys();
+        *app_settings_ = default_settings;
+        hotkeys_registered_ = RegisterHotkeys();
+        if (!hotkeys_registered_)
+        {
+            *app_settings_ = previous_settings;
+            hotkeys_registered_ = RegisterHotkeys();
+            ShowMessageDialog(L"CaptureZY", L"恢复默认配置失败，已保留当前配置。", MB_ICONWARNING);
+            return false;
+        }
+
+        if (core::AppSettingsStore::Save(*app_settings_))
+        {
+            ShowMessageDialog(L"CaptureZY", L"已恢复默认配置。", MB_ICONINFORMATION);
+            return true;
+        }
+
+        UnregisterHotkeys();
+        *app_settings_ = previous_settings;
+        hotkeys_registered_ = RegisterHotkeys();
+        ShowMessageDialog(L"CaptureZY", L"默认配置已生成，但写回文件失败，已恢复当前配置。", MB_ICONWARNING);
+        return false;
+    }
+
     bool MainWindow::ReloadSettings()
     {
         core::AppSettings const previous_settings = *app_settings_;
@@ -368,7 +419,9 @@ namespace capturezy::platform_win
         AppendMenuW(menu, MF_POPUP, default_action_menu_handle, L"默认截图动作");
         AppendMenuW(menu, MF_STRING, kEditSettingsFileCommandId, L"编辑配置文件");
         AppendMenuW(menu, MF_STRING, kOpenSettingsDirectoryCommandId, L"打开配置目录");
+        AppendMenuW(menu, MF_STRING, kOpenDefaultSaveDirectoryCommandId, L"打开默认保存目录");
         AppendMenuW(menu, MF_STRING, kReloadSettingsCommandId, L"重新加载配置");
+        AppendMenuW(menu, MF_STRING, kResetSettingsToDefaultsCommandId, L"恢复默认配置");
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
         AppendMenuW(menu, show_all_pins_flags, kShowAllPinsCommandId, L"显示全部贴图");
         AppendMenuW(menu, hide_all_pins_flags, kHideAllPinsCommandId, L"隐藏全部贴图");
@@ -553,8 +606,19 @@ namespace capturezy::platform_win
             }
             return true;
 
+        case kOpenDefaultSaveDirectoryCommandId:
+            if (!OpenDefaultSaveDirectory())
+            {
+                ShowMessageDialog(L"CaptureZY", L"无法打开默认保存目录。", MB_ICONERROR);
+            }
+            return true;
+
         case kReloadSettingsCommandId:
             (void)ReloadSettings();
+            return true;
+
+        case kResetSettingsToDefaultsCommandId:
+            (void)ResetSettingsToDefaults();
             return true;
 
         case kShowAllPinsCommandId:

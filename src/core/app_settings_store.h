@@ -10,6 +10,7 @@ namespace capturezy::core
     {
       public:
         [[nodiscard]] static AppSettings Load();
+        [[nodiscard]] static AppSettings LoadDefaults();
         [[nodiscard]] static bool Save(AppSettings const &settings);
         [[nodiscard]] static std::wstring SettingsFilePath();
         [[nodiscard]] static std::wstring DefaultSaveDirectory();

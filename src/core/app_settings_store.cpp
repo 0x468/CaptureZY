@@ -300,9 +300,16 @@ namespace capturezy::core
         }
     } // namespace
 
-    AppSettings AppSettingsStore::Load()
+    AppSettings AppSettingsStore::LoadDefaults()
     {
         AppSettings settings = DefaultSettings();
+        NormalizeSettings(settings);
+        return settings;
+    }
+
+    AppSettings AppSettingsStore::Load()
+    {
+        AppSettings settings = LoadDefaults();
         std::filesystem::path const settings_path = SettingsFilePath();
         std::error_code error_code;
         if (std::filesystem::exists(settings_path, error_code))

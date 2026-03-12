@@ -57,8 +57,10 @@ namespace capturezy::platform_win
         void BeginCaptureEntry(CaptureRequest capture_request);
         [[nodiscard]] bool CreateTrayIcon();
         [[nodiscard]] bool SaveSettings(core::AppSettings previous_settings);
+        [[nodiscard]] bool OpenDefaultSaveDirectory() const;
         [[nodiscard]] bool OpenSettingsFileForEditing() const;
         [[nodiscard]] bool OpenSettingsDirectory() const;
+        [[nodiscard]] bool ResetSettingsToDefaults();
         [[nodiscard]] bool ReloadSettings();
         void RemoveTrayIcon() noexcept;
         void ShowWindowAndActivate() noexcept;
