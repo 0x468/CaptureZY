@@ -11,30 +11,31 @@ if (-not (Test-Path $compileCommands)) {
     exit 1
 }
 
-$files = git diff --name-only --diff-filter=ACMR $BaseRef -- `
-    'src/*.cpp' 'src/*.h' 'src/*.hpp' `
-    'src/*/*.cpp' 'src/*/*.h' 'src/*/*.hpp' |
-    Sort-Object -Unique
+$trackedFiles = git diff --name-only --diff-filter=ACMR $BaseRef -- `
+    'src/*.cpp' 'src/*/*.cpp'
+
+$untrackedFiles = git ls-files --others --exclude-standard -- `
+    'src/*.cpp' 'src/*/*.cpp'
+
+$files = @($trackedFiles + $untrackedFiles) | Sort-Object -Unique
 
 if (-not $files) {
     Write-Host "没有检测到相对于 $BaseRef 的 C/C++ 源文件改动。"
     exit 0
 }
 
-$command = @(
-    "clang-tidy",
-    "-p", $BuildDir
-)
+$arguments = @("-p", $BuildDir)
 
 if (-not $NoQuiet) {
-    $command += "--quiet"
+    $arguments += "--quiet"
 }
 
 if ($Fix) {
-    $command += @("--fix", "--format-style=file")
+    $arguments += @("--fix", "--format-style=file")
 }
 
 Write-Host "检查文件:"
 $files | ForEach-Object { Write-Host "  $_" }
 
-& $command[0] $command[1..($command.Length - 1)] $files
+$arguments += $files
+& clang-tidy @arguments
