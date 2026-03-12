@@ -28,6 +28,11 @@ namespace capturezy::platform_win
         constexpr UINT_PTR kEditSettingsFileCommandId = 1010;
         constexpr UINT_PTR kOpenSettingsDirectoryCommandId = 1011;
         constexpr UINT_PTR kReloadSettingsCommandId = 1012;
+        constexpr UINT_PTR kSetDefaultScopeRegionCommandId = 1013;
+        constexpr UINT_PTR kSetDefaultScopeFullScreenCommandId = 1014;
+        constexpr UINT_PTR kSetDefaultActionCopyOnlyCommandId = 1015;
+        constexpr UINT_PTR kSetDefaultActionCopyAndPinCommandId = 1016;
+        constexpr UINT_PTR kSetDefaultActionSaveToFileCommandId = 1017;
         constexpr int kCaptureHotkeyId = 1;
 
         // Win32 约定上经常需要把对象指针塞进 GWLP_USERDATA，这里统一封装并局部抑制告警。
@@ -116,6 +121,28 @@ namespace capturezy::platform_win
                               app_settings_->capture_hotkey.virtual_key) != FALSE;
     }
 
+    MainWindow::CaptureScope MainWindow::DefaultCaptureScope() const noexcept
+    {
+        return app_settings_->default_capture_scope == core::CaptureScopeSetting::FullScreen ? CaptureScope::FullScreen
+                                                                                             : CaptureScope::Region;
+    }
+
+    MainWindow::CaptureAction MainWindow::DefaultCaptureAction() const noexcept
+    {
+        switch (app_settings_->default_capture_action)
+        {
+        case core::CaptureActionSetting::CopyOnly:
+            return CaptureAction::CopyOnly;
+
+        case core::CaptureActionSetting::SaveToFile:
+            return CaptureAction::SaveToFile;
+
+        case core::CaptureActionSetting::CopyAndPin:
+        default:
+            return CaptureAction::CopyAndPin;
+        }
+    }
+
     void MainWindow::UnregisterHotkeys() const noexcept
     {
         if (hotkeys_registered_)
@@ -134,30 +161,7 @@ namespace capturezy::platform_win
 
     void MainWindow::BeginCaptureEntry()
     {
-        CaptureScope capture_scope = CaptureScope::Region;
-        if (app_settings_->default_capture_scope == core::CaptureScopeSetting::FullScreen)
-        {
-            capture_scope = CaptureScope::FullScreen;
-        }
-
-        CaptureAction capture_action = CaptureAction::CopyAndPin;
-        switch (app_settings_->default_capture_action)
-        {
-        case core::CaptureActionSetting::CopyOnly:
-            capture_action = CaptureAction::CopyOnly;
-            break;
-
-        case core::CaptureActionSetting::SaveToFile:
-            capture_action = CaptureAction::SaveToFile;
-            break;
-
-        case core::CaptureActionSetting::CopyAndPin:
-        default:
-            capture_action = CaptureAction::CopyAndPin;
-            break;
-        }
-
-        BeginCaptureEntry(CaptureRequest{capture_scope, capture_action});
+        BeginCaptureEntry(CaptureRequest{DefaultCaptureScope(), DefaultCaptureAction()});
     }
 
     void MainWindow::BeginCaptureEntry(CaptureRequest capture_request)
@@ -191,6 +195,18 @@ namespace capturezy::platform_win
         tray_icon_.uVersion = NOTIFYICON_VERSION;
         Shell_NotifyIconW(NIM_SETVERSION, &tray_icon_);
         return true;
+    }
+
+    bool MainWindow::SaveSettings(core::AppSettings previous_settings)
+    {
+        if (core::AppSettingsStore::Save(*app_settings_))
+        {
+            return true;
+        }
+
+        *app_settings_ = std::move(previous_settings);
+        ShowMessageDialog(L"CaptureZY", L"配置保存失败。", MB_ICONERROR);
+        return false;
     }
 
     bool MainWindow::OpenSettingsFileForEditing() const
@@ -276,6 +292,22 @@ namespace capturezy::platform_win
             return;
         }
 
+        HMENU default_scope_menu = CreatePopupMenu();
+        HMENU default_action_menu = CreatePopupMenu();
+        if (default_scope_menu == nullptr || default_action_menu == nullptr)
+        {
+            if (default_action_menu != nullptr)
+            {
+                DestroyMenu(default_action_menu);
+            }
+            if (default_scope_menu != nullptr)
+            {
+                DestroyMenu(default_scope_menu);
+            }
+            DestroyMenu(menu);
+            return;
+        }
+
         std::size_t const open_pin_count = pin_manager_.OpenPinCount();
         std::size_t const visible_pin_count = pin_manager_.VisiblePinCount();
         std::size_t const hidden_pin_count = pin_manager_.HiddenPinCount();
@@ -304,6 +336,36 @@ namespace capturezy::platform_win
         AppendMenuW(menu, MF_STRING, kBeginFullScreenCaptureCommandId, L"全屏截图");
         AppendMenuW(menu, MF_STRING, kBeginFullScreenCaptureAndSaveCommandId, L"全屏截图并保存");
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(default_scope_menu,
+                    app_settings_->default_capture_scope == core::CaptureScopeSetting::Region ? MF_STRING | MF_CHECKED
+                                                                                              : MF_STRING,
+                    kSetDefaultScopeRegionCommandId, L"区域截图");
+        AppendMenuW(default_scope_menu,
+                    app_settings_->default_capture_scope == core::CaptureScopeSetting::FullScreen
+                        ? MF_STRING | MF_CHECKED
+                        : MF_STRING,
+                    kSetDefaultScopeFullScreenCommandId, L"全屏截图");
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast,performance-no-int-to-ptr)
+        auto const default_scope_menu_handle = reinterpret_cast<UINT_PTR>(default_scope_menu);
+        AppendMenuW(menu, MF_POPUP, default_scope_menu_handle, L"默认截图范围");
+        AppendMenuW(default_action_menu,
+                    app_settings_->default_capture_action == core::CaptureActionSetting::CopyOnly
+                        ? MF_STRING | MF_CHECKED
+                        : MF_STRING,
+                    kSetDefaultActionCopyOnlyCommandId, L"仅复制");
+        AppendMenuW(default_action_menu,
+                    app_settings_->default_capture_action == core::CaptureActionSetting::CopyAndPin
+                        ? MF_STRING | MF_CHECKED
+                        : MF_STRING,
+                    kSetDefaultActionCopyAndPinCommandId, L"复制并贴图");
+        AppendMenuW(default_action_menu,
+                    app_settings_->default_capture_action == core::CaptureActionSetting::SaveToFile
+                        ? MF_STRING | MF_CHECKED
+                        : MF_STRING,
+                    kSetDefaultActionSaveToFileCommandId, L"直接保存");
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast,performance-no-int-to-ptr)
+        auto const default_action_menu_handle = reinterpret_cast<UINT_PTR>(default_action_menu);
+        AppendMenuW(menu, MF_POPUP, default_action_menu_handle, L"默认截图动作");
         AppendMenuW(menu, MF_STRING, kEditSettingsFileCommandId, L"编辑配置文件");
         AppendMenuW(menu, MF_STRING, kOpenSettingsDirectoryCommandId, L"打开配置目录");
         AppendMenuW(menu, MF_STRING, kReloadSettingsCommandId, L"重新加载配置");
@@ -446,6 +508,36 @@ namespace capturezy::platform_win
         case kBeginFullScreenCaptureAndSaveCommandId:
             BeginCaptureEntry(CaptureRequest{CaptureScope::FullScreen, CaptureAction::SaveToFile});
             return true;
+
+        case kSetDefaultScopeRegionCommandId: {
+            core::AppSettings const previous_settings = *app_settings_;
+            app_settings_->default_capture_scope = core::CaptureScopeSetting::Region;
+            return SaveSettings(previous_settings);
+        }
+
+        case kSetDefaultScopeFullScreenCommandId: {
+            core::AppSettings const previous_settings = *app_settings_;
+            app_settings_->default_capture_scope = core::CaptureScopeSetting::FullScreen;
+            return SaveSettings(previous_settings);
+        }
+
+        case kSetDefaultActionCopyOnlyCommandId: {
+            core::AppSettings const previous_settings = *app_settings_;
+            app_settings_->default_capture_action = core::CaptureActionSetting::CopyOnly;
+            return SaveSettings(previous_settings);
+        }
+
+        case kSetDefaultActionCopyAndPinCommandId: {
+            core::AppSettings const previous_settings = *app_settings_;
+            app_settings_->default_capture_action = core::CaptureActionSetting::CopyAndPin;
+            return SaveSettings(previous_settings);
+        }
+
+        case kSetDefaultActionSaveToFileCommandId: {
+            core::AppSettings const previous_settings = *app_settings_;
+            app_settings_->default_capture_action = core::CaptureActionSetting::SaveToFile;
+            return SaveSettings(previous_settings);
+        }
 
         case kEditSettingsFileCommandId:
             if (!OpenSettingsFileForEditing())

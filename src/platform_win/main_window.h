@@ -48,12 +48,15 @@ namespace capturezy::platform_win
             CaptureAction action{CaptureAction::CopyAndPin};
         };
 
+        [[nodiscard]] CaptureScope DefaultCaptureScope() const noexcept;
+        [[nodiscard]] CaptureAction DefaultCaptureAction() const noexcept;
         [[nodiscard]] bool RegisterHotkeys() const noexcept;
         void UnregisterHotkeys() const noexcept;
         void UpdateWindowPresentation();
         void BeginCaptureEntry();
         void BeginCaptureEntry(CaptureRequest capture_request);
         [[nodiscard]] bool CreateTrayIcon();
+        [[nodiscard]] bool SaveSettings(core::AppSettings previous_settings);
         [[nodiscard]] bool OpenSettingsFileForEditing() const;
         [[nodiscard]] bool OpenSettingsDirectory() const;
         [[nodiscard]] bool ReloadSettings();
