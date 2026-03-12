@@ -17,7 +17,7 @@ namespace capturezy::platform_win
     class MainWindow final
     {
       public:
-        MainWindow(HINSTANCE instance, core::AppState &app_state, core::AppSettings const &app_settings) noexcept;
+        MainWindow(HINSTANCE instance, core::AppState &app_state, core::AppSettings &app_settings) noexcept;
 
         [[nodiscard]] bool Create(int show_command);
         [[nodiscard]] static int RunMessageLoop();
@@ -54,9 +54,13 @@ namespace capturezy::platform_win
         void BeginCaptureEntry();
         void BeginCaptureEntry(CaptureRequest capture_request);
         [[nodiscard]] bool CreateTrayIcon();
+        [[nodiscard]] bool OpenSettingsFileForEditing() const;
+        [[nodiscard]] bool OpenSettingsDirectory() const;
+        [[nodiscard]] bool ReloadSettings();
         void RemoveTrayIcon() noexcept;
         void ShowWindowAndActivate() noexcept;
         void HideToTray() noexcept;
+        void ShowMessageDialog(wchar_t const *title, wchar_t const *message, UINT icon_flags) const noexcept;
         void ShowTrayMenu() noexcept;
         void PaintWindow() const noexcept;
         void ExecutePendingCaptureRequest();
@@ -71,7 +75,7 @@ namespace capturezy::platform_win
         static LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM w_param, LPARAM l_param);
 
         HINSTANCE instance_;
-        core::AppSettings const *app_settings_;
+        core::AppSettings *app_settings_;
         core::AppState *app_state_;
         HWND window_{};
         feature_capture::CaptureOverlay capture_overlay_;

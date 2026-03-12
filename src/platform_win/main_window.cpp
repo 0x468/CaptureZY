@@ -1,9 +1,11 @@
 #include "platform_win/main_window.h"
 
+#include <filesystem>
 #include <string>
 #include <utility>
 
 #include "core/app_metadata.h"
+#include "core/app_settings_store.h"
 #include "feature_capture/capture_file_dialog.h"
 #include "feature_capture/screen_capture.h"
 
@@ -23,6 +25,9 @@ namespace capturezy::platform_win
         constexpr UINT_PTR kHideAllPinsCommandId = 1007;
         constexpr UINT_PTR kCloseAllPinsCommandId = 1008;
         constexpr UINT_PTR kExitApplicationCommandId = 1009;
+        constexpr UINT_PTR kEditSettingsFileCommandId = 1010;
+        constexpr UINT_PTR kOpenSettingsDirectoryCommandId = 1011;
+        constexpr UINT_PTR kReloadSettingsCommandId = 1012;
         constexpr int kCaptureHotkeyId = 1;
 
         // Win32 约定上经常需要把对象指针塞进 GWLP_USERDATA，这里统一封装并局部抑制告警。
@@ -47,10 +52,15 @@ namespace capturezy::platform_win
             screen_rect.bottom = screen_rect.top + GetSystemMetrics(SM_CYVIRTUALSCREEN);
             return screen_rect;
         }
+
+        [[nodiscard]] bool ShellExecuteSucceeded(HINSTANCE result) noexcept
+        {
+            // NOLINTNEXTLINE(performance-no-int-to-ptr,cppcoreguidelines-pro-type-reinterpret-cast)
+            return reinterpret_cast<INT_PTR>(result) > 32;
+        }
     } // namespace
 
-    MainWindow::MainWindow(HINSTANCE instance, core::AppState &app_state,
-                           core::AppSettings const &app_settings) noexcept
+    MainWindow::MainWindow(HINSTANCE instance, core::AppState &app_state, core::AppSettings &app_settings) noexcept
         : instance_(instance), app_settings_(&app_settings), app_state_(&app_state), capture_overlay_(instance),
           pin_manager_(instance, app_settings)
     {
@@ -183,6 +193,54 @@ namespace capturezy::platform_win
         return true;
     }
 
+    bool MainWindow::OpenSettingsFileForEditing() const
+    {
+        std::wstring const settings_file_path = core::AppSettingsStore::SettingsFilePath();
+        if (settings_file_path.empty())
+        {
+            return false;
+        }
+
+        std::wstring const parameters = L"\"" + settings_file_path + L"\"";
+        HINSTANCE const result = ShellExecuteW(window_, L"open", L"notepad.exe", parameters.c_str(), nullptr,
+                                               SW_SHOWNORMAL);
+        return ShellExecuteSucceeded(result);
+    }
+
+    bool MainWindow::OpenSettingsDirectory() const
+    {
+        std::filesystem::path const settings_file_path(core::AppSettingsStore::SettingsFilePath());
+        std::filesystem::path const settings_directory = settings_file_path.parent_path();
+        if (settings_directory.empty())
+        {
+            return false;
+        }
+
+        HINSTANCE const result = ShellExecuteW(window_, L"open", settings_directory.c_str(), nullptr, nullptr,
+                                               SW_SHOWNORMAL);
+        return ShellExecuteSucceeded(result);
+    }
+
+    bool MainWindow::ReloadSettings()
+    {
+        core::AppSettings const previous_settings = *app_settings_;
+        core::AppSettings const reloaded_settings = core::AppSettingsStore::Load();
+
+        UnregisterHotkeys();
+        *app_settings_ = reloaded_settings;
+        hotkeys_registered_ = RegisterHotkeys();
+        if (hotkeys_registered_)
+        {
+            ShowMessageDialog(L"CaptureZY", L"配置已重载。", MB_ICONINFORMATION);
+            return true;
+        }
+
+        *app_settings_ = previous_settings;
+        hotkeys_registered_ = RegisterHotkeys();
+        ShowMessageDialog(L"CaptureZY", L"配置已读取，但新热键注册失败，已恢复旧热键。", MB_ICONWARNING);
+        return false;
+    }
+
     void MainWindow::RemoveTrayIcon() noexcept
     {
         if (!tray_icon_added_)
@@ -198,6 +256,11 @@ namespace capturezy::platform_win
     {
         ShowWindow(window_, SW_SHOWNORMAL);
         SetForegroundWindow(window_);
+    }
+
+    void MainWindow::ShowMessageDialog(wchar_t const *title, wchar_t const *message, UINT icon_flags) const noexcept
+    {
+        MessageBoxW(window_, message, title, MB_OK | icon_flags);
     }
 
     void MainWindow::HideToTray() noexcept
@@ -240,6 +303,11 @@ namespace capturezy::platform_win
         AppendMenuW(menu, MF_STRING, kBeginCaptureAndSaveCommandId, L"开始截图并保存");
         AppendMenuW(menu, MF_STRING, kBeginFullScreenCaptureCommandId, L"全屏截图");
         AppendMenuW(menu, MF_STRING, kBeginFullScreenCaptureAndSaveCommandId, L"全屏截图并保存");
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(menu, MF_STRING, kEditSettingsFileCommandId, L"编辑配置文件");
+        AppendMenuW(menu, MF_STRING, kOpenSettingsDirectoryCommandId, L"打开配置目录");
+        AppendMenuW(menu, MF_STRING, kReloadSettingsCommandId, L"重新加载配置");
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
         AppendMenuW(menu, show_all_pins_flags, kShowAllPinsCommandId, L"显示全部贴图");
         AppendMenuW(menu, hide_all_pins_flags, kHideAllPinsCommandId, L"隐藏全部贴图");
         AppendMenuW(menu, close_all_pins_flags, kCloseAllPinsCommandId, L"关闭全部贴图");
@@ -377,6 +445,24 @@ namespace capturezy::platform_win
 
         case kBeginFullScreenCaptureAndSaveCommandId:
             BeginCaptureEntry(CaptureRequest{CaptureScope::FullScreen, CaptureAction::SaveToFile});
+            return true;
+
+        case kEditSettingsFileCommandId:
+            if (!OpenSettingsFileForEditing())
+            {
+                ShowMessageDialog(L"CaptureZY", L"无法打开配置文件。", MB_ICONERROR);
+            }
+            return true;
+
+        case kOpenSettingsDirectoryCommandId:
+            if (!OpenSettingsDirectory())
+            {
+                ShowMessageDialog(L"CaptureZY", L"无法打开配置目录。", MB_ICONERROR);
+            }
+            return true;
+
+        case kReloadSettingsCommandId:
+            (void)ReloadSettings();
             return true;
 
         case kShowAllPinsCommandId:
