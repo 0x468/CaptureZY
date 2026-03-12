@@ -7,9 +7,11 @@ These rules apply to repository-local development and verification work in this 
 ## Build Rules
 
 - This project uses Ninja rather than MSBuild. Before any `cmake --preset ...` or `cmake --build --preset ...` command on Windows, activate the MSVC environment with:
+
   ```powershell
   & "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\Launch-VsDevShell.ps1" -Arch amd64 -HostArch amd64 -SkipAutomaticLocation
   ```
+
 - Run the configure/build command in the same PowerShell session after `Launch-VsDevShell.ps1`.
 
 ## Formatting Rules
@@ -21,9 +23,11 @@ These rules apply to repository-local development and verification work in this 
 
 - After every C++ change, run `scripts\run_clang_tidy_changed.ps1`.
 - Activate the repository virtual environment before running the changed-files clang-tidy script:
+
   ```powershell
   . .\.venv\Scripts\Activate.ps1
   ```
+
 - `run_clang_tidy_changed.ps1` is the changed-files check and should cover new and modified `.cpp` translation units.
 - Full-repo checks should continue to use `scripts\run_clang_tidy.ps1`.
 
