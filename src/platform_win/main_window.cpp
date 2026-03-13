@@ -1,16 +1,14 @@
 #include "platform_win/main_window.h"
 
 #include <filesystem>
-#include <shobjidl.h>
 #include <string>
-#include <string_view>
 #include <utility>
-#include <wrl/client.h>
 
 #include "core/app_metadata.h"
 #include "core/app_settings_store.h"
 #include "feature_capture/capture_file_dialog.h"
 #include "feature_capture/screen_capture.h"
+#include "platform_win/settings_dialog.h"
 
 namespace capturezy::platform_win
 {
@@ -40,289 +38,8 @@ namespace capturezy::platform_win
         constexpr UINT_PTR kResetSettingsToDefaultsCommandId = 1019;
         constexpr UINT_PTR kChooseDefaultSaveDirectoryCommandId = 1020;
         constexpr UINT_PTR kEditDefaultSavePrefixCommandId = 1021;
+        constexpr UINT_PTR kOpenSettingsDialogCommandId = 1022;
         constexpr int kCaptureHotkeyId = 1;
-        constexpr wchar_t const *kTextInputDialogClassName = L"CaptureZY.TextInputDialog";
-        constexpr int kTextInputDialogWidth = 420;
-        constexpr int kTextInputDialogHeight = 168;
-        constexpr int kTextInputControlId = 2001;
-        constexpr int kDialogOkButtonId = IDOK;
-        constexpr int kDialogCancelButtonId = IDCANCEL;
-
-        using Microsoft::WRL::ComPtr;
-
-        class TextInputDialog;
-
-        [[nodiscard]] HMENU ControlMenuHandle(int control_id) noexcept
-        {
-            return static_cast<HMENU>(LongToHandle(control_id));
-        }
-
-        [[nodiscard]] WPARAM FontMessageParam(HFONT font) noexcept
-        {
-            // NOLINTNEXTLINE(performance-no-int-to-ptr,cppcoreguidelines-pro-type-reinterpret-cast)
-            return reinterpret_cast<WPARAM>(font);
-        }
-
-        void SetDialogUserData(HWND window, TextInputDialog *dialog) noexcept;
-        TextInputDialog *GetDialogUserData(HWND window) noexcept;
-
-        class TextInputDialog final
-        {
-          public:
-            TextInputDialog(HINSTANCE instance, HWND owner_window, std::wstring title, std::wstring prompt,
-                            std::wstring initial_value) noexcept
-                : instance_(instance), owner_window_(owner_window), title_(std::move(title)),
-                  prompt_(std::move(prompt)), initial_value_(std::move(initial_value))
-            {
-            }
-
-            [[nodiscard]] std::optional<std::wstring> Show()
-            {
-                if (RegisterWindowClass() == 0)
-                {
-                    return std::nullopt;
-                }
-
-                if (owner_window_ != nullptr)
-                {
-                    EnableWindow(owner_window_, FALSE);
-                }
-
-                window_ = CreateWindowExW(WS_EX_DLGMODALFRAME, kTextInputDialogClassName, title_.c_str(),
-                                          WS_CAPTION | WS_POPUP | WS_SYSMENU, CW_USEDEFAULT, CW_USEDEFAULT,
-                                          kTextInputDialogWidth, kTextInputDialogHeight, owner_window_, nullptr,
-                                          instance_, this);
-                if (window_ == nullptr)
-                {
-                    if (owner_window_ != nullptr)
-                    {
-                        EnableWindow(owner_window_, TRUE);
-                    }
-                    return std::nullopt;
-                }
-
-                CenterToOwner();
-                ShowWindow(window_, SW_SHOWNORMAL);
-                UpdateWindow(window_);
-                SetForegroundWindow(window_);
-
-                MSG message{};
-                while (window_ != nullptr && GetMessageW(&message, nullptr, 0, 0) > 0)
-                {
-                    if (IsDialogMessageW(window_, &message) == FALSE)
-                    {
-                        TranslateMessage(&message);
-                        DispatchMessageW(&message);
-                    }
-                }
-
-                if (owner_window_ != nullptr)
-                {
-                    EnableWindow(owner_window_, TRUE);
-                    SetForegroundWindow(owner_window_);
-                }
-
-                return accepted_ ? std::optional<std::wstring>(value_) : std::nullopt;
-            }
-
-          private:
-            [[nodiscard]] static ATOM RegisterWindowClass()
-            {
-                WNDCLASSEXW window_class{};
-                window_class.cbSize = sizeof(window_class);
-                window_class.lpfnWndProc = TextInputDialog::WindowProc;
-                window_class.hInstance = GetModuleHandleW(nullptr);
-                window_class.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-                window_class.hbrBackground = GetSysColorBrush(COLOR_WINDOW);
-                window_class.lpszClassName = kTextInputDialogClassName;
-
-                ATOM const result = RegisterClassExW(&window_class);
-                if (result != 0 || GetLastError() == ERROR_CLASS_ALREADY_EXISTS)
-                {
-                    return 1;
-                }
-
-                return 0;
-            }
-
-            void CenterToOwner() const noexcept
-            {
-                RECT dialog_rect{};
-                GetWindowRect(window_, &dialog_rect);
-
-                RECT anchor_rect{};
-                if (owner_window_ != nullptr)
-                {
-                    GetWindowRect(owner_window_, &anchor_rect);
-                }
-                else
-                {
-                    anchor_rect.left = 0;
-                    anchor_rect.top = 0;
-                    anchor_rect.right = GetSystemMetrics(SM_CXSCREEN);
-                    anchor_rect.bottom = GetSystemMetrics(SM_CYSCREEN);
-                }
-
-                int const dialog_width = dialog_rect.right - dialog_rect.left;
-                int const dialog_height = dialog_rect.bottom - dialog_rect.top;
-                int const anchor_width = anchor_rect.right - anchor_rect.left;
-                int const anchor_height = anchor_rect.bottom - anchor_rect.top;
-                int const left = anchor_rect.left + ((anchor_width - dialog_width) / 2);
-                int const top = anchor_rect.top + ((anchor_height - dialog_height) / 2);
-
-                SetWindowPos(window_, nullptr, left, top, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
-            }
-
-            void InitializeControls()
-            {
-                auto *const font = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
-
-                HWND prompt_label = CreateWindowExW(0, L"STATIC", prompt_.c_str(), WS_CHILD | WS_VISIBLE, 16, 16, 372,
-                                                    20, window_, nullptr, instance_, nullptr);
-                SendMessageW(prompt_label, WM_SETFONT, FontMessageParam(font), TRUE);
-
-                edit_control_ = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", initial_value_.c_str(),
-                                                WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL, 16, 44, 372, 24,
-                                                window_, ControlMenuHandle(kTextInputControlId), instance_, nullptr);
-                SendMessageW(edit_control_, WM_SETFONT, FontMessageParam(font), TRUE);
-
-                HWND ok_button = CreateWindowExW(0, L"BUTTON", L"确定",
-                                                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON, 220, 92, 80, 28,
-                                                 window_, ControlMenuHandle(kDialogOkButtonId), instance_, nullptr);
-                SendMessageW(ok_button, WM_SETFONT, FontMessageParam(font), TRUE);
-
-                HWND cancel_button = CreateWindowExW(
-                    0, L"BUTTON", L"取消", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, 308, 92, 80, 28, window_,
-                    ControlMenuHandle(kDialogCancelButtonId), instance_, nullptr);
-                SendMessageW(cancel_button, WM_SETFONT, FontMessageParam(font), TRUE);
-
-                SetFocus(edit_control_);
-                SendMessageW(edit_control_, EM_SETSEL, 0, -1);
-            }
-
-            [[nodiscard]] static std::wstring TrimWhitespace(std::wstring const &value)
-            {
-                std::size_t const first = value.find_first_not_of(L" \t\r\n");
-                if (first == std::wstring::npos)
-                {
-                    return {};
-                }
-
-                std::size_t const last = value.find_last_not_of(L" \t\r\n");
-                return value.substr(first, last - first + 1);
-            }
-
-            void Accept()
-            {
-                int const text_length = GetWindowTextLengthW(edit_control_);
-                std::wstring text(static_cast<std::size_t>(text_length) + 1, L'\0');
-                if (text_length > 0)
-                {
-                    GetWindowTextW(edit_control_, text.data(), text_length + 1);
-                }
-                text.resize(static_cast<std::size_t>(text_length));
-
-                text = TrimWhitespace(text);
-                if (text.empty())
-                {
-                    MessageBoxW(window_, L"文件名前缀不能为空。", title_.c_str(), MB_OK | MB_ICONWARNING);
-                    SetFocus(edit_control_);
-                    return;
-                }
-
-                value_ = std::move(text);
-                accepted_ = true;
-                DestroyWindow(window_);
-            }
-
-            void Cancel() noexcept
-            {
-                accepted_ = false;
-                DestroyWindow(window_);
-            }
-
-            LRESULT HandleMessage(UINT message, WPARAM w_param, LPARAM l_param)
-            {
-                switch (message)
-                {
-                case WM_CREATE:
-                    InitializeControls();
-                    return 0;
-
-                case WM_COMMAND:
-                    switch (LOWORD(w_param))
-                    {
-                    case kDialogOkButtonId:
-                        Accept();
-                        return 0;
-
-                    case kDialogCancelButtonId:
-                        Cancel();
-                        return 0;
-
-                    default:
-                        break;
-                    }
-                    break;
-
-                case WM_CLOSE:
-                    Cancel();
-                    return 0;
-
-                case WM_DESTROY:
-                    window_ = nullptr;
-                    return 0;
-
-                default:
-                    break;
-                }
-
-                return DefWindowProcW(window_, message, w_param, l_param);
-            }
-
-            static LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM w_param, LPARAM l_param)
-            {
-                if (message == WM_NCCREATE)
-                {
-                    // NOLINTNEXTLINE(performance-no-int-to-ptr,cppcoreguidelines-pro-type-reinterpret-cast)
-                    auto *create_struct = reinterpret_cast<CREATESTRUCTW *>(l_param);
-                    auto *dialog = static_cast<TextInputDialog *>(create_struct->lpCreateParams);
-                    SetDialogUserData(window, dialog);
-                    dialog->window_ = window;
-                }
-
-                auto *dialog = GetDialogUserData(window);
-                if (dialog != nullptr)
-                {
-                    return dialog->HandleMessage(message, w_param, l_param);
-                }
-
-                return DefWindowProcW(window, message, w_param, l_param);
-            }
-
-            HINSTANCE instance_{};
-            HWND owner_window_{};
-            HWND window_{};
-            HWND edit_control_{};
-            std::wstring title_;
-            std::wstring prompt_;
-            std::wstring initial_value_;
-            std::wstring value_;
-            bool accepted_{false};
-        };
-
-        void SetDialogUserData(HWND window, TextInputDialog *dialog) noexcept
-        {
-            // NOLINTNEXTLINE(performance-no-int-to-ptr,cppcoreguidelines-pro-type-reinterpret-cast)
-            SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(dialog));
-        }
-
-        TextInputDialog *GetDialogUserData(HWND window) noexcept
-        {
-            // NOLINTNEXTLINE(performance-no-int-to-ptr,cppcoreguidelines-pro-type-reinterpret-cast)
-            return reinterpret_cast<TextInputDialog *>(GetWindowLongPtrW(window, GWLP_USERDATA));
-        }
-
         // Win32 约定上经常需要把对象指针塞进 GWLP_USERDATA，这里统一封装并局部抑制告警。
         void SetWindowUserData(HWND window, MainWindow *main_window)
         {
@@ -485,100 +202,56 @@ namespace capturezy::platform_win
         return true;
     }
 
-    bool MainWindow::SaveSettings(core::AppSettings previous_settings)
+    bool MainWindow::ApplySettings(core::AppSettings new_settings, bool persist, wchar_t const *hotkey_error_message,
+                                   wchar_t const *save_error_message)
     {
-        if (core::AppSettingsStore::Save(*app_settings_))
+        core::AppSettings const previous_settings = *app_settings_;
+        bool const previous_hotkeys_registered = hotkeys_registered_;
+
+        UnregisterHotkeys();
+        *app_settings_ = std::move(new_settings);
+        hotkeys_registered_ = RegisterHotkeys();
+        if (!hotkeys_registered_)
+        {
+            *app_settings_ = previous_settings;
+            hotkeys_registered_ = previous_hotkeys_registered;
+            if (hotkeys_registered_)
+            {
+                hotkeys_registered_ = RegisterHotkeys();
+            }
+
+            ShowMessageDialog(L"CaptureZY", hotkey_error_message, MB_ICONWARNING);
+            return false;
+        }
+
+        if (!persist || core::AppSettingsStore::Save(*app_settings_))
         {
             return true;
         }
 
-        *app_settings_ = std::move(previous_settings);
-        ShowMessageDialog(L"CaptureZY", L"配置保存失败。", MB_ICONERROR);
+        UnregisterHotkeys();
+        *app_settings_ = previous_settings;
+        hotkeys_registered_ = previous_hotkeys_registered;
+        if (hotkeys_registered_)
+        {
+            hotkeys_registered_ = RegisterHotkeys();
+        }
+
+        ShowMessageDialog(L"CaptureZY", save_error_message, MB_ICONERROR);
         return false;
     }
 
-    std::optional<std::wstring> MainWindow::PromptForDefaultSavePrefix(std::wstring_view initial_value) const
+    void MainWindow::OpenSettingsDialog()
     {
-        TextInputDialog dialog(instance_, window_, L"设置默认文件名前缀", L"输入默认文件名前缀：",
-                               std::wstring(initial_value));
-        return dialog.Show();
-    }
-
-    std::optional<std::wstring> MainWindow::PickDefaultSaveDirectory() const
-    {
-        ComPtr<IFileOpenDialog> dialog;
-        HRESULT result = CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER,
-                                          IID_PPV_ARGS(dialog.GetAddressOf()));
-        if (FAILED(result) || dialog == nullptr)
+        if (auto updated_settings = ShowSettingsDialog(instance_, window_, *app_settings_);
+            updated_settings.has_value())
         {
-            ShowMessageDialog(L"CaptureZY", L"无法创建文件夹选择对话框。", MB_ICONERROR);
-            return std::nullopt;
-        }
-
-        DWORD options = 0;
-        result = dialog->GetOptions(&options);
-        if (FAILED(result))
-        {
-            ShowMessageDialog(L"CaptureZY", L"无法初始化文件夹选择对话框。", MB_ICONERROR);
-            return std::nullopt;
-        }
-
-        result = dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST);
-        if (FAILED(result))
-        {
-            ShowMessageDialog(L"CaptureZY", L"无法设置文件夹选择选项。", MB_ICONERROR);
-            return std::nullopt;
-        }
-
-        result = dialog->SetTitle(L"选择默认保存目录");
-        if (FAILED(result))
-        {
-            ShowMessageDialog(L"CaptureZY", L"无法设置文件夹选择标题。", MB_ICONERROR);
-            return std::nullopt;
-        }
-
-        if (!app_settings_->default_save_directory.empty())
-        {
-            ComPtr<IShellItem> current_directory;
-            result = SHCreateItemFromParsingName(app_settings_->default_save_directory.c_str(), nullptr,
-                                                 IID_PPV_ARGS(current_directory.GetAddressOf()));
-            if (SUCCEEDED(result) && current_directory != nullptr)
+            if (ApplySettings(std::move(*updated_settings), true, L"新设置中的截图热键注册失败，已保留当前配置。",
+                              L"设置写回配置文件失败，已恢复当前配置。"))
             {
-                (void)dialog->SetFolder(current_directory.Get());
+                ShowMessageDialog(L"CaptureZY", L"设置已更新。", MB_ICONINFORMATION);
             }
         }
-
-        result = dialog->Show(window_);
-        if (result == HRESULT_FROM_WIN32(ERROR_CANCELLED))
-        {
-            return std::nullopt;
-        }
-
-        if (FAILED(result))
-        {
-            ShowMessageDialog(L"CaptureZY", L"无法打开文件夹选择对话框。", MB_ICONERROR);
-            return std::nullopt;
-        }
-
-        ComPtr<IShellItem> selected_item;
-        result = dialog->GetResult(selected_item.GetAddressOf());
-        if (FAILED(result) || selected_item == nullptr)
-        {
-            ShowMessageDialog(L"CaptureZY", L"无法读取选择的保存目录。", MB_ICONERROR);
-            return std::nullopt;
-        }
-
-        PWSTR selected_path = nullptr;
-        result = selected_item->GetDisplayName(SIGDN_FILESYSPATH, &selected_path);
-        if (FAILED(result) || selected_path == nullptr)
-        {
-            ShowMessageDialog(L"CaptureZY", L"无法解析选择的保存目录。", MB_ICONERROR);
-            return std::nullopt;
-        }
-
-        std::wstring directory_path = selected_path;
-        CoTaskMemFree(selected_path);
-        return directory_path;
     }
 
     bool MainWindow::OpenSettingsFileForEditing() const
@@ -631,50 +304,24 @@ namespace capturezy::platform_win
 
     bool MainWindow::ResetSettingsToDefaults()
     {
-        core::AppSettings const previous_settings = *app_settings_;
-        core::AppSettings const default_settings = core::AppSettingsStore::LoadDefaults();
-
-        UnregisterHotkeys();
-        *app_settings_ = default_settings;
-        hotkeys_registered_ = RegisterHotkeys();
-        if (!hotkeys_registered_)
-        {
-            *app_settings_ = previous_settings;
-            hotkeys_registered_ = RegisterHotkeys();
-            ShowMessageDialog(L"CaptureZY", L"恢复默认配置失败，已保留当前配置。", MB_ICONWARNING);
-            return false;
-        }
-
-        if (core::AppSettingsStore::Save(*app_settings_))
+        if (ApplySettings(core::AppSettingsStore::LoadDefaults(), true, L"恢复默认配置失败，已保留当前配置。",
+                          L"默认配置已生成，但写回文件失败，已恢复当前配置。"))
         {
             ShowMessageDialog(L"CaptureZY", L"已恢复默认配置。", MB_ICONINFORMATION);
             return true;
         }
 
-        UnregisterHotkeys();
-        *app_settings_ = previous_settings;
-        hotkeys_registered_ = RegisterHotkeys();
-        ShowMessageDialog(L"CaptureZY", L"默认配置已生成，但写回文件失败，已恢复当前配置。", MB_ICONWARNING);
         return false;
     }
 
     bool MainWindow::ReloadSettings()
     {
-        core::AppSettings const previous_settings = *app_settings_;
-        core::AppSettings const reloaded_settings = core::AppSettingsStore::Load();
-
-        UnregisterHotkeys();
-        *app_settings_ = reloaded_settings;
-        hotkeys_registered_ = RegisterHotkeys();
-        if (hotkeys_registered_)
+        if (ApplySettings(core::AppSettingsStore::Load(), false, L"配置已读取，但新热键注册失败，已恢复旧热键。", L""))
         {
             ShowMessageDialog(L"CaptureZY", L"配置已重载。", MB_ICONINFORMATION);
             return true;
         }
 
-        *app_settings_ = previous_settings;
-        hotkeys_registered_ = RegisterHotkeys();
-        ShowMessageDialog(L"CaptureZY", L"配置已读取，但新热键注册失败，已恢复旧热键。", MB_ICONWARNING);
         return false;
     }
 
@@ -757,6 +404,7 @@ namespace capturezy::platform_win
         AppendMenuW(menu, MF_STRING, kBeginFullScreenCaptureCommandId, L"全屏截图");
         AppendMenuW(menu, MF_STRING, kBeginFullScreenCaptureAndSaveCommandId, L"全屏截图并保存");
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(menu, MF_STRING, kOpenSettingsDialogCommandId, L"设置...");
         AppendMenuW(default_scope_menu,
                     app_settings_->default_capture_scope == core::CaptureScopeSetting::Region ? MF_STRING | MF_CHECKED
                                                                                               : MF_STRING,
@@ -934,34 +582,43 @@ namespace capturezy::platform_win
             BeginCaptureEntry(CaptureRequest{CaptureScope::FullScreen, CaptureAction::SaveToFile});
             return true;
 
+        case kOpenSettingsDialogCommandId:
+            OpenSettingsDialog();
+            return true;
+
         case kSetDefaultScopeRegionCommandId: {
-            core::AppSettings const previous_settings = *app_settings_;
-            app_settings_->default_capture_scope = core::CaptureScopeSetting::Region;
-            return SaveSettings(previous_settings);
+            core::AppSettings updated_settings = *app_settings_;
+            updated_settings.default_capture_scope = core::CaptureScopeSetting::Region;
+            return ApplySettings(std::move(updated_settings), true, L"应用新配置失败，已保留当前配置。",
+                                 L"配置保存失败。");
         }
 
         case kSetDefaultScopeFullScreenCommandId: {
-            core::AppSettings const previous_settings = *app_settings_;
-            app_settings_->default_capture_scope = core::CaptureScopeSetting::FullScreen;
-            return SaveSettings(previous_settings);
+            core::AppSettings updated_settings = *app_settings_;
+            updated_settings.default_capture_scope = core::CaptureScopeSetting::FullScreen;
+            return ApplySettings(std::move(updated_settings), true, L"应用新配置失败，已保留当前配置。",
+                                 L"配置保存失败。");
         }
 
         case kSetDefaultActionCopyOnlyCommandId: {
-            core::AppSettings const previous_settings = *app_settings_;
-            app_settings_->default_capture_action = core::CaptureActionSetting::CopyOnly;
-            return SaveSettings(previous_settings);
+            core::AppSettings updated_settings = *app_settings_;
+            updated_settings.default_capture_action = core::CaptureActionSetting::CopyOnly;
+            return ApplySettings(std::move(updated_settings), true, L"应用新配置失败，已保留当前配置。",
+                                 L"配置保存失败。");
         }
 
         case kSetDefaultActionCopyAndPinCommandId: {
-            core::AppSettings const previous_settings = *app_settings_;
-            app_settings_->default_capture_action = core::CaptureActionSetting::CopyAndPin;
-            return SaveSettings(previous_settings);
+            core::AppSettings updated_settings = *app_settings_;
+            updated_settings.default_capture_action = core::CaptureActionSetting::CopyAndPin;
+            return ApplySettings(std::move(updated_settings), true, L"应用新配置失败，已保留当前配置。",
+                                 L"配置保存失败。");
         }
 
         case kSetDefaultActionSaveToFileCommandId: {
-            core::AppSettings const previous_settings = *app_settings_;
-            app_settings_->default_capture_action = core::CaptureActionSetting::SaveToFile;
-            return SaveSettings(previous_settings);
+            core::AppSettings updated_settings = *app_settings_;
+            updated_settings.default_capture_action = core::CaptureActionSetting::SaveToFile;
+            return ApplySettings(std::move(updated_settings), true, L"应用新配置失败，已保留当前配置。",
+                                 L"配置保存失败。");
         }
 
         case kEditSettingsFileCommandId:
@@ -979,11 +636,14 @@ namespace capturezy::platform_win
             return true;
 
         case kChooseDefaultSaveDirectoryCommandId:
-            if (auto selected_directory = PickDefaultSaveDirectory(); selected_directory.has_value())
+            if (auto selected_directory = PickDirectoryDialog(window_, L"选择默认保存目录",
+                                                              app_settings_->default_save_directory);
+                selected_directory.has_value())
             {
-                core::AppSettings const previous_settings = *app_settings_;
-                app_settings_->default_save_directory = std::move(*selected_directory);
-                if (SaveSettings(previous_settings))
+                core::AppSettings updated_settings = *app_settings_;
+                updated_settings.default_save_directory = std::move(*selected_directory);
+                if (ApplySettings(std::move(updated_settings), true, L"应用新配置失败，已保留当前配置。",
+                                  L"配置保存失败。"))
                 {
                     ShowMessageDialog(L"CaptureZY", L"默认保存目录已更新。", MB_ICONINFORMATION);
                 }
@@ -998,12 +658,14 @@ namespace capturezy::platform_win
             return true;
 
         case kEditDefaultSavePrefixCommandId:
-            if (auto new_prefix = PromptForDefaultSavePrefix(app_settings_->default_save_file_prefix);
+            if (auto new_prefix = ShowTextInputDialog(instance_, window_, L"设置默认文件名前缀",
+                                                      L"输入默认文件名前缀：", app_settings_->default_save_file_prefix);
                 new_prefix.has_value())
             {
-                core::AppSettings const previous_settings = *app_settings_;
-                app_settings_->default_save_file_prefix = std::move(*new_prefix);
-                if (SaveSettings(previous_settings))
+                core::AppSettings updated_settings = *app_settings_;
+                updated_settings.default_save_file_prefix = std::move(*new_prefix);
+                if (ApplySettings(std::move(updated_settings), true, L"应用新配置失败，已保留当前配置。",
+                                  L"配置保存失败。"))
                 {
                     ShowMessageDialog(L"CaptureZY", L"默认文件名前缀已更新。", MB_ICONINFORMATION);
                 }

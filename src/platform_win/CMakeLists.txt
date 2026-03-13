@@ -2,6 +2,7 @@ add_library(
   capturezy_platform_win
   STATIC
     main_window.cpp
+    settings_dialog.cpp
 )
 
 capturezy_apply_defaults(capturezy_platform_win)
@@ -20,6 +21,7 @@ target_link_libraries(
     capturezy_feature_pin
   PRIVATE
     comdlg32
+    comctl32
     shell32
     user32
     gdi32
