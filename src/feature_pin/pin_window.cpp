@@ -461,48 +461,21 @@ namespace capturezy::feature_pin
         GetClientRect(window_, &client_rect);
         int const client_width = client_rect.right - client_rect.left;
         int const client_height = client_rect.bottom - client_rect.top;
-
-        HDC canvas_device_context = CreateCompatibleDC(device_context);
-        HBITMAP canvas_bitmap = nullptr;
-        if (canvas_device_context != nullptr)
-        {
-            canvas_bitmap = CreateCompatibleBitmap(device_context, client_width, client_height);
-        }
-
-        if (canvas_device_context == nullptr || canvas_bitmap == nullptr)
-        {
-            if (canvas_bitmap != nullptr)
-            {
-                DeleteObject(canvas_bitmap);
-            }
-            if (canvas_device_context != nullptr)
-            {
-                DeleteDC(canvas_device_context);
-            }
-            EndPaint(window_, &paint);
-            return;
-        }
-
-        HGDIOBJ previous_canvas_bitmap = SelectObject(canvas_device_context, canvas_bitmap);
-        FillRect(canvas_device_context, &client_rect, GetSysColorBrush(COLOR_WINDOW));
         SIZE const target_size{.cx = client_width, .cy = client_height};
+        FillRect(device_context, &client_rect, GetSysColorBrush(COLOR_WINDOW));
         if (EnsureScaledBitmapCache(device_context, target_size))
         {
             HDC image_device_context = CreateCompatibleDC(device_context);
             if (image_device_context != nullptr)
             {
                 HGDIOBJ previous_image_bitmap = SelectObject(image_device_context, scaled_bitmap_cache_.Get());
-                BitBlt(canvas_device_context, 0, 0, client_width, client_height, image_device_context, 0, 0, SRCCOPY);
+                BitBlt(device_context, 0, 0, client_width, client_height, image_device_context, 0, 0, SRCCOPY);
                 SelectObject(image_device_context, previous_image_bitmap);
                 DeleteDC(image_device_context);
             }
         }
 
-        FrameRect(canvas_device_context, &client_rect, GetSysColorBrush(COLOR_WINDOWFRAME));
-        BitBlt(device_context, 0, 0, client_width, client_height, canvas_device_context, 0, 0, SRCCOPY);
-        SelectObject(canvas_device_context, previous_canvas_bitmap);
-        DeleteObject(canvas_bitmap);
-        DeleteDC(canvas_device_context);
+        FrameRect(device_context, &client_rect, GetSysColorBrush(COLOR_WINDOWFRAME));
         EndPaint(window_, &paint);
     }
 
