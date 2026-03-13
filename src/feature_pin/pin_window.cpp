@@ -81,6 +81,7 @@ namespace capturezy::feature_pin
 
         Close();
         capture_result_ = std::move(capture_result);
+        ResetScaledBitmapCache();
         scale_percent_ = kDefaultScalePercent;
         topmost_ = true;
 
@@ -107,6 +108,8 @@ namespace capturezy::feature_pin
             DestroyWindow(window_);
             window_ = nullptr;
         }
+
+        ResetScaledBitmapCache();
     }
 
     bool PinWindow::IsOpen() const noexcept
@@ -268,6 +271,7 @@ namespace capturezy::feature_pin
     {
         WNDCLASSEXW window_class{};
         window_class.cbSize = sizeof(window_class);
+        window_class.style = CS_DBLCLKS;
         window_class.lpfnWndProc = PinWindow::WindowProc;
         window_class.hInstance = instance_;
         window_class.hCursor = LoadCursorW(nullptr, IDC_ARROW);
@@ -302,7 +306,7 @@ namespace capturezy::feature_pin
         return 0;
     }
 
-    bool PinWindow::UpdateScale(short wheel_delta, POINT anchor_screen_point) noexcept
+    bool PinWindow::UpdateScale(short wheel_delta) noexcept
     {
         int const wheel_steps = wheel_delta / WHEEL_DELTA;
         if (wheel_steps == 0)
@@ -320,24 +324,135 @@ namespace capturezy::feature_pin
         RECT window_rect{};
         GetWindowRect(window_, &window_rect);
 
-        int const old_width = std::max(1, static_cast<int>(window_rect.right - window_rect.left));
-        int const old_height = std::max(1, static_cast<int>(window_rect.bottom - window_rect.top));
-        int const relative_x = anchor_screen_point.x - window_rect.left;
-        int const relative_y = anchor_screen_point.y - window_rect.top;
-
         scale_percent_ = new_scale_percent;
+        ResetScaledBitmapCache();
 
         SIZE const new_size = CurrentClientSize();
-        int const new_left = anchor_screen_point.x - MulDiv(relative_x, new_size.cx, old_width);
-        int const new_top = anchor_screen_point.y - MulDiv(relative_y, new_size.cy, old_height);
-
-        SetWindowPos(window_, nullptr, new_left, new_top, new_size.cx, new_size.cy, SWP_NOACTIVATE | SWP_NOZORDER);
+        SetWindowPos(window_, nullptr, window_rect.left, window_rect.top, new_size.cx, new_size.cy,
+                     SWP_NOACTIVATE | SWP_NOZORDER);
         RedrawWindow(window_, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE);
         ShowScaleOverlay();
         return true;
     }
 
-    void PinWindow::PaintWindow() const noexcept
+    void PinWindow::BeginDrag(POINT cursor_screen_point) noexcept
+    {
+        if (window_ == nullptr || dragging_)
+        {
+            return;
+        }
+
+        RECT window_rect{};
+        GetWindowRect(window_, &window_rect);
+        drag_offset_.x = cursor_screen_point.x - window_rect.left;
+        drag_offset_.y = cursor_screen_point.y - window_rect.top;
+        SetCapture(window_);
+        dragging_ = GetCapture() == window_;
+    }
+
+    void PinWindow::UpdateDrag(POINT cursor_screen_point) noexcept
+    {
+        if (window_ == nullptr || !dragging_)
+        {
+            return;
+        }
+
+        RECT window_rect{};
+        GetWindowRect(window_, &window_rect);
+        int const width = std::max(1, static_cast<int>(window_rect.right - window_rect.left));
+        int const height = std::max(1, static_cast<int>(window_rect.bottom - window_rect.top));
+        int const new_left = cursor_screen_point.x - drag_offset_.x;
+        int const new_top = cursor_screen_point.y - drag_offset_.y;
+        SetWindowPos(window_, nullptr, new_left, new_top, width, height, SWP_NOACTIVATE | SWP_NOZORDER);
+    }
+
+    void PinWindow::EndDrag() noexcept
+    {
+        if (!dragging_)
+        {
+            return;
+        }
+
+        dragging_ = false;
+        if (GetCapture() == window_)
+        {
+            ReleaseCapture();
+        }
+    }
+
+    void PinWindow::ResetScaledBitmapCache() noexcept
+    {
+        scaled_bitmap_cache_ = {};
+        scaled_bitmap_cache_size_ = {};
+    }
+
+    bool PinWindow::EnsureScaledBitmapCache(HDC device_context, SIZE target_size) noexcept
+    {
+        if (!capture_result_.IsValid() || target_size.cx <= 0 || target_size.cy <= 0)
+        {
+            ResetScaledBitmapCache();
+            return false;
+        }
+
+        if (scaled_bitmap_cache_.IsValid() && scaled_bitmap_cache_size_.cx == target_size.cx &&
+            scaled_bitmap_cache_size_.cy == target_size.cy)
+        {
+            return true;
+        }
+
+        HDC source_device_context = CreateCompatibleDC(device_context);
+        HDC cache_device_context = CreateCompatibleDC(device_context);
+        if (source_device_context == nullptr || cache_device_context == nullptr)
+        {
+            if (cache_device_context != nullptr)
+            {
+                DeleteDC(cache_device_context);
+            }
+            if (source_device_context != nullptr)
+            {
+                DeleteDC(source_device_context);
+            }
+            ResetScaledBitmapCache();
+            return false;
+        }
+
+        HBITMAP scaled_bitmap = CreateCompatibleBitmap(device_context, target_size.cx, target_size.cy);
+        if (scaled_bitmap == nullptr)
+        {
+            DeleteDC(cache_device_context);
+            DeleteDC(source_device_context);
+            ResetScaledBitmapCache();
+            return false;
+        }
+
+        HGDIOBJ previous_source_bitmap = SelectObject(source_device_context, capture_result_.Bitmap().Get());
+        HGDIOBJ previous_cache_bitmap = SelectObject(cache_device_context, scaled_bitmap);
+        RECT cache_rect{.left = 0, .top = 0, .right = target_size.cx, .bottom = target_size.cy};
+        FillRect(cache_device_context, &cache_rect, GetSysColorBrush(COLOR_WINDOW));
+        SetStretchBltMode(cache_device_context, HALFTONE);
+        SIZE const source_size = capture_result_.PixelSize();
+        bool const stretched = StretchBlt(cache_device_context, 0, 0, target_size.cx, target_size.cy,
+                                          source_device_context, 0, 0, source_size.cx, source_size.cy,
+                                          SRCCOPY) != FALSE;
+
+        SelectObject(cache_device_context, previous_cache_bitmap);
+        SelectObject(source_device_context, previous_source_bitmap);
+        DeleteDC(cache_device_context);
+        DeleteDC(source_device_context);
+
+        if (!stretched)
+        {
+            DeleteObject(scaled_bitmap);
+            ResetScaledBitmapCache();
+            return false;
+        }
+
+        scaled_bitmap_cache_ = feature_capture::CapturedBitmap(scaled_bitmap, target_size);
+        scaled_bitmap_cache_size_ = target_size;
+        return true;
+    }
+
+    void PinWindow::PaintWindow() noexcept
     {
         PAINTSTRUCT paint{};
         HDC device_context = BeginPaint(window_, &paint);
@@ -370,20 +485,17 @@ namespace capturezy::feature_pin
 
         HGDIOBJ previous_canvas_bitmap = SelectObject(canvas_device_context, canvas_bitmap);
         FillRect(canvas_device_context, &client_rect, GetSysColorBrush(COLOR_WINDOW));
-
-        HDC image_device_context = CreateCompatibleDC(device_context);
-        if (image_device_context != nullptr && capture_result_.IsValid())
+        SIZE const target_size{.cx = client_width, .cy = client_height};
+        if (EnsureScaledBitmapCache(device_context, target_size))
         {
-            HGDIOBJ previous_image_bitmap = SelectObject(image_device_context, capture_result_.Bitmap().Get());
-            SIZE const size = capture_result_.PixelSize();
-            SetStretchBltMode(canvas_device_context, HALFTONE);
-            StretchBlt(canvas_device_context, 0, 0, client_width, client_height, image_device_context, 0, 0, size.cx,
-                       size.cy, SRCCOPY);
-            SelectObject(image_device_context, previous_image_bitmap);
-        }
-        if (image_device_context != nullptr)
-        {
-            DeleteDC(image_device_context);
+            HDC image_device_context = CreateCompatibleDC(device_context);
+            if (image_device_context != nullptr)
+            {
+                HGDIOBJ previous_image_bitmap = SelectObject(image_device_context, scaled_bitmap_cache_.Get());
+                BitBlt(canvas_device_context, 0, 0, client_width, client_height, image_device_context, 0, 0, SRCCOPY);
+                SelectObject(image_device_context, previous_image_bitmap);
+                DeleteDC(image_device_context);
+            }
         }
 
         FrameRect(canvas_device_context, &client_rect, GetSysColorBrush(COLOR_WINDOWFRAME));
@@ -510,6 +622,7 @@ namespace capturezy::feature_pin
                     RECT window_rect{};
                     GetWindowRect(window_, &window_rect);
                     scale_percent_ = kDefaultScalePercent;
+                    ResetScaledBitmapCache();
                     SIZE const size = CurrentClientSize();
                     SetWindowPos(window_, nullptr, window_rect.left, window_rect.top, size.cx, size.cy,
                                  SWP_NOACTIVATE | SWP_NOZORDER);
@@ -531,13 +644,43 @@ namespace capturezy::feature_pin
             }
             break;
 
-        case WM_NCHITTEST:
-            return HTCAPTION;
+        case WM_MOUSEACTIVATE:
+            return MA_ACTIVATE;
+
+        case WM_ACTIVATE:
+            if (LOWORD(w_param) != WA_INACTIVE && !dragging_ && (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0)
+            {
+                POINT cursor_screen_point{};
+                GetCursorPos(&cursor_screen_point);
+                BeginDrag(cursor_screen_point);
+            }
+            break;
 
         case WM_NCLBUTTONDBLCLK:
         case WM_LBUTTONDBLCLK:
         case WM_CLOSE:
             DestroyWindow(window_);
+            return 0;
+
+        case WM_LBUTTONDOWN: {
+            POINT anchor_screen_point{.x = GET_X_LPARAM(l_param), .y = GET_Y_LPARAM(l_param)};
+            ClientToScreen(window_, &anchor_screen_point);
+            BeginDrag(anchor_screen_point);
+            return 0;
+        }
+
+        case WM_MOUSEMOVE:
+            if ((w_param & MK_LBUTTON) != 0U)
+            {
+                POINT anchor_screen_point{.x = GET_X_LPARAM(l_param), .y = GET_Y_LPARAM(l_param)};
+                ClientToScreen(window_, &anchor_screen_point);
+                UpdateDrag(anchor_screen_point);
+            }
+            return 0;
+
+        case WM_LBUTTONUP:
+        case WM_CAPTURECHANGED:
+            EndDrag();
             return 0;
 
         case WM_NCRBUTTONUP: {
@@ -554,8 +697,7 @@ namespace capturezy::feature_pin
         }
 
         case WM_MOUSEWHEEL: {
-            POINT const anchor_screen_point{.x = GET_X_LPARAM(l_param), .y = GET_Y_LPARAM(l_param)};
-            UpdateScale(GET_WHEEL_DELTA_WPARAM(w_param), anchor_screen_point);
+            UpdateScale(GET_WHEEL_DELTA_WPARAM(w_param));
             return 0;
         }
 
@@ -579,6 +721,7 @@ namespace capturezy::feature_pin
             break;
 
         case WM_DESTROY:
+            EndDrag();
             HideScaleOverlay();
             if (scale_overlay_window_ != nullptr)
             {
@@ -586,6 +729,7 @@ namespace capturezy::feature_pin
                 scale_overlay_window_ = nullptr;
             }
             capture_result_ = {};
+            ResetScaledBitmapCache();
             window_ = nullptr;
             if (state_changed_callback_)
             {

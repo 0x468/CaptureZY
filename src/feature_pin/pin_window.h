@@ -38,16 +38,21 @@ namespace capturezy::feature_pin
         [[nodiscard]] SIZE CurrentClientSize() const noexcept;
         [[nodiscard]] ATOM RegisterWindowClass() const;
         [[nodiscard]] ATOM RegisterScaleOverlayClass() const;
-        bool UpdateScale(short wheel_delta, POINT anchor_screen_point) noexcept;
+        bool UpdateScale(short wheel_delta) noexcept;
         void SetTopmost(bool topmost) noexcept;
         void CopyToClipboard() const noexcept;
         void SaveToFile() const;
         void ShowContextMenu(POINT anchor_screen_point) noexcept;
-        void PaintWindow() const noexcept;
+        void PaintWindow() noexcept;
         void PaintScaleOverlay(HWND overlay_window) const;
         void ShowScaleOverlay() noexcept;
         void HideScaleOverlay() noexcept;
         void UpdateScaleOverlayPosition() const noexcept;
+        void ResetScaledBitmapCache() noexcept;
+        bool EnsureScaledBitmapCache(HDC device_context, SIZE target_size) noexcept;
+        void BeginDrag(POINT cursor_screen_point) noexcept;
+        void UpdateDrag(POINT cursor_screen_point) noexcept;
+        void EndDrag() noexcept;
         [[nodiscard]] LRESULT HandleMessage(UINT message, WPARAM w_param, LPARAM l_param);
 
         static LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM w_param, LPARAM l_param);
@@ -55,11 +60,15 @@ namespace capturezy::feature_pin
 
         HINSTANCE instance_;
         core::AppSettings const *app_settings_;
-        StateChangedCallback state_changed_callback_{};
+        StateChangedCallback state_changed_callback_;
         HWND window_{};
         HWND scale_overlay_window_{};
         feature_capture::CaptureResult capture_result_{};
+        feature_capture::CapturedBitmap scaled_bitmap_cache_;
+        SIZE scaled_bitmap_cache_size_{};
+        POINT drag_offset_{};
         std::int32_t scale_percent_{100};
         bool topmost_{true};
+        bool dragging_{false};
     };
 } // namespace capturezy::feature_pin
