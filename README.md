@@ -41,10 +41,10 @@ cmake --build --preset windows-clang-cl-debug
 
 ## 近期目标
 
-1. 完成应用壳层与平台服务基础设施。
-2. 实现截图覆盖层主链路。
-3. 实现第一版贴图窗口流程。
-4. 补齐设置、诊断与手工回归基线。
+1. 收敛贴图窗口交互语义与右键菜单。
+2. 在真实 DPI / 多显示器环境执行首版手工回归清单。
+3. 继续观察大尺寸贴图缩放与渲染稳定性。
+4. 为后续发布准备安装与交付方案。
 
 ## 仓库结构
 
@@ -60,3 +60,5 @@ src/app/            进程入口与应用组装
 开始实现功能前，建议先阅读 [docs/product.md](/home/gwf/Projects/captureZY/docs/product.md)、[docs/architecture.md](/home/gwf/Projects/captureZY/docs/architecture.md) 和 [docs/decisions.md](/home/gwf/Projects/captureZY/docs/decisions.md)。
 
 如果需要了解项目当前已完成能力与下一阶段建议，可继续阅读 [docs/current-status.md](docs/current-status.md)。
+
+如果需要执行当前的手工回归基线，可继续阅读 [docs/manual-regression.md](docs/manual-regression.md)。
