@@ -668,7 +668,6 @@ namespace capturezy::platform_win
             app_state_->ReturnToIdle();
         }
 
-        ShowWindowAndActivate();
         UpdateWindowPresentation();
     }
 
@@ -681,7 +680,6 @@ namespace capturezy::platform_win
         }
 
         app_state_->ReturnToIdle();
-        ShowWindowAndActivate();
         UpdateWindowPresentation();
     }
 
