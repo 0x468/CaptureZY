@@ -9,6 +9,7 @@
 
 namespace
 {
+#ifdef CAPTUREZY_ENABLE_DIAGNOSTIC_SELF_TEST
     void RunDiagnosticsSelfTest(std::wstring_view command_line)
     {
         if (command_line.contains(L"--diag-test-cpp-crash"))
@@ -21,6 +22,7 @@ namespace
             RaiseException(0xE0000001UL, EXCEPTION_NONCONTINUABLE, 0, nullptr);
         }
     }
+#endif
 } // namespace
 
 // `wWinMain` 需要保持 Windows 约定签名，这里对 clang-tidy 的误报做局部抑制。
@@ -34,7 +36,9 @@ int WINAPI wWinMain(HINSTANCE hInstance, // NOLINT(bugprone-easily-swappable-par
 
     try
     {
+#ifdef CAPTUREZY_ENABLE_DIAGNOSTIC_SELF_TEST
         RunDiagnosticsSelfTest(lpCmdLine != nullptr ? std::wstring_view(lpCmdLine) : std::wstring_view{});
+#endif
         capturezy::app::Application application(hInstance);
         return application.Run(nShowCmd);
     }

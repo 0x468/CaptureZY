@@ -13,6 +13,12 @@ target_include_directories(
     ${PROJECT_SOURCE_DIR}/src
 )
 
+target_compile_definitions(
+  CaptureZY
+  PRIVATE
+    $<$<OR:$<CONFIG:Debug>,$<BOOL:${CAPTUREZY_FORCE_DIAGNOSTIC_SELF_TEST}>>:CAPTUREZY_ENABLE_DIAGNOSTIC_SELF_TEST>
+)
+
 target_link_libraries(
   CaptureZY
   PRIVATE

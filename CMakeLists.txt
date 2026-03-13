@@ -10,6 +10,7 @@ project(
 option(CAPTUREZY_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 option(CAPTUREZY_ENABLE_LTO "Enable link time optimization when supported" OFF)
 option(CAPTUREZY_ENABLE_CLANG_TIDY "Run clang-tidy during the build when available" OFF)
+option(CAPTUREZY_FORCE_DIAGNOSTIC_SELF_TEST "Enable diagnostic self-test CLI hooks in all build configurations" OFF)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
