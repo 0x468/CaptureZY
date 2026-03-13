@@ -31,7 +31,8 @@ namespace capturezy::feature_pin
         constexpr UINT_PTR kToggleTopmostCommandId = 2001;
         constexpr UINT_PTR kCopyPinCommandId = 2002;
         constexpr UINT_PTR kSavePinCommandId = 2003;
-        constexpr UINT_PTR kClosePinCommandId = 2004;
+        constexpr UINT_PTR kHidePinCommandId = 2004;
+        constexpr UINT_PTR kClosePinCommandId = 2005;
 
         void SetWindowUserData(HWND window, PinWindow *pin_window)
         {
@@ -193,10 +194,11 @@ namespace capturezy::feature_pin
         }
 
         AppendMenuW(menu, MF_STRING, kToggleTopmostCommandId, topmost_ ? L"取消置顶" : L"置顶显示");
-        AppendMenuW(menu, MF_STRING, kCopyPinCommandId, L"复制截图");
-        AppendMenuW(menu, MF_STRING, kSavePinCommandId, L"保存为 PNG");
+        AppendMenuW(menu, MF_STRING, kCopyPinCommandId, L"复制图片");
+        AppendMenuW(menu, MF_STRING, kSavePinCommandId, L"另存为 PNG");
+        AppendMenuW(menu, MF_STRING, kHidePinCommandId, L"隐藏此贴图");
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-        AppendMenuW(menu, MF_STRING, kClosePinCommandId, L"关闭贴图");
+        AppendMenuW(menu, MF_STRING, kClosePinCommandId, L"关闭此贴图");
 
         SetForegroundWindow(window_);
         TrackPopupMenu(menu, TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RIGHTBUTTON, anchor_screen_point.x,
@@ -459,6 +461,10 @@ namespace capturezy::feature_pin
 
             case kSavePinCommandId:
                 SaveToFile();
+                return 0;
+
+            case kHidePinCommandId:
+                Hide();
                 return 0;
 
             case kClosePinCommandId:
