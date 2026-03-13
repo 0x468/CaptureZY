@@ -1,6 +1,7 @@
 add_library(
   capturezy_core
   STATIC
+    crash_diagnostics.cpp
     app_settings.cpp
     app_settings_store.cpp
     app_state.cpp
@@ -18,6 +19,7 @@ target_include_directories(
 target_link_libraries(
   capturezy_core
   PRIVATE
+    dbghelp
     ole32
     shell32
 )
