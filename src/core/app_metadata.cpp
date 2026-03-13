@@ -15,8 +15,8 @@ namespace capturezy::core
     Size AppMetadata::MainWindowSize() noexcept
     {
         return {
-            .width = 1280,
-            .height = 768,
+            .width = 420,
+            .height = 160,
         };
     }
 } // namespace capturezy::core

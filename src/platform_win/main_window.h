@@ -65,6 +65,7 @@ namespace capturezy::platform_win
         [[nodiscard]] bool OpenSettingsDirectory() const;
         [[nodiscard]] bool ReloadSettings();
         void RemoveTrayIcon() noexcept;
+        void CenterWindowToWorkArea() noexcept;
         void ShowWindowAndActivate() noexcept;
         void HideToTray() noexcept;
         [[nodiscard]] std::wstring CurrentStatusText();

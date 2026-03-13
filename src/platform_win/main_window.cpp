@@ -60,6 +60,16 @@ namespace capturezy::platform_win
             return screen_rect;
         }
 
+        [[nodiscard]] DWORD StatusWindowStyle() noexcept
+        {
+            return WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+        }
+
+        [[nodiscard]] DWORD StatusWindowExStyle() noexcept
+        {
+            return WS_EX_TOOLWINDOW;
+        }
+
         [[nodiscard]] bool ShellExecuteSucceeded(HINSTANCE result) noexcept
         {
             // NOLINTNEXTLINE(performance-no-int-to-ptr,cppcoreguidelines-pro-type-reinterpret-cast)
@@ -147,9 +157,19 @@ namespace capturezy::platform_win
 
         core::Size const size = core::AppMetadata::MainWindowSize();
 
-        window_ = CreateWindowExW(0, core::AppMetadata::MainWindowClassName(), core::AppMetadata::ProductName(),
-                                  WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, size.width, size.height, nullptr,
-                                  nullptr, instance_, this);
+        RECT desired_rect{
+            .left = 0,
+            .top = 0,
+            .right = size.width,
+            .bottom = size.height,
+        };
+        AdjustWindowRectEx(&desired_rect, StatusWindowStyle(), FALSE, StatusWindowExStyle());
+        int const window_width = desired_rect.right - desired_rect.left;
+        int const window_height = desired_rect.bottom - desired_rect.top;
+
+        window_ = CreateWindowExW(StatusWindowExStyle(), core::AppMetadata::MainWindowClassName(),
+                                  core::AppMetadata::ProductName(), StatusWindowStyle(), CW_USEDEFAULT, CW_USEDEFAULT,
+                                  window_width, window_height, nullptr, nullptr, instance_, this);
 
         if (window_ == nullptr)
         {
@@ -443,8 +463,35 @@ namespace capturezy::platform_win
 
     void MainWindow::ShowWindowAndActivate() noexcept
     {
+        CenterWindowToWorkArea();
         ShowWindow(window_, SW_SHOWNORMAL);
         SetForegroundWindow(window_);
+    }
+
+    void MainWindow::CenterWindowToWorkArea() noexcept
+    {
+        if (window_ == nullptr)
+        {
+            return;
+        }
+
+        RECT window_rect{};
+        if (GetWindowRect(window_, &window_rect) == FALSE)
+        {
+            return;
+        }
+
+        RECT work_area{};
+        if (SystemParametersInfoW(SPI_GETWORKAREA, 0, &work_area, 0) == FALSE)
+        {
+            return;
+        }
+
+        int const window_width = window_rect.right - window_rect.left;
+        int const window_height = window_rect.bottom - window_rect.top;
+        int const target_x = work_area.left + (((work_area.right - work_area.left) - window_width) / 2);
+        int const target_y = work_area.top + (((work_area.bottom - work_area.top) - window_height) / 2);
+        SetWindowPos(window_, nullptr, target_x, target_y, 0, 0, SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOSIZE);
     }
 
     void MainWindow::ShowMessageDialog(wchar_t const *title, wchar_t const *message, UINT icon_flags) const noexcept
