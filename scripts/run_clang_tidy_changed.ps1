@@ -17,7 +17,9 @@ $trackedFiles = git diff --name-only --diff-filter=ACMR $BaseRef -- `
 $untrackedFiles = git ls-files --others --exclude-standard -- `
     'src/*.cpp' 'src/*/*.cpp'
 
-$files = @($trackedFiles + $untrackedFiles) | Sort-Object -Unique
+$files = @(@($trackedFiles) + @($untrackedFiles)) |
+    Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+    Sort-Object -Unique
 
 if (-not $files) {
     Write-Host "没有检测到相对于 $BaseRef 的 C/C++ 源文件改动。"
