@@ -72,7 +72,7 @@ namespace capturezy::core
 
         case AppMode::Idle:
         default:
-            return L"CaptureZY 启动骨架已就绪";
+            return L"CaptureZY 正在后台运行，可通过托盘菜单进行截图、设置和贴图管理";
         }
     }
 } // namespace capturezy::core

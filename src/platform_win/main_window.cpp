@@ -171,9 +171,13 @@ namespace capturezy::platform_win
 
         hotkeys_registered_ = RegisterHotkeys();
 
-        ShowWindow(window_, show_command);
         UpdateWindowPresentation();
-        UpdateWindow(window_);
+        HideToTray();
+
+        if (show_command == SW_SHOWNORMAL || show_command == SW_SHOWDEFAULT)
+        {
+            ShowWindow(window_, SW_HIDE);
+        }
         return true;
     }
 
@@ -502,7 +506,7 @@ namespace capturezy::platform_win
             close_all_pins_flags |= MF_GRAYED;
         }
 
-        AppendMenuW(menu, MF_STRING, kShowWindowCommandId, L"显示窗口");
+        AppendMenuW(menu, MF_STRING, kShowWindowCommandId, L"显示状态窗口");
         AppendMenuW(menu, MF_STRING, kBeginCaptureCommandId, L"开始截图");
         AppendMenuW(menu, MF_STRING, kBeginCaptureAndSaveCommandId, L"开始截图并保存");
         AppendMenuW(menu, MF_STRING, kBeginFullScreenCaptureCommandId, L"全屏截图");
