@@ -67,7 +67,7 @@ namespace capturezy::platform_win
         void ShowWindowAndActivate() noexcept;
         void HideToTray() noexcept;
         void ShowMessageDialog(wchar_t const *title, wchar_t const *message, UINT icon_flags) const noexcept;
-        void ShowTrayMenu() noexcept;
+        void ShowTrayMenu();
         void PaintWindow() const noexcept;
         void ExecutePendingCaptureRequest();
         void ProcessCaptureResult(feature_capture::CaptureResult capture_result);

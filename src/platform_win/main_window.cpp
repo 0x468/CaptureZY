@@ -65,6 +65,27 @@ namespace capturezy::platform_win
             // NOLINTNEXTLINE(performance-no-int-to-ptr,cppcoreguidelines-pro-type-reinterpret-cast)
             return reinterpret_cast<INT_PTR>(result) > 32;
         }
+
+        struct BatchPinMenuLabelParts final
+        {
+            wchar_t const *action_prefix;
+            wchar_t const *item_label;
+        };
+
+        [[nodiscard]] std::wstring BatchPinMenuLabel(BatchPinMenuLabelParts parts, std::size_t count)
+        {
+            if (count == 0)
+            {
+                return parts.action_prefix;
+            }
+
+            std::wstring label = parts.action_prefix;
+            label += L" ";
+            label += std::to_wstring(count);
+            label += L" ";
+            label += parts.item_label;
+            return label;
+        }
     } // namespace
 
     MainWindow::MainWindow(HINSTANCE instance, core::AppState &app_state, core::AppSettings &app_settings) noexcept
@@ -350,7 +371,7 @@ namespace capturezy::platform_win
         ShowWindow(window_, SW_HIDE);
     }
 
-    void MainWindow::ShowTrayMenu() noexcept
+    void MainWindow::ShowTrayMenu()
     {
         HMENU menu = CreatePopupMenu();
         if (menu == nullptr)
@@ -438,9 +459,23 @@ namespace capturezy::platform_win
         AppendMenuW(menu, MF_STRING, kOpenDefaultSaveDirectoryCommandId, L"打开默认保存目录");
         AppendMenuW(menu, MF_STRING, kReloadSettingsCommandId, L"重新加载配置");
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-        AppendMenuW(menu, show_all_pins_flags, kShowAllPinsCommandId, L"显示全部贴图");
-        AppendMenuW(menu, hide_all_pins_flags, kHideAllPinsCommandId, L"隐藏全部贴图");
-        AppendMenuW(menu, close_all_pins_flags, kCloseAllPinsCommandId, L"关闭全部贴图");
+        std::wstring const show_all_pins_label = hidden_pin_count == 0
+                                                     ? L"恢复全部贴图"
+                                                     : BatchPinMenuLabel(
+                                                           {.action_prefix = L"恢复", .item_label = L"个隐藏贴图"},
+                                                           hidden_pin_count);
+        std::wstring const hide_all_pins_label = visible_pin_count == 0 ? L"隐藏全部贴图"
+                                                                        : BatchPinMenuLabel({.action_prefix = L"隐藏",
+                                                                                             .item_label = L"个贴图"},
+                                                                                            visible_pin_count);
+        std::wstring const close_all_pins_label = open_pin_count == 0 ? L"关闭全部贴图"
+                                                                      : BatchPinMenuLabel({.action_prefix = L"关闭",
+                                                                                           .item_label = L"个贴图"},
+                                                                                          open_pin_count);
+
+        AppendMenuW(menu, show_all_pins_flags, kShowAllPinsCommandId, show_all_pins_label.c_str());
+        AppendMenuW(menu, hide_all_pins_flags, kHideAllPinsCommandId, hide_all_pins_label.c_str());
+        AppendMenuW(menu, close_all_pins_flags, kCloseAllPinsCommandId, close_all_pins_label.c_str());
         AppendMenuW(menu, MF_STRING, kExitApplicationCommandId, L"退出");
 
         POINT cursor_position{};
