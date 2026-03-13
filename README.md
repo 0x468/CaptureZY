@@ -43,8 +43,8 @@ cmake --build --preset windows-clang-cl-debug
 
 1. 在真实 DPI / 多显示器环境执行首版手工回归清单。
 2. 继续观察大尺寸贴图缩放与渲染稳定性。
-3. 为后续发布准备安装与交付方案。
-4. 评估下一步的安装包与发布流程收敛方案。
+3. 继续补齐安装器、签名和发布自动化。
+4. 为后续正式发布准备交付与回归收敛方案。
 
 ## 仓库结构
 
@@ -62,3 +62,5 @@ src/app/            进程入口与应用组装
 如果需要了解项目当前已完成能力与下一阶段建议，可继续阅读 [docs/current-status.md](docs/current-status.md)。
 
 如果需要执行当前的手工回归基线，可继续阅读 [docs/manual-regression.md](docs/manual-regression.md)。
+
+如果需要生成当前阶段的 Release 目录或 ZIP 包，可继续阅读 [docs/release-packaging.md](docs/release-packaging.md)。
