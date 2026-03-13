@@ -193,11 +193,12 @@ namespace capturezy::feature_pin
             return;
         }
 
-        AppendMenuW(menu, MF_STRING, kToggleTopmostCommandId, topmost_ ? L"取消置顶" : L"置顶显示");
         AppendMenuW(menu, MF_STRING, kCopyPinCommandId, L"复制图片");
         AppendMenuW(menu, MF_STRING, kSavePinCommandId, L"另存为 PNG");
-        AppendMenuW(menu, MF_STRING, kHidePinCommandId, L"隐藏此贴图");
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(menu, topmost_ ? MF_STRING | MF_CHECKED : MF_STRING, kToggleTopmostCommandId, L"始终置顶");
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(menu, MF_STRING, kHidePinCommandId, L"隐藏此贴图");
         AppendMenuW(menu, MF_STRING, kClosePinCommandId, L"关闭此贴图");
 
         SetForegroundWindow(window_);
