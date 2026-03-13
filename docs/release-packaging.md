@@ -66,6 +66,21 @@ cpack --config out\build\windows-msvc\CPackConfig.cmake -C Release
 
 - `out\build\windows-msvc\CaptureZY-<version>-windows-x64.zip`
 
+## 一键执行脚本
+
+如果希望一次完成配置、Release 构建、安装目录导出和 ZIP 打包，可以执行：
+
+```powershell
+pwsh -File .\scripts\package_release.ps1
+```
+
+默认行为：
+
+- 使用 `windows-msvc` 进行配置
+- 使用 `windows-msvc-release` 进行构建
+- 导出到 `out\install\CaptureZY`
+- 生成 ZIP 到 `out\build\windows-msvc`
+
 ## 当前建议
 
 - 开发期优先验证 ZIP 包和安装目录导出流程是否稳定。
