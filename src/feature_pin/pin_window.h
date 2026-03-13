@@ -5,6 +5,7 @@
 // clang-format on
 
 #include <cstdint>
+#include <functional>
 
 #include "core/app_settings.h"
 #include "feature_capture/capture_result.h"
@@ -14,6 +15,8 @@ namespace capturezy::feature_pin
     class PinWindow final
     {
       public:
+        using StateChangedCallback = std::function<void()>;
+
         PinWindow(HINSTANCE instance, core::AppSettings const &app_settings) noexcept;
         ~PinWindow() noexcept;
 
@@ -25,6 +28,7 @@ namespace capturezy::feature_pin
         [[nodiscard]] bool Create(feature_capture::CaptureResult capture_result);
         void Close() noexcept;
         [[nodiscard]] bool IsOpen() const noexcept;
+        void SetStateChangedCallback(StateChangedCallback callback);
         void Show() noexcept;
         void Hide() noexcept;
         [[nodiscard]] bool IsVisible() const noexcept;
@@ -51,6 +55,7 @@ namespace capturezy::feature_pin
 
         HINSTANCE instance_;
         core::AppSettings const *app_settings_;
+        StateChangedCallback state_changed_callback_{};
         HWND window_{};
         HWND scale_overlay_window_{};
         feature_capture::CaptureResult capture_result_{};

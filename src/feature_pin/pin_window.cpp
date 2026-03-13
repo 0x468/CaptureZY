@@ -112,9 +112,14 @@ namespace capturezy::feature_pin
         return window_ != nullptr;
     }
 
+    void PinWindow::SetStateChangedCallback(StateChangedCallback callback)
+    {
+        state_changed_callback_ = std::move(callback);
+    }
+
     void PinWindow::Show() noexcept
     {
-        if (window_ == nullptr)
+        if (window_ == nullptr || IsVisible())
         {
             return;
         }
@@ -124,17 +129,27 @@ namespace capturezy::feature_pin
         {
             UpdateScaleOverlayPosition();
         }
+
+        if (state_changed_callback_)
+        {
+            state_changed_callback_();
+        }
     }
 
     void PinWindow::Hide() noexcept
     {
-        if (window_ == nullptr)
+        if (window_ == nullptr || !IsVisible())
         {
             return;
         }
 
         HideScaleOverlay();
         ShowWindow(window_, SW_HIDE);
+
+        if (state_changed_callback_)
+        {
+            state_changed_callback_();
+        }
     }
 
     bool PinWindow::IsVisible() const noexcept
@@ -533,6 +548,10 @@ namespace capturezy::feature_pin
             }
             capture_result_ = {};
             window_ = nullptr;
+            if (state_changed_callback_)
+            {
+                state_changed_callback_();
+            }
             return 0;
 
         default:

@@ -10,6 +10,11 @@ namespace capturezy::feature_pin
     {
     }
 
+    void PinManager::SetInventoryChangedCallback(InventoryChangedCallback callback)
+    {
+        inventory_changed_callback_ = std::move(callback);
+    }
+
     bool PinManager::CreatePin(feature_capture::CaptureResult capture_result)
     {
         if (!capture_result.IsValid())
@@ -20,12 +25,14 @@ namespace capturezy::feature_pin
         PruneClosedPins();
 
         auto pin_window = std::make_unique<PinWindow>(instance_, *app_settings_);
+        pin_window->SetStateChangedCallback([this]() { NotifyInventoryChanged(); });
         if (!pin_window->Create(std::move(capture_result)))
         {
             return false;
         }
 
         pin_windows_.push_back(std::move(pin_window));
+        NotifyInventoryChanged();
         return true;
     }
 
@@ -69,6 +76,14 @@ namespace capturezy::feature_pin
         std::erase_if(pin_windows_, [](std::unique_ptr<PinWindow> const &pin_window) {
             return pin_window == nullptr || !pin_window->IsOpen();
         });
+    }
+
+    void PinManager::NotifyInventoryChanged() const
+    {
+        if (inventory_changed_callback_)
+        {
+            inventory_changed_callback_();
+        }
     }
 
     std::size_t PinManager::OpenPinCount() noexcept

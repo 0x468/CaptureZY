@@ -112,6 +112,13 @@ namespace capturezy::platform_win
             return false;
         }
 
+        pin_manager_.SetInventoryChangedCallback([this]() {
+            if (window_ != nullptr)
+            {
+                UpdateWindowPresentation();
+            }
+        });
+
         if (!CreateTrayIcon())
         {
             DestroyWindow(window_);
@@ -180,6 +187,37 @@ namespace capturezy::platform_win
         title += app_state_->WindowTitleSuffix();
         SetWindowTextW(window_, title.c_str());
         InvalidateRect(window_, nullptr, TRUE);
+    }
+
+    std::wstring MainWindow::CurrentStatusText()
+    {
+        std::wstring status_text = app_state_->StatusText();
+
+        std::size_t const open_pin_count = pin_manager_.OpenPinCount();
+        if (open_pin_count == 0)
+        {
+            return status_text;
+        }
+
+        std::size_t const visible_pin_count = pin_manager_.VisiblePinCount();
+        std::size_t const hidden_pin_count = open_pin_count >= visible_pin_count ? open_pin_count - visible_pin_count
+                                                                                 : 0;
+        if (hidden_pin_count == 0)
+        {
+            return status_text;
+        }
+
+        status_text += L" 当前有 ";
+        status_text += std::to_wstring(hidden_pin_count);
+        status_text += L" 个隐藏贴图";
+        if (visible_pin_count != 0)
+        {
+            status_text += L"，另有 ";
+            status_text += std::to_wstring(visible_pin_count);
+            status_text += L" 个仍在桌面显示";
+        }
+        status_text += L"，可在托盘菜单中恢复。";
+        return status_text;
     }
 
     void MainWindow::BeginCaptureEntry()
@@ -488,13 +526,22 @@ namespace capturezy::platform_win
         DestroyMenu(menu);
     }
 
-    void MainWindow::PaintWindow() const noexcept
+    void MainWindow::PaintWindow() noexcept
     {
         PAINTSTRUCT paint{};
         HDC device_context = BeginPaint(window_, &paint);
         RECT client_rect{};
         GetClientRect(window_, &client_rect);
-        DrawTextW(device_context, app_state_->StatusText(), -1, &client_rect, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+        try
+        {
+            std::wstring const status_text = CurrentStatusText();
+            DrawTextW(device_context, status_text.c_str(), -1, &client_rect, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+        }
+        catch (...)
+        {
+            DrawTextW(device_context, app_state_->StatusText(), -1, &client_rect,
+                      DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+        }
         EndPaint(window_, &paint);
     }
 

@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <shellapi.h>
+#include <string>
 
 #include "core/app_settings.h"
 #include "core/app_state.h"
@@ -66,9 +67,10 @@ namespace capturezy::platform_win
         void RemoveTrayIcon() noexcept;
         void ShowWindowAndActivate() noexcept;
         void HideToTray() noexcept;
+        [[nodiscard]] std::wstring CurrentStatusText();
         void ShowMessageDialog(wchar_t const *title, wchar_t const *message, UINT icon_flags) const noexcept;
         void ShowTrayMenu();
-        void PaintWindow() const noexcept;
+        void PaintWindow() noexcept;
         void ExecutePendingCaptureRequest();
         void ProcessCaptureResult(feature_capture::CaptureResult capture_result);
         void HandleOverlayResult(feature_capture::OverlayResult result);
