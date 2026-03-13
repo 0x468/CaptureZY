@@ -8,6 +8,8 @@
 
 #include <windowsx.h>
 
+#include "feature_capture/screen_capture.h"
+
 namespace capturezy::feature_capture
 {
     enum class OverlayResult : std::uint8_t
@@ -51,6 +53,7 @@ namespace capturezy::feature_capture
         HINSTANCE instance_;
         HWND owner_window_{};
         HWND overlay_window_{};
+        CapturedBitmap frozen_background_;
         int origin_left_{0};
         int origin_top_{0};
         RECT last_selection_rect_{};

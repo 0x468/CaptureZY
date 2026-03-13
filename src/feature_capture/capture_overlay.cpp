@@ -2,12 +2,13 @@
 
 #include <algorithm>
 
+#include "feature_capture/capture_result.h"
+
 namespace capturezy::feature_capture
 {
     namespace
     {
         constexpr wchar_t const *kOverlayWindowClassName = L"CaptureZY.CaptureOverlay";
-        constexpr COLORREF kOverlayColor = RGB(0, 0, 0);
         constexpr BYTE kOverlayAlpha = 96;
         constexpr wchar_t const
             *kOverlayInstruction = L"窗口预选：悬停高亮，单击截取窗口；也可随时按住左键拖拽框选，Ctrl+A 全屏，Esc 取消";
@@ -59,6 +60,42 @@ namespace capturezy::feature_capture
 
             return false;
         }
+
+        void AlphaFillRect(HDC destination_device_context, RECT rect, BYTE alpha) noexcept
+        {
+            if (!IsRectNonEmpty(rect))
+            {
+                return;
+            }
+
+            HDC source_device_context = CreateCompatibleDC(destination_device_context);
+            if (source_device_context == nullptr)
+            {
+                return;
+            }
+
+            HBITMAP bitmap = CreateCompatibleBitmap(destination_device_context, 1, 1);
+            if (bitmap == nullptr)
+            {
+                DeleteDC(source_device_context);
+                return;
+            }
+
+            HGDIOBJ previous_bitmap = SelectObject(source_device_context, bitmap);
+            SetPixelV(source_device_context, 0, 0, RGB(0, 0, 0));
+            BLENDFUNCTION const blend_function{
+                .BlendOp = AC_SRC_OVER,
+                .BlendFlags = 0,
+                .SourceConstantAlpha = alpha,
+                .AlphaFormat = 0,
+            };
+            (void)AlphaBlend(destination_device_context, rect.left, rect.top, rect.right - rect.left,
+                             rect.bottom - rect.top, source_device_context, 0, 0, 1, 1, blend_function);
+
+            SelectObject(source_device_context, previous_bitmap);
+            DeleteObject(bitmap);
+            DeleteDC(source_device_context);
+        }
     } // namespace
 
     CaptureOverlay::CaptureOverlay(HINSTANCE instance) noexcept : instance_(instance) {}
@@ -97,6 +134,10 @@ namespace capturezy::feature_capture
         int const height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
         origin_left_ = left;
         origin_top_ = top;
+        frozen_background_ = ScreenCapture::CaptureRegion(
+                                 RECT{.left = left, .top = top, .right = left + width, .bottom = top + height})
+                                 .Bitmap()
+                                 .Clone();
 
         overlay_window_ = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED, kOverlayWindowClassName,
                                           L"CaptureZY Overlay", WS_POPUP, left, top, width, height, owner_window_,
@@ -107,7 +148,7 @@ namespace capturezy::feature_capture
             return false;
         }
 
-        SetLayeredWindowAttributes(overlay_window_, kOverlayColor, kOverlayAlpha, LWA_ALPHA);
+        SetLayeredWindowAttributes(overlay_window_, 0, 255, LWA_ALPHA);
         ShowWindow(overlay_window_, SW_SHOW);
         SetForegroundWindow(overlay_window_);
         SetFocus(overlay_window_);
@@ -123,6 +164,7 @@ namespace capturezy::feature_capture
 
         DestroyWindow(overlay_window_);
         overlay_window_ = nullptr;
+        frozen_background_ = {};
     }
 
     bool CaptureOverlay::IsVisible() const noexcept
@@ -290,35 +332,70 @@ namespace capturezy::feature_capture
 
         RECT client_rect{};
         GetClientRect(overlay_window_, &client_rect);
-        FillRect(device_context, &client_rect, GetSysColorBrush(COLOR_WINDOWTEXT));
-        SetBkMode(device_context, TRANSPARENT);
-        SetTextColor(device_context, RGB(255, 255, 255));
-        DrawTextW(device_context, kOverlayInstruction, -1, &client_rect, DT_CENTER | DT_WORDBREAK | DT_TOP);
-
-        if (has_hover_window_ && !drag_in_progress_)
+        if (frozen_background_.IsValid())
         {
-            RECT window_rect = OverlayToClientRect(hover_window_rect_);
-            HPEN selection_pen = CreatePen(PS_SOLID, 2, RGB(255, 215, 0));
-            HGDIOBJ old_pen = SelectObject(device_context, selection_pen);
-            HGDIOBJ old_brush = SelectObject(device_context, GetStockObject(HOLLOW_BRUSH));
-            Rectangle(device_context, window_rect.left, window_rect.top, window_rect.right, window_rect.bottom);
-            SelectObject(device_context, old_brush);
-            SelectObject(device_context, old_pen);
-            DeleteObject(selection_pen);
+            HDC bitmap_device_context = CreateCompatibleDC(device_context);
+            if (bitmap_device_context != nullptr)
+            {
+                HGDIOBJ previous_bitmap = SelectObject(bitmap_device_context, frozen_background_.Get());
+                SIZE const background_size = frozen_background_.Size();
+                (void)BitBlt(device_context, 0, 0, background_size.cx, background_size.cy, bitmap_device_context, 0, 0,
+                             SRCCOPY);
+                SelectObject(bitmap_device_context, previous_bitmap);
+                DeleteDC(bitmap_device_context);
+            }
         }
+        else
+        {
+            FillRect(device_context, &client_rect, GetSysColorBrush(COLOR_WINDOWTEXT));
+        }
+
+        AlphaFillRect(device_context, client_rect, kOverlayAlpha);
+
+        RECT preview_rect{};
+        bool has_preview_rect = false;
+        COLORREF border_color = RGB(255, 215, 0);
 
         if (has_selection_)
         {
-            RECT selection_rect = CurrentSelectionRect();
-            HPEN selection_pen = CreatePen(PS_SOLID, 2, RGB(255, 255, 255));
+            preview_rect = CurrentSelectionRect();
+            has_preview_rect = true;
+            border_color = RGB(255, 255, 255);
+        }
+        else if (has_hover_window_ && !drag_in_progress_)
+        {
+            preview_rect = OverlayToClientRect(hover_window_rect_);
+            has_preview_rect = true;
+        }
+
+        if (has_preview_rect)
+        {
+            if (frozen_background_.IsValid())
+            {
+                HDC bitmap_device_context = CreateCompatibleDC(device_context);
+                if (bitmap_device_context != nullptr)
+                {
+                    HGDIOBJ previous_bitmap = SelectObject(bitmap_device_context, frozen_background_.Get());
+                    (void)BitBlt(device_context, preview_rect.left, preview_rect.top,
+                                 preview_rect.right - preview_rect.left, preview_rect.bottom - preview_rect.top,
+                                 bitmap_device_context, preview_rect.left, preview_rect.top, SRCCOPY);
+                    SelectObject(bitmap_device_context, previous_bitmap);
+                    DeleteDC(bitmap_device_context);
+                }
+            }
+
+            HPEN selection_pen = CreatePen(PS_SOLID, 2, border_color);
             HGDIOBJ old_pen = SelectObject(device_context, selection_pen);
             HGDIOBJ old_brush = SelectObject(device_context, GetStockObject(HOLLOW_BRUSH));
-            Rectangle(device_context, selection_rect.left, selection_rect.top, selection_rect.right,
-                      selection_rect.bottom);
+            Rectangle(device_context, preview_rect.left, preview_rect.top, preview_rect.right, preview_rect.bottom);
             SelectObject(device_context, old_brush);
             SelectObject(device_context, old_pen);
             DeleteObject(selection_pen);
         }
+
+        SetBkMode(device_context, TRANSPARENT);
+        SetTextColor(device_context, RGB(255, 255, 255));
+        DrawTextW(device_context, kOverlayInstruction, -1, &client_rect, DT_CENTER | DT_WORDBREAK | DT_TOP);
 
         EndPaint(overlay_window_, &paint);
     }
