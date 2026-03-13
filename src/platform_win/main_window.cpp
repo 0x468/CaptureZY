@@ -86,6 +86,25 @@ namespace capturezy::platform_win
             label += parts.item_label;
             return label;
         }
+
+        [[nodiscard]] std::wstring PinInventorySummaryLabel(std::size_t visible_pin_count, std::size_t hidden_pin_count)
+        {
+            if (visible_pin_count == 0 && hidden_pin_count == 0)
+            {
+                return L"贴图：当前无贴图";
+            }
+
+            std::wstring label = L"贴图：显示 ";
+            label += std::to_wstring(visible_pin_count);
+            label += L" 个";
+            if (hidden_pin_count != 0)
+            {
+                label += L"，隐藏 ";
+                label += std::to_wstring(hidden_pin_count);
+                label += L" 个";
+            }
+            return label;
+        }
     } // namespace
 
     MainWindow::MainWindow(HINSTANCE instance, core::AppState &app_state, core::AppSettings &app_settings) noexcept
@@ -511,6 +530,9 @@ namespace capturezy::platform_win
                                                                                            .item_label = L"个贴图"},
                                                                                           open_pin_count);
 
+        AppendMenuW(menu, MF_STRING | MF_DISABLED, 0,
+                    PinInventorySummaryLabel(visible_pin_count, hidden_pin_count).c_str());
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
         AppendMenuW(menu, show_all_pins_flags, kShowAllPinsCommandId, show_all_pins_label.c_str());
         AppendMenuW(menu, hide_all_pins_flags, kHideAllPinsCommandId, hide_all_pins_label.c_str());
         AppendMenuW(menu, close_all_pins_flags, kCloseAllPinsCommandId, close_all_pins_label.c_str());
