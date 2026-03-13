@@ -35,9 +35,6 @@ namespace capturezy::platform_win
         constexpr UINT_PTR kSetDefaultActionCopyAndPinCommandId = 1016;
         constexpr UINT_PTR kSetDefaultActionSaveToFileCommandId = 1017;
         constexpr UINT_PTR kOpenDefaultSaveDirectoryCommandId = 1018;
-        constexpr UINT_PTR kResetSettingsToDefaultsCommandId = 1019;
-        constexpr UINT_PTR kChooseDefaultSaveDirectoryCommandId = 1020;
-        constexpr UINT_PTR kEditDefaultSavePrefixCommandId = 1021;
         constexpr UINT_PTR kOpenSettingsDialogCommandId = 1022;
         constexpr int kCaptureHotkeyId = 1;
         // Win32 约定上经常需要把对象指针塞进 GWLP_USERDATA，这里统一封装并局部抑制告警。
@@ -243,6 +240,12 @@ namespace capturezy::platform_win
 
     void MainWindow::OpenSettingsDialog()
     {
+        bool const hotkeys_were_active = hotkeys_registered_;
+        if (hotkeys_were_active)
+        {
+            UnregisterHotkeys();
+        }
+
         if (auto updated_settings = ShowSettingsDialog(instance_, window_, *app_settings_);
             updated_settings.has_value())
         {
@@ -251,6 +254,13 @@ namespace capturezy::platform_win
             {
                 ShowMessageDialog(L"CaptureZY", L"设置已更新。", MB_ICONINFORMATION);
             }
+
+            return;
+        }
+
+        if (hotkeys_were_active)
+        {
+            hotkeys_registered_ = RegisterHotkeys();
         }
     }
 
@@ -300,18 +310,6 @@ namespace capturezy::platform_win
         HINSTANCE const result = ShellExecuteW(window_, L"open", save_directory.c_str(), nullptr, nullptr,
                                                SW_SHOWNORMAL);
         return ShellExecuteSucceeded(result);
-    }
-
-    bool MainWindow::ResetSettingsToDefaults()
-    {
-        if (ApplySettings(core::AppSettingsStore::LoadDefaults(), true, L"恢复默认配置失败，已保留当前配置。",
-                          L"默认配置已生成，但写回文件失败，已恢复当前配置。"))
-        {
-            ShowMessageDialog(L"CaptureZY", L"已恢复默认配置。", MB_ICONINFORMATION);
-            return true;
-        }
-
-        return false;
     }
 
     bool MainWindow::ReloadSettings()
@@ -437,11 +435,8 @@ namespace capturezy::platform_win
         AppendMenuW(menu, MF_POPUP, default_action_menu_handle, L"默认截图动作");
         AppendMenuW(menu, MF_STRING, kEditSettingsFileCommandId, L"编辑配置文件");
         AppendMenuW(menu, MF_STRING, kOpenSettingsDirectoryCommandId, L"打开配置目录");
-        AppendMenuW(menu, MF_STRING, kChooseDefaultSaveDirectoryCommandId, L"选择默认保存目录");
         AppendMenuW(menu, MF_STRING, kOpenDefaultSaveDirectoryCommandId, L"打开默认保存目录");
-        AppendMenuW(menu, MF_STRING, kEditDefaultSavePrefixCommandId, L"设置默认文件名前缀");
         AppendMenuW(menu, MF_STRING, kReloadSettingsCommandId, L"重新加载配置");
-        AppendMenuW(menu, MF_STRING, kResetSettingsToDefaultsCommandId, L"恢复默认配置");
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
         AppendMenuW(menu, show_all_pins_flags, kShowAllPinsCommandId, L"显示全部贴图");
         AppendMenuW(menu, hide_all_pins_flags, kHideAllPinsCommandId, L"隐藏全部贴图");
@@ -635,21 +630,6 @@ namespace capturezy::platform_win
             }
             return true;
 
-        case kChooseDefaultSaveDirectoryCommandId:
-            if (auto selected_directory = PickDirectoryDialog(window_, L"选择默认保存目录",
-                                                              app_settings_->default_save_directory);
-                selected_directory.has_value())
-            {
-                core::AppSettings updated_settings = *app_settings_;
-                updated_settings.default_save_directory = std::move(*selected_directory);
-                if (ApplySettings(std::move(updated_settings), true, L"应用新配置失败，已保留当前配置。",
-                                  L"配置保存失败。"))
-                {
-                    ShowMessageDialog(L"CaptureZY", L"默认保存目录已更新。", MB_ICONINFORMATION);
-                }
-            }
-            return true;
-
         case kOpenDefaultSaveDirectoryCommandId:
             if (!OpenDefaultSaveDirectory())
             {
@@ -657,27 +637,8 @@ namespace capturezy::platform_win
             }
             return true;
 
-        case kEditDefaultSavePrefixCommandId:
-            if (auto new_prefix = ShowTextInputDialog(instance_, window_, L"设置默认文件名前缀",
-                                                      L"输入默认文件名前缀：", app_settings_->default_save_file_prefix);
-                new_prefix.has_value())
-            {
-                core::AppSettings updated_settings = *app_settings_;
-                updated_settings.default_save_file_prefix = std::move(*new_prefix);
-                if (ApplySettings(std::move(updated_settings), true, L"应用新配置失败，已保留当前配置。",
-                                  L"配置保存失败。"))
-                {
-                    ShowMessageDialog(L"CaptureZY", L"默认文件名前缀已更新。", MB_ICONINFORMATION);
-                }
-            }
-            return true;
-
         case kReloadSettingsCommandId:
             (void)ReloadSettings();
-            return true;
-
-        case kResetSettingsToDefaultsCommandId:
-            (void)ResetSettingsToDefaults();
             return true;
 
         case kShowAllPinsCommandId:

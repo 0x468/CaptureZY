@@ -62,7 +62,6 @@ namespace capturezy::platform_win
         [[nodiscard]] bool OpenDefaultSaveDirectory() const;
         [[nodiscard]] bool OpenSettingsFileForEditing() const;
         [[nodiscard]] bool OpenSettingsDirectory() const;
-        [[nodiscard]] bool ResetSettingsToDefaults();
         [[nodiscard]] bool ReloadSettings();
         void RemoveTrayIcon() noexcept;
         void ShowWindowAndActivate() noexcept;
