@@ -72,6 +72,13 @@ namespace capturezy::platform_win
             wchar_t const *item_label;
         };
 
+        struct PinInventoryCounts final
+        {
+            std::size_t open_pin_count;
+            std::size_t visible_pin_count;
+            std::size_t hidden_pin_count;
+        };
+
         [[nodiscard]] std::wstring BatchPinMenuLabel(BatchPinMenuLabelParts parts, std::size_t count)
         {
             if (count == 0)
@@ -87,21 +94,39 @@ namespace capturezy::platform_win
             return label;
         }
 
-        [[nodiscard]] std::wstring PinInventorySummaryLabel(std::size_t visible_pin_count, std::size_t hidden_pin_count)
+        [[nodiscard]] std::wstring PinInventorySummaryLabel(PinInventoryCounts counts)
         {
-            if (visible_pin_count == 0 && hidden_pin_count == 0)
+            if (counts.visible_pin_count == 0 && counts.hidden_pin_count == 0)
             {
                 return L"贴图：当前无贴图";
             }
 
             std::wstring label = L"贴图：显示 ";
-            label += std::to_wstring(visible_pin_count);
+            label += std::to_wstring(counts.visible_pin_count);
             label += L" 个";
-            if (hidden_pin_count != 0)
+            if (counts.hidden_pin_count != 0)
             {
                 label += L"，隐藏 ";
-                label += std::to_wstring(hidden_pin_count);
+                label += std::to_wstring(counts.hidden_pin_count);
                 label += L" 个";
+            }
+            return label;
+        }
+
+        [[nodiscard]] std::wstring CloseAllPinsLabel(PinInventoryCounts counts)
+        {
+            if (counts.open_pin_count == 0)
+            {
+                return L"关闭全部贴图";
+            }
+
+            std::wstring label = BatchPinMenuLabel({.action_prefix = L"关闭", .item_label = L"个贴图"},
+                                                   counts.open_pin_count);
+            if (counts.hidden_pin_count != 0)
+            {
+                label += L"（含 ";
+                label += std::to_wstring(counts.hidden_pin_count);
+                label += L" 个隐藏）";
             }
             return label;
         }
@@ -455,6 +480,9 @@ namespace capturezy::platform_win
         std::size_t const open_pin_count = pin_manager_.OpenPinCount();
         std::size_t const visible_pin_count = pin_manager_.VisiblePinCount();
         std::size_t const hidden_pin_count = pin_manager_.HiddenPinCount();
+        PinInventoryCounts const pin_counts{.open_pin_count = open_pin_count,
+                                            .visible_pin_count = visible_pin_count,
+                                            .hidden_pin_count = hidden_pin_count};
 
         UINT show_all_pins_flags = MF_STRING;
         if (hidden_pin_count == 0)
@@ -525,13 +553,9 @@ namespace capturezy::platform_win
                                                                         : BatchPinMenuLabel({.action_prefix = L"隐藏",
                                                                                              .item_label = L"个贴图"},
                                                                                             visible_pin_count);
-        std::wstring const close_all_pins_label = open_pin_count == 0 ? L"关闭全部贴图"
-                                                                      : BatchPinMenuLabel({.action_prefix = L"关闭",
-                                                                                           .item_label = L"个贴图"},
-                                                                                          open_pin_count);
+        std::wstring const close_all_pins_label = CloseAllPinsLabel(pin_counts);
 
-        AppendMenuW(menu, MF_STRING | MF_DISABLED, 0,
-                    PinInventorySummaryLabel(visible_pin_count, hidden_pin_count).c_str());
+        AppendMenuW(menu, MF_STRING | MF_DISABLED, 0, PinInventorySummaryLabel(pin_counts).c_str());
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
         AppendMenuW(menu, show_all_pins_flags, kShowAllPinsCommandId, show_all_pins_label.c_str());
         AppendMenuW(menu, hide_all_pins_flags, kHideAllPinsCommandId, hide_all_pins_label.c_str());
