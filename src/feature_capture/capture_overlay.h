@@ -8,6 +8,7 @@
 
 #include <windowsx.h>
 
+#include "feature_capture/capture_result.h"
 #include "feature_capture/screen_capture.h"
 
 namespace capturezy::feature_capture
@@ -27,6 +28,7 @@ namespace capturezy::feature_capture
         void Close() noexcept;
         [[nodiscard]] bool IsVisible() const noexcept;
         [[nodiscard]] RECT LastSelectionRect() const noexcept;
+        [[nodiscard]] CaptureResult FrozenSelectionResult() const noexcept;
 
         static constexpr UINT ResultMessage() noexcept
         {
@@ -54,6 +56,7 @@ namespace capturezy::feature_capture
         HWND owner_window_{};
         HWND overlay_window_{};
         CapturedBitmap frozen_background_;
+        CaptureResult final_capture_result_{};
         int origin_left_{0};
         int origin_top_{0};
         RECT last_selection_rect_{};

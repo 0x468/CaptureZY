@@ -2,6 +2,10 @@
 
 #include <algorithm>
 
+// clang-format off
+#include <dwmapi.h>
+// clang-format on
+
 #include "feature_capture/capture_result.h"
 
 namespace capturezy::feature_capture
@@ -48,8 +52,14 @@ namespace capturezy::feature_capture
                 }
 
                 RECT candidate_rect{};
-                if (GetWindowRect(window, &candidate_rect) == FALSE || !IsRectNonEmpty(candidate_rect) ||
-                    PtInRect(&candidate_rect, screen_point) == FALSE)
+                HRESULT const dwm_result = DwmGetWindowAttribute(window, DWMWA_EXTENDED_FRAME_BOUNDS, &candidate_rect,
+                                                                 sizeof(candidate_rect));
+                if (FAILED(dwm_result) && GetWindowRect(window, &candidate_rect) == FALSE)
+                {
+                    continue;
+                }
+
+                if (!IsRectNonEmpty(candidate_rect) || PtInRect(&candidate_rect, screen_point) == FALSE)
                 {
                     continue;
                 }
@@ -106,6 +116,7 @@ namespace capturezy::feature_capture
         origin_left_ = 0;
         origin_top_ = 0;
         last_selection_rect_ = {};
+        final_capture_result_ = {};
         drag_start_ = {};
         drag_current_ = {};
         hover_window_rect_ = {};
@@ -175,6 +186,80 @@ namespace capturezy::feature_capture
     RECT CaptureOverlay::LastSelectionRect() const noexcept
     {
         return last_selection_rect_;
+    }
+
+    CaptureResult CaptureOverlay::FrozenSelectionResult() const noexcept
+    {
+        if (final_capture_result_.IsValid())
+        {
+            return final_capture_result_.Clone();
+        }
+
+        if (!frozen_background_.IsValid())
+        {
+            return {};
+        }
+
+        int const selection_width = last_selection_rect_.right - last_selection_rect_.left;
+        int const selection_height = last_selection_rect_.bottom - last_selection_rect_.top;
+        if (selection_width <= 0 || selection_height <= 0)
+        {
+            return {};
+        }
+
+        int const source_left = last_selection_rect_.left - origin_left_;
+        int const source_top = last_selection_rect_.top - origin_top_;
+
+        HDC screen_device_context = GetDC(nullptr);
+        if (screen_device_context == nullptr)
+        {
+            return {};
+        }
+
+        HDC source_device_context = CreateCompatibleDC(screen_device_context);
+        HDC destination_device_context = CreateCompatibleDC(screen_device_context);
+        if (source_device_context == nullptr || destination_device_context == nullptr)
+        {
+            if (destination_device_context != nullptr)
+            {
+                DeleteDC(destination_device_context);
+            }
+            if (source_device_context != nullptr)
+            {
+                DeleteDC(source_device_context);
+            }
+            ReleaseDC(nullptr, screen_device_context);
+            return {};
+        }
+
+        HBITMAP cropped_bitmap = CreateCompatibleBitmap(screen_device_context, selection_width, selection_height);
+        if (cropped_bitmap == nullptr)
+        {
+            DeleteDC(destination_device_context);
+            DeleteDC(source_device_context);
+            ReleaseDC(nullptr, screen_device_context);
+            return {};
+        }
+
+        HGDIOBJ previous_source_bitmap = SelectObject(source_device_context, frozen_background_.Get());
+        HGDIOBJ previous_destination_bitmap = SelectObject(destination_device_context, cropped_bitmap);
+        bool const copied = BitBlt(destination_device_context, 0, 0, selection_width, selection_height,
+                                   source_device_context, source_left, source_top, SRCCOPY) != FALSE;
+
+        SelectObject(destination_device_context, previous_destination_bitmap);
+        SelectObject(source_device_context, previous_source_bitmap);
+        DeleteDC(destination_device_context);
+        DeleteDC(source_device_context);
+        ReleaseDC(nullptr, screen_device_context);
+
+        if (!copied)
+        {
+            DeleteObject(cropped_bitmap);
+            return {};
+        }
+
+        return {CapturedBitmap(cropped_bitmap, SIZE{.cx = selection_width, .cy = selection_height}),
+                last_selection_rect_, std::chrono::system_clock::now()};
     }
 
     RECT CaptureOverlay::CurrentSelectionRect() const noexcept
@@ -472,6 +557,11 @@ namespace capturezy::feature_capture
 
     void CaptureOverlay::Finish(OverlayResult result) noexcept
     {
+        if (result == OverlayResult::PlaceholderCaptured)
+        {
+            final_capture_result_ = FrozenSelectionResult();
+        }
+
         if (owner_window_ != nullptr)
         {
             PostMessageW(owner_window_, ResultMessage(), static_cast<WPARAM>(result), 0);

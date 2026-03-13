@@ -610,7 +610,7 @@ namespace capturezy::platform_win
     {
         if (result == feature_capture::OverlayResult::PlaceholderCaptured)
         {
-            ProcessCaptureResult(feature_capture::ScreenCapture::CaptureRegion(capture_overlay_.LastSelectionRect()));
+            ProcessCaptureResult(capture_overlay_.FrozenSelectionResult());
             return;
         }
 
