@@ -33,6 +33,7 @@ namespace capturezy::feature_pin
         constexpr UINT_PTR kSavePinCommandId = 2003;
         constexpr UINT_PTR kHidePinCommandId = 2004;
         constexpr UINT_PTR kClosePinCommandId = 2005;
+        constexpr UINT_PTR kResetScaleCommandId = 2006;
 
         void SetWindowUserData(HWND window, PinWindow *pin_window)
         {
@@ -58,6 +59,7 @@ namespace capturezy::feature_pin
             GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &monitor_info);
             return monitor_info.rcWork;
         }
+
     } // namespace
 
     PinWindow::PinWindow(HINSTANCE instance, core::AppSettings const &app_settings) noexcept
@@ -208,6 +210,29 @@ namespace capturezy::feature_pin
             return;
         }
 
+        UINT reset_scale_flags = MF_STRING;
+        if (scale_percent_ == kDefaultScalePercent)
+        {
+            reset_scale_flags |= MF_GRAYED;
+        }
+
+        wchar_t const *scale_label = nullptr;
+        std::wstring dynamic_scale_label;
+        try
+        {
+            dynamic_scale_label = L"缩放：";
+            dynamic_scale_label += std::to_wstring(scale_percent_);
+            dynamic_scale_label += L"%";
+            scale_label = dynamic_scale_label.c_str();
+        }
+        catch (...)
+        {
+            scale_label = L"缩放";
+        }
+
+        AppendMenuW(menu, MF_STRING | MF_DISABLED, 0, scale_label);
+        AppendMenuW(menu, reset_scale_flags, kResetScaleCommandId, L"重置缩放为 100%");
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
         AppendMenuW(menu, MF_STRING, kCopyPinCommandId, L"复制图片");
         AppendMenuW(menu, MF_STRING, kSavePinCommandId, L"另存为 PNG");
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
@@ -477,6 +502,20 @@ namespace capturezy::feature_pin
 
             case kSavePinCommandId:
                 SaveToFile();
+                return 0;
+
+            case kResetScaleCommandId:
+                if (scale_percent_ != kDefaultScalePercent)
+                {
+                    RECT window_rect{};
+                    GetWindowRect(window_, &window_rect);
+                    scale_percent_ = kDefaultScalePercent;
+                    SIZE const size = CurrentClientSize();
+                    SetWindowPos(window_, nullptr, window_rect.left, window_rect.top, size.cx, size.cy,
+                                 SWP_NOACTIVATE | SWP_NOZORDER);
+                    RedrawWindow(window_, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE);
+                    ShowScaleOverlay();
+                }
                 return 0;
 
             case kHidePinCommandId:
