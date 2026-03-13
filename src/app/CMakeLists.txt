@@ -26,3 +26,8 @@ target_link_libraries(
     capturezy_platform_win
     capturezy_render_d2d
 )
+
+install(
+  TARGETS CaptureZY
+  RUNTIME DESTINATION .
+)

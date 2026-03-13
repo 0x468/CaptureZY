@@ -6,6 +6,8 @@
 build/
 build-*/
 out/
+_CPack_Packages/
+CaptureZY-*.zip
 
 CMakeUserPresets.json
 CMakeCache.txt
