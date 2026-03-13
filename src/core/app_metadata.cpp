@@ -11,12 +11,4 @@ namespace capturezy::core
     {
         return L"CaptureZY.MainWindow";
     }
-
-    Size AppMetadata::MainWindowSize() noexcept
-    {
-        return {
-            .width = 420,
-            .height = 160,
-        };
-    }
 } // namespace capturezy::core

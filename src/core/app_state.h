@@ -23,8 +23,6 @@ namespace capturezy::core
         void ReturnToIdle() noexcept;
 
         [[nodiscard]] AppMode Mode() const noexcept;
-        [[nodiscard]] wchar_t const *WindowTitleSuffix() const noexcept;
-        [[nodiscard]] wchar_t const *StatusText() const noexcept;
 
       private:
         AppMode mode_{AppMode::Idle};

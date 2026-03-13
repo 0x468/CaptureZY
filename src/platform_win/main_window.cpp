@@ -17,7 +17,6 @@ namespace capturezy::platform_win
         constexpr UINT kTrayIconId = 1;
         constexpr UINT kTrayMessage = WM_APP + 1;
         constexpr UINT kExecutePendingCaptureMessage = WM_APP + 2;
-        constexpr UINT_PTR kShowWindowCommandId = 1001;
         constexpr UINT_PTR kBeginCaptureCommandId = 1002;
         constexpr UINT_PTR kBeginCaptureAndSaveCommandId = 1003;
         constexpr UINT_PTR kBeginFullScreenCaptureCommandId = 1004;
@@ -58,16 +57,6 @@ namespace capturezy::platform_win
             screen_rect.right = screen_rect.left + GetSystemMetrics(SM_CXVIRTUALSCREEN);
             screen_rect.bottom = screen_rect.top + GetSystemMetrics(SM_CYVIRTUALSCREEN);
             return screen_rect;
-        }
-
-        [[nodiscard]] DWORD StatusWindowStyle() noexcept
-        {
-            return WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
-        }
-
-        [[nodiscard]] DWORD StatusWindowExStyle() noexcept
-        {
-            return WS_EX_TOOLWINDOW;
         }
 
         [[nodiscard]] bool ShellExecuteSucceeded(HINSTANCE result) noexcept
@@ -155,21 +144,8 @@ namespace capturezy::platform_win
             return false;
         }
 
-        core::Size const size = core::AppMetadata::MainWindowSize();
-
-        RECT desired_rect{
-            .left = 0,
-            .top = 0,
-            .right = size.width,
-            .bottom = size.height,
-        };
-        AdjustWindowRectEx(&desired_rect, StatusWindowStyle(), FALSE, StatusWindowExStyle());
-        int const window_width = desired_rect.right - desired_rect.left;
-        int const window_height = desired_rect.bottom - desired_rect.top;
-
-        window_ = CreateWindowExW(StatusWindowExStyle(), core::AppMetadata::MainWindowClassName(),
-                                  core::AppMetadata::ProductName(), StatusWindowStyle(), CW_USEDEFAULT, CW_USEDEFAULT,
-                                  window_width, window_height, nullptr, nullptr, instance_, this);
+        window_ = CreateWindowExW(0, core::AppMetadata::MainWindowClassName(), core::AppMetadata::ProductName(),
+                                  WS_OVERLAPPED, 0, 0, 0, 0, nullptr, nullptr, instance_, this);
 
         if (window_ == nullptr)
         {
@@ -251,41 +227,7 @@ namespace capturezy::platform_win
 
     void MainWindow::UpdateWindowPresentation()
     {
-        std::wstring title = core::AppMetadata::ProductName();
-        title += app_state_->WindowTitleSuffix();
-        SetWindowTextW(window_, title.c_str());
-        InvalidateRect(window_, nullptr, TRUE);
-    }
-
-    std::wstring MainWindow::CurrentStatusText()
-    {
-        std::wstring status_text = app_state_->StatusText();
-
-        std::size_t const open_pin_count = pin_manager_.OpenPinCount();
-        if (open_pin_count == 0)
-        {
-            return status_text;
-        }
-
-        std::size_t const visible_pin_count = pin_manager_.VisiblePinCount();
-        std::size_t const hidden_pin_count = open_pin_count >= visible_pin_count ? open_pin_count - visible_pin_count
-                                                                                 : 0;
-        if (hidden_pin_count == 0)
-        {
-            return status_text;
-        }
-
-        status_text += L" 当前有 ";
-        status_text += std::to_wstring(hidden_pin_count);
-        status_text += L" 个隐藏贴图";
-        if (visible_pin_count != 0)
-        {
-            status_text += L"，另有 ";
-            status_text += std::to_wstring(visible_pin_count);
-            status_text += L" 个仍在桌面显示";
-        }
-        status_text += L"，可在托盘菜单中恢复。";
-        return status_text;
+        SetWindowTextW(window_, core::AppMetadata::ProductName());
     }
 
     void MainWindow::BeginCaptureEntry()
@@ -461,39 +403,6 @@ namespace capturezy::platform_win
         tray_icon_added_ = false;
     }
 
-    void MainWindow::ShowWindowAndActivate() noexcept
-    {
-        CenterWindowToWorkArea();
-        ShowWindow(window_, SW_SHOWNORMAL);
-        SetForegroundWindow(window_);
-    }
-
-    void MainWindow::CenterWindowToWorkArea() noexcept
-    {
-        if (window_ == nullptr)
-        {
-            return;
-        }
-
-        RECT window_rect{};
-        if (GetWindowRect(window_, &window_rect) == FALSE)
-        {
-            return;
-        }
-
-        RECT work_area{};
-        if (SystemParametersInfoW(SPI_GETWORKAREA, 0, &work_area, 0) == FALSE)
-        {
-            return;
-        }
-
-        int const window_width = window_rect.right - window_rect.left;
-        int const window_height = window_rect.bottom - window_rect.top;
-        int const target_x = work_area.left + (((work_area.right - work_area.left) - window_width) / 2);
-        int const target_y = work_area.top + (((work_area.bottom - work_area.top) - window_height) / 2);
-        SetWindowPos(window_, nullptr, target_x, target_y, 0, 0, SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOSIZE);
-    }
-
     void MainWindow::ShowMessageDialog(wchar_t const *title, wchar_t const *message, UINT icon_flags) const noexcept
     {
         MessageBoxW(window_, message, title, MB_OK | icon_flags);
@@ -553,7 +462,6 @@ namespace capturezy::platform_win
             close_all_pins_flags |= MF_GRAYED;
         }
 
-        AppendMenuW(menu, MF_STRING, kShowWindowCommandId, L"显示状态窗口");
         AppendMenuW(menu, MF_STRING, kBeginCaptureCommandId, L"开始截图");
         AppendMenuW(menu, MF_STRING, kBeginCaptureAndSaveCommandId, L"开始截图并保存");
         AppendMenuW(menu, MF_STRING, kBeginFullScreenCaptureCommandId, L"全屏截图");
@@ -623,25 +531,6 @@ namespace capturezy::platform_win
         DestroyMenu(menu);
     }
 
-    void MainWindow::PaintWindow() noexcept
-    {
-        PAINTSTRUCT paint{};
-        HDC device_context = BeginPaint(window_, &paint);
-        RECT client_rect{};
-        GetClientRect(window_, &client_rect);
-        try
-        {
-            std::wstring const status_text = CurrentStatusText();
-            DrawTextW(device_context, status_text.c_str(), -1, &client_rect, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
-        }
-        catch (...)
-        {
-            DrawTextW(device_context, app_state_->StatusText(), -1, &client_rect,
-                      DT_CENTER | DT_SINGLELINE | DT_VCENTER);
-        }
-        EndPaint(window_, &paint);
-    }
-
     void MainWindow::ExecutePendingCaptureRequest()
     {
         if (pending_capture_request_.scope == CaptureScope::FullScreen)
@@ -653,7 +542,6 @@ namespace capturezy::platform_win
         if (!capture_overlay_.Show(window_))
         {
             app_state_->ReturnToIdle();
-            ShowWindowAndActivate();
             UpdateWindowPresentation();
         }
     }
@@ -734,10 +622,6 @@ namespace capturezy::platform_win
     {
         switch (LOWORD(w_param))
         {
-        case kShowWindowCommandId:
-            ShowWindowAndActivate();
-            return true;
-
         case kBeginCaptureCommandId:
             BeginCaptureEntry();
             return true;
@@ -857,12 +741,9 @@ namespace capturezy::platform_win
         {
         case WM_CONTEXTMENU:
         case WM_RBUTTONUP:
-            ShowTrayMenu();
-            return true;
-
         case WM_LBUTTONUP:
         case WM_LBUTTONDBLCLK:
-            ShowWindowAndActivate();
+            ShowTrayMenu();
             return true;
 
         default:
@@ -915,10 +796,6 @@ namespace capturezy::platform_win
                 return 0;
             }
             break;
-
-        case WM_PAINT:
-            PaintWindow();
-            return 0;
 
         case kExecutePendingCaptureMessage:
             ExecutePendingCaptureRequest();
