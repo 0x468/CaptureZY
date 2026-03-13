@@ -9,7 +9,9 @@ namespace capturezy::feature_capture
         constexpr wchar_t const *kOverlayWindowClassName = L"CaptureZY.CaptureOverlay";
         constexpr COLORREF kOverlayColor = RGB(0, 0, 0);
         constexpr BYTE kOverlayAlpha = 96;
-        constexpr wchar_t const *kOverlayInstruction = L"拖拽选择区域，松开左键完成，Esc 取消";
+        constexpr wchar_t const
+            *kOverlayInstruction = L"窗口预选：悬停高亮，单击截取窗口；也可随时按住左键拖拽框选，Ctrl+A 全屏，Esc 取消";
+        constexpr int kDragThreshold = 4;
 
         void SetWindowUserData(HWND window, CaptureOverlay *overlay)
         {
@@ -21,6 +23,41 @@ namespace capturezy::feature_capture
         {
             // NOLINTNEXTLINE(performance-no-int-to-ptr,cppcoreguidelines-pro-type-reinterpret-cast)
             return reinterpret_cast<CaptureOverlay *>(GetWindowLongPtrW(window, GWLP_USERDATA));
+        }
+
+        [[nodiscard]] bool IsRectNonEmpty(RECT rect) noexcept
+        {
+            return rect.right > rect.left && rect.bottom > rect.top;
+        }
+
+        [[nodiscard]] bool FindTopLevelWindowRectAtPoint(HWND excluded_window, POINT screen_point,
+                                                         RECT &window_rect) noexcept
+        {
+            for (HWND window = GetTopWindow(nullptr); window != nullptr; window = GetWindow(window, GW_HWNDNEXT))
+            {
+                if (window == excluded_window || IsWindowVisible(window) == FALSE || IsIconic(window) != FALSE)
+                {
+                    continue;
+                }
+
+                LONG_PTR const ex_style = GetWindowLongPtrW(window, GWL_EXSTYLE);
+                if ((ex_style & WS_EX_TOOLWINDOW) != 0)
+                {
+                    continue;
+                }
+
+                RECT candidate_rect{};
+                if (GetWindowRect(window, &candidate_rect) == FALSE || !IsRectNonEmpty(candidate_rect) ||
+                    PtInRect(&candidate_rect, screen_point) == FALSE)
+                {
+                    continue;
+                }
+
+                window_rect = candidate_rect;
+                return true;
+            }
+
+            return false;
         }
     } // namespace
 
@@ -34,8 +71,13 @@ namespace capturezy::feature_capture
         last_selection_rect_ = {};
         drag_start_ = {};
         drag_current_ = {};
+        hover_window_rect_ = {};
+        click_candidate_window_rect_ = {};
+        pointer_down_ = false;
         drag_in_progress_ = false;
         has_selection_ = false;
+        has_hover_window_ = false;
+        has_click_candidate_window_ = false;
 
         if (overlay_window_ != nullptr)
         {
@@ -110,6 +152,177 @@ namespace capturezy::feature_capture
         return selection;
     }
 
+    RECT CaptureOverlay::OverlayRectScreen() const noexcept
+    {
+        RECT overlay_rect{};
+        if (overlay_window_ != nullptr && GetWindowRect(overlay_window_, &overlay_rect) != FALSE)
+        {
+            return overlay_rect;
+        }
+
+        overlay_rect.left = origin_left_;
+        overlay_rect.top = origin_top_;
+        overlay_rect.right = origin_left_ + GetSystemMetrics(SM_CXVIRTUALSCREEN);
+        overlay_rect.bottom = origin_top_ + GetSystemMetrics(SM_CYVIRTUALSCREEN);
+        return overlay_rect;
+    }
+
+    RECT CaptureOverlay::OverlayToClientRect(RECT rect) const noexcept
+    {
+        OffsetRect(&rect, -origin_left_, -origin_top_);
+        return rect;
+    }
+
+    bool CaptureOverlay::UpdateHoverWindowFromScreenPoint(POINT screen_point) noexcept
+    {
+        RECT window_rect{};
+        bool const found = FindTopLevelWindowRectAtPoint(overlay_window_, screen_point, window_rect);
+        bool const changed = found != has_hover_window_ ||
+                             (found && EqualRect(&window_rect, &hover_window_rect_) == FALSE);
+        has_hover_window_ = found;
+        hover_window_rect_ = found ? window_rect : RECT{};
+        return changed;
+    }
+
+    bool CaptureOverlay::HandleKeyDown(WPARAM w_param)
+    {
+        if (w_param == VK_ESCAPE)
+        {
+            Finish(OverlayResult::Cancelled);
+            return true;
+        }
+
+        if (w_param == 'A' && (GetKeyState(VK_CONTROL) & 0x8000) != 0)
+        {
+            last_selection_rect_ = OverlayRectScreen();
+            Finish(OverlayResult::PlaceholderCaptured);
+            return true;
+        }
+
+        return false;
+    }
+
+    void CaptureOverlay::BeginPointerSelection(LPARAM l_param) noexcept
+    {
+        drag_start_.x = GET_X_LPARAM(l_param);
+        drag_start_.y = GET_Y_LPARAM(l_param);
+        drag_current_ = drag_start_;
+        pointer_down_ = true;
+        drag_in_progress_ = false;
+        has_selection_ = false;
+        has_click_candidate_window_ = false;
+        if (has_hover_window_)
+        {
+            click_candidate_window_rect_ = hover_window_rect_;
+            has_click_candidate_window_ = true;
+        }
+
+        SetCapture(overlay_window_);
+    }
+
+    void CaptureOverlay::UpdatePointerSelection(LPARAM l_param)
+    {
+        if (pointer_down_)
+        {
+            drag_current_.x = GET_X_LPARAM(l_param);
+            drag_current_.y = GET_Y_LPARAM(l_param);
+            if (!drag_in_progress_ && (std::abs(drag_current_.x - drag_start_.x) >= kDragThreshold ||
+                                       std::abs(drag_current_.y - drag_start_.y) >= kDragThreshold))
+            {
+                drag_in_progress_ = true;
+                has_selection_ = true;
+                has_click_candidate_window_ = false;
+            }
+
+            if (drag_in_progress_)
+            {
+                InvalidateRect(overlay_window_, nullptr, TRUE);
+            }
+            return;
+        }
+
+        POINT cursor_position{};
+        GetCursorPos(&cursor_position);
+        if (UpdateHoverWindowFromScreenPoint(cursor_position))
+        {
+            InvalidateRect(overlay_window_, nullptr, TRUE);
+        }
+    }
+
+    void CaptureOverlay::CompletePointerSelection(LPARAM l_param) noexcept
+    {
+        if (!pointer_down_)
+        {
+            return;
+        }
+
+        pointer_down_ = false;
+        bool const was_dragging = drag_in_progress_;
+        bool const had_click_candidate = has_click_candidate_window_;
+        RECT const click_candidate_rect = click_candidate_window_rect_;
+        ReleaseCapture();
+        drag_current_.x = GET_X_LPARAM(l_param);
+        drag_current_.y = GET_Y_LPARAM(l_param);
+        if (was_dragging)
+        {
+            drag_in_progress_ = false;
+            last_selection_rect_ = CurrentSelectionRectScreen();
+            Finish(IsRectNonEmpty(last_selection_rect_) ? OverlayResult::PlaceholderCaptured
+                                                        : OverlayResult::Cancelled);
+            return;
+        }
+
+        if (had_click_candidate)
+        {
+            has_click_candidate_window_ = false;
+            last_selection_rect_ = click_candidate_rect;
+            Finish(OverlayResult::PlaceholderCaptured);
+            return;
+        }
+
+        Finish(OverlayResult::Cancelled);
+    }
+
+    void CaptureOverlay::PaintOverlay() noexcept
+    {
+        PAINTSTRUCT paint{};
+        HDC device_context = BeginPaint(overlay_window_, &paint);
+
+        RECT client_rect{};
+        GetClientRect(overlay_window_, &client_rect);
+        FillRect(device_context, &client_rect, GetSysColorBrush(COLOR_WINDOWTEXT));
+        SetBkMode(device_context, TRANSPARENT);
+        SetTextColor(device_context, RGB(255, 255, 255));
+        DrawTextW(device_context, kOverlayInstruction, -1, &client_rect, DT_CENTER | DT_WORDBREAK | DT_TOP);
+
+        if (has_hover_window_ && !drag_in_progress_)
+        {
+            RECT window_rect = OverlayToClientRect(hover_window_rect_);
+            HPEN selection_pen = CreatePen(PS_SOLID, 2, RGB(255, 215, 0));
+            HGDIOBJ old_pen = SelectObject(device_context, selection_pen);
+            HGDIOBJ old_brush = SelectObject(device_context, GetStockObject(HOLLOW_BRUSH));
+            Rectangle(device_context, window_rect.left, window_rect.top, window_rect.right, window_rect.bottom);
+            SelectObject(device_context, old_brush);
+            SelectObject(device_context, old_pen);
+            DeleteObject(selection_pen);
+        }
+
+        if (has_selection_)
+        {
+            RECT selection_rect = CurrentSelectionRect();
+            HPEN selection_pen = CreatePen(PS_SOLID, 2, RGB(255, 255, 255));
+            HGDIOBJ old_pen = SelectObject(device_context, selection_pen);
+            HGDIOBJ old_brush = SelectObject(device_context, GetStockObject(HOLLOW_BRUSH));
+            Rectangle(device_context, selection_rect.left, selection_rect.top, selection_rect.right,
+                      selection_rect.bottom);
+            SelectObject(device_context, old_brush);
+            SelectObject(device_context, old_pen);
+            DeleteObject(selection_pen);
+        }
+
+        EndPaint(overlay_window_, &paint);
+    }
+
     ATOM CaptureOverlay::RegisterWindowClass() const
     {
         WNDCLASSEXW window_class{};
@@ -137,85 +350,32 @@ namespace capturezy::feature_capture
             return 1;
 
         case WM_KEYDOWN:
-            if (w_param == VK_ESCAPE)
+            if (HandleKeyDown(w_param))
             {
-                Finish(OverlayResult::Cancelled);
                 return 0;
             }
             break;
 
         case WM_LBUTTONDOWN:
-            drag_start_.x = GET_X_LPARAM(l_param);
-            drag_start_.y = GET_Y_LPARAM(l_param);
-            drag_current_ = drag_start_;
-            drag_in_progress_ = true;
-            has_selection_ = true;
-            SetCapture(overlay_window_);
-            InvalidateRect(overlay_window_, nullptr, TRUE);
+            BeginPointerSelection(l_param);
             return 0;
 
         case WM_MOUSEMOVE:
-            if (drag_in_progress_)
-            {
-                drag_current_.x = GET_X_LPARAM(l_param);
-                drag_current_.y = GET_Y_LPARAM(l_param);
-                InvalidateRect(overlay_window_, nullptr, TRUE);
-            }
+            UpdatePointerSelection(l_param);
             return 0;
 
         case WM_LBUTTONUP:
-            if (drag_in_progress_)
-            {
-                drag_current_.x = GET_X_LPARAM(l_param);
-                drag_current_.y = GET_Y_LPARAM(l_param);
-                drag_in_progress_ = false;
-                ReleaseCapture();
-                last_selection_rect_ = CurrentSelectionRectScreen();
-                if ((last_selection_rect_.right - last_selection_rect_.left) > 0 &&
-                    (last_selection_rect_.bottom - last_selection_rect_.top) > 0)
-                {
-                    Finish(OverlayResult::PlaceholderCaptured);
-                }
-                else
-                {
-                    Finish(OverlayResult::Cancelled);
-                }
-            }
+            CompletePointerSelection(l_param);
             return 0;
 
-        case WM_PAINT: {
-            PAINTSTRUCT paint{};
-            HDC device_context = BeginPaint(overlay_window_, &paint);
-
-            RECT client_rect{};
-            GetClientRect(overlay_window_, &client_rect);
-            FillRect(device_context, &client_rect, GetSysColorBrush(COLOR_WINDOWTEXT));
-            SetBkMode(device_context, TRANSPARENT);
-            SetTextColor(device_context, RGB(255, 255, 255));
-            DrawTextW(device_context, kOverlayInstruction, -1, &client_rect, DT_CENTER | DT_SINGLELINE | DT_TOP);
-
-            if (has_selection_)
-            {
-                RECT selection_rect = CurrentSelectionRect();
-                HPEN selection_pen = CreatePen(PS_SOLID, 2, RGB(255, 255, 255));
-                HGDIOBJ old_pen = SelectObject(device_context, selection_pen);
-                HGDIOBJ old_brush = SelectObject(device_context, GetStockObject(HOLLOW_BRUSH));
-                Rectangle(device_context, selection_rect.left, selection_rect.top, selection_rect.right,
-                          selection_rect.bottom);
-                SelectObject(device_context, old_brush);
-                SelectObject(device_context, old_pen);
-                DeleteObject(selection_pen);
-            }
-
-            EndPaint(overlay_window_, &paint);
+        case WM_PAINT:
+            PaintOverlay();
             return 0;
-        }
 
         case WM_CAPTURECHANGED:
-            if (drag_in_progress_)
-            {
-                drag_in_progress_ = false;
-            }
+            pointer_down_ = false;
+            drag_in_progress_ = false;
+            has_click_candidate_window_ = false;
             return 0;
 
         case WM_DESTROY:
@@ -243,6 +403,8 @@ namespace capturezy::feature_capture
         Close();
     }
 
+    // `WindowProc` 需要保持 Win32 约定签名，这里对 clang-tidy 的误报做局部抑制。
+    // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
     LRESULT CALLBACK CaptureOverlay::WindowProc(HWND window, UINT message, WPARAM w_param, LPARAM l_param)
     {
         if (message == WM_NCCREATE)

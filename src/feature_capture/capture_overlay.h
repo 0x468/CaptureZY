@@ -34,6 +34,14 @@ namespace capturezy::feature_capture
       private:
         [[nodiscard]] RECT CurrentSelectionRect() const noexcept;
         [[nodiscard]] RECT CurrentSelectionRectScreen() const noexcept;
+        [[nodiscard]] RECT OverlayRectScreen() const noexcept;
+        [[nodiscard]] RECT OverlayToClientRect(RECT rect) const noexcept;
+        [[nodiscard]] bool UpdateHoverWindowFromScreenPoint(POINT screen_point) noexcept;
+        [[nodiscard]] bool HandleKeyDown(WPARAM w_param);
+        void BeginPointerSelection(LPARAM l_param) noexcept;
+        void UpdatePointerSelection(LPARAM l_param);
+        void CompletePointerSelection(LPARAM l_param) noexcept;
+        void PaintOverlay() noexcept;
         [[nodiscard]] ATOM RegisterWindowClass() const;
         [[nodiscard]] LRESULT HandleMessage(UINT message, WPARAM w_param, LPARAM l_param);
         void Finish(OverlayResult result) noexcept;
@@ -48,7 +56,12 @@ namespace capturezy::feature_capture
         RECT last_selection_rect_{};
         POINT drag_start_{};
         POINT drag_current_{};
+        RECT hover_window_rect_{};
+        RECT click_candidate_window_rect_{};
+        bool pointer_down_{false};
         bool drag_in_progress_{false};
         bool has_selection_{false};
+        bool has_hover_window_{false};
+        bool has_click_candidate_window_{false};
     };
 } // namespace capturezy::feature_capture
