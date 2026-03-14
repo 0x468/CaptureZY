@@ -64,6 +64,7 @@
 
 - CMake 工程组织
 - Win32 原生模块化结构
+- `windows-msvc` 预设可完成配置与 Debug 构建
 - `clang-format`
 - `clang-tidy`
 - 基础 ZIP 发布打包入口

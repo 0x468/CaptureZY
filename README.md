@@ -11,15 +11,21 @@ CaptureZY 是一个面向 Windows 的原生截图与贴图工具。
 
 ## 当前状态
 
-仓库目前包含第一版工程骨架：
+仓库当前已经完成截图与贴图主链路，不再只是工程骨架：
 
 - 基于 CMake 的构建配置
-- 最小可运行的 Win32 应用壳层与托盘宿主
-- 全局热键与截图入口占位流程
-- 全屏截图覆盖层原型
-- 区域截图、全屏截图、截图后保存、贴图窗口与 PNG 保存的基础流程
+- 纯托盘驻留的 Win32 应用壳层
+- 全局热键、托盘菜单与默认截图动作分发
+- 冻结背景式截图覆盖层
+- 区域截图、全屏截图与窗口级预框选截图
+- 剪贴板复制、PNG 保存与截图后贴图主路径
+- 贴图窗口的移动、缩放、置顶、隐藏、关闭、复制与保存
+- 图形化设置对话框与 JSON 配置持久化
+- 基础崩溃诊断、手工回归清单与 ZIP 打包入口
 - 基础格式化与静态检查配置
-- 首轮产品、架构与路线规划文档
+- 持续更新中的产品、架构、路线图与状态文档
+
+当前阶段更接近“Alpha 可用性收敛”，重点已经从单点能力补齐转向交互收敛、稳定性边界和发布准备。
 
 ## 构建方式
 
@@ -43,8 +49,8 @@ cmake --build --preset windows-clang-cl-debug
 
 1. 在真实 DPI / 多显示器环境执行首版手工回归清单。
 2. 继续观察大尺寸贴图缩放与渲染稳定性。
-3. 继续补齐安装器、签名和发布自动化。
-4. 为后续正式发布准备交付与回归收敛方案。
+3. 继续收敛截图交互设置与智能选区边界。
+4. 继续补齐安装器、签名和发布自动化。
 
 ## 仓库结构
 
@@ -52,12 +58,14 @@ cmake --build --preset windows-clang-cl-debug
 cmake/              CMake 辅助模块
 docs/               产品、架构、路线图与开发文档
 src/core/           平台无关的应用元信息与基础类型
+src/feature_capture/截图、覆盖层与保存流程
+src/feature_pin/    贴图窗口与贴图管理
 src/platform_win/   Win32 窗口与平台接入
 src/render_d2d/     Direct2D 渲染层占位
 src/app/            进程入口与应用组装
 ```
 
-开始实现功能前，建议先阅读 [docs/product.md](/home/gwf/Projects/captureZY/docs/product.md)、[docs/architecture.md](/home/gwf/Projects/captureZY/docs/architecture.md) 和 [docs/decisions.md](/home/gwf/Projects/captureZY/docs/decisions.md)。
+开始实现功能前，建议先阅读 [docs/product.md](docs/product.md)、[docs/architecture.md](docs/architecture.md) 和 [docs/decisions.md](docs/decisions.md)。
 
 如果需要了解项目当前已完成能力与下一阶段建议，可继续阅读 [docs/current-status.md](docs/current-status.md)。
 

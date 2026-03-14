@@ -13,6 +13,7 @@ These rules apply to repository-local development and verification work in this 
   ```
 
 - Run the configure/build command in the same PowerShell session after `Launch-VsDevShell.ps1`.
+- When Codex needs to run `cmake --preset ...`, `cmake --build --preset ...`, `cmake --install ...`, or `cpack ...`, request sandbox bypass first and run them outside the sandbox. In-repo configure/build can time out or run unreliably inside the sandbox.
 
 ## Formatting Rules
 
