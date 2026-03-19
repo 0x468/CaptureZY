@@ -42,6 +42,7 @@ namespace capturezy::core
         CaptureActionSetting default_capture_action{CaptureActionSetting::CopyAndPin};
         TrayIconClickActionSetting tray_single_click_action{TrayIconClickActionSetting::OpenMenu};
         TrayIconClickActionSetting tray_double_click_action{TrayIconClickActionSetting::Disabled};
+        bool confirm_exit{true};
         std::wstring default_save_directory;
         std::wstring default_save_file_prefix{L"CaptureZY"};
 

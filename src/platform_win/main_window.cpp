@@ -210,8 +210,11 @@ namespace capturezy::platform_win
             return true;
 
         case TrayMenuCommand::ExitApplication:
-            allow_close_ = true;
-            DestroyWindow(window_);
+            if (ConfirmApplicationExit())
+            {
+                allow_close_ = true;
+                DestroyWindow(window_);
+            }
             return true;
 
         default:

@@ -31,6 +31,7 @@ namespace capturezy::platform_win
         constexpr int kResetDefaultsButtonId = 3008;
         constexpr int kTraySingleClickComboId = 3009;
         constexpr int kTrayDoubleClickComboId = 3010;
+        constexpr int kConfirmExitCheckboxId = 3011;
         constexpr int kDialogOkButtonId = IDOK;
         constexpr int kDialogCancelButtonId = IDCANCEL;
 
@@ -514,18 +515,23 @@ namespace capturezy::platform_win
                     414, kControlWidth, 24, window_, ControlMenuHandle(kSavePrefixEditId), instance_, nullptr);
                 SendMessageW(save_prefix_edit_, WM_SETFONT, FontMessageParam(font), TRUE);
 
+                confirm_exit_checkbox_ = CreateWindowExW(
+                    0, L"BUTTON", L"退出应用前确认", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX, kControlX,
+                    446, kControlWidth, 20, window_, ControlMenuHandle(kConfirmExitCheckboxId), instance_, nullptr);
+                SendMessageW(confirm_exit_checkbox_, WM_SETFONT, FontMessageParam(font), TRUE);
+
                 HWND reset_button = CreateWindowExW(
-                    0, L"BUTTON", L"恢复默认", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, 210, 460, 88, 28,
+                    0, L"BUTTON", L"恢复默认", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, 210, 486, 88, 28,
                     window_, ControlMenuHandle(kResetDefaultsButtonId), instance_, nullptr);
                 SendMessageW(reset_button, WM_SETFONT, FontMessageParam(font), TRUE);
 
                 HWND ok_button = CreateWindowExW(0, L"BUTTON", L"确定",
-                                                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON, 310, 460, 88,
+                                                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON, 310, 486, 88,
                                                  28, window_, ControlMenuHandle(kDialogOkButtonId), instance_, nullptr);
                 SendMessageW(ok_button, WM_SETFONT, FontMessageParam(font), TRUE);
 
                 HWND cancel_button = CreateWindowExW(
-                    0, L"BUTTON", L"取消", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, 410, 460, 88, 28,
+                    0, L"BUTTON", L"取消", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, 410, 486, 88, 28,
                     window_, ControlMenuHandle(kDialogCancelButtonId), instance_, nullptr);
                 SendMessageW(cancel_button, WM_SETFONT, FontMessageParam(font), TRUE);
 
@@ -545,6 +551,7 @@ namespace capturezy::platform_win
                 SetCheckboxState(win_modifier_checkbox_, (settings.capture_hotkey.modifiers & MOD_WIN) != 0);
                 SetWindowTextW(save_directory_edit_, settings.default_save_directory.c_str());
                 SetWindowTextW(save_prefix_edit_, settings.default_save_file_prefix.c_str());
+                SetCheckboxState(confirm_exit_checkbox_, settings.confirm_exit);
             }
 
             void BrowseForSaveDirectory()
@@ -577,6 +584,7 @@ namespace capturezy::platform_win
                 settings.tray_double_click_action = TrayClickActionSettingFromIndex(double_selection_index);
                 settings.default_save_directory = TrimWhitespace(ReadWindowText(save_directory_edit_));
                 settings.default_save_file_prefix = TrimWhitespace(ReadWindowText(save_prefix_edit_));
+                settings.confirm_exit = IsCheckboxChecked(confirm_exit_checkbox_);
                 settings.capture_hotkey = HotkeySettingFromDialog(
                     static_cast<WORD>(SendMessageW(hotkey_control_, HKM_GETHOTKEY, 0, 0)),
                     IsCheckboxChecked(win_modifier_checkbox_));
@@ -703,6 +711,7 @@ namespace capturezy::platform_win
             HWND win_modifier_checkbox_{};
             HWND save_directory_edit_{};
             HWND save_prefix_edit_{};
+            HWND confirm_exit_checkbox_{};
             core::AppSettings initial_settings_{};
             core::AppSettings result_settings_{};
             bool accepted_{false};

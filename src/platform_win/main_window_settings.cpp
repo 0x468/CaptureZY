@@ -1,10 +1,16 @@
+#include <array>
 #include <filesystem>
 #include <string>
 #include <utility>
 
+#include "platform_win/main_window.h"
+
+// clang-format off
+#include <commctrl.h>
+// clang-format on
+
 #include "core/app_settings_store.h"
 #include "core/log.h"
-#include "platform_win/main_window.h"
 #include "platform_win/settings_dialog.h"
 
 namespace capturezy::platform_win
@@ -15,6 +21,14 @@ namespace capturezy::platform_win
         {
             // NOLINTNEXTLINE(performance-no-int-to-ptr,cppcoreguidelines-pro-type-reinterpret-cast)
             return reinterpret_cast<INT_PTR>(result) > 32;
+        }
+
+        void PersistConfirmExitPreference(core::AppSettings &settings) noexcept
+        {
+            if (!core::AppSettingsStore::Save(settings))
+            {
+                CAPTUREZY_LOG_WARNING(core::LogCategory::Settings, L"Failed to persist confirm_exit preference.");
+            }
         }
     } // namespace
 
@@ -155,5 +169,57 @@ namespace capturezy::platform_win
 
         CAPTUREZY_LOG_WARNING(core::LogCategory::Settings, L"Settings reload failed.");
         return false;
+    }
+
+    bool MainWindow::ConfirmApplicationExit()
+    {
+        if (!app_settings_->confirm_exit)
+        {
+            return true;
+        }
+
+        std::array<TASKDIALOG_BUTTON, 2> buttons = {{
+            {.nButtonID = IDYES, .pszButtonText = L"退出 CaptureZY"},
+            {.nButtonID = IDCANCEL, .pszButtonText = L"取消"},
+        }};
+
+        TASKDIALOGCONFIG dialog_config{};
+        dialog_config.cbSize = sizeof(dialog_config);
+        dialog_config.hwndParent = window_;
+        dialog_config.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION | TDF_POSITION_RELATIVE_TO_WINDOW;
+        dialog_config.pszWindowTitle = L"退出 CaptureZY";
+        dialog_config.pszMainInstruction = L"确定要退出 CaptureZY 吗？";
+        dialog_config.pszContent = L"退出后会结束托盘驻留，并关闭当前所有贴图窗口。";
+        dialog_config.pszVerificationText = L"不再提示";
+        dialog_config.pButtons = buttons.data();
+        dialog_config.cButtons = static_cast<UINT>(buttons.size());
+        dialog_config.nDefaultButton = IDCANCEL;
+
+        int button_pressed = IDCANCEL;
+        BOOL verification_checked = FALSE;
+        HRESULT const result = TaskDialogIndirect(&dialog_config, &button_pressed, nullptr, &verification_checked);
+        if (SUCCEEDED(result))
+        {
+            CAPTUREZY_LOG_DEBUG(core::LogCategory::Platform, button_pressed == IDYES ? L"Exit confirmation accepted."
+                                                                                     : L"Exit confirmation cancelled.");
+            if (button_pressed != IDYES)
+            {
+                return false;
+            }
+
+            if (verification_checked != FALSE)
+            {
+                app_settings_->confirm_exit = false;
+                PersistConfirmExitPreference(*app_settings_);
+            }
+
+            return true;
+        }
+
+        CAPTUREZY_LOG_WARNING(core::LogCategory::Platform,
+                              L"TaskDialogIndirect failed for exit confirmation, using MessageBox fallback.");
+        int const fallback_result = MessageBoxW(window_, L"确定要退出 CaptureZY 吗？", L"退出 CaptureZY",
+                                                MB_OKCANCEL | MB_ICONQUESTION);
+        return fallback_result == IDOK;
     }
 } // namespace capturezy::platform_win

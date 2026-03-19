@@ -70,6 +70,7 @@ namespace capturezy::platform_win
         [[nodiscard]] bool OpenSettingsFileForEditing() const;
         [[nodiscard]] bool OpenSettingsDirectory() const;
         [[nodiscard]] bool ReloadSettings();
+        [[nodiscard]] bool ConfirmApplicationExit();
         void RemoveTrayIcon() noexcept;
         void HideToTray() noexcept;
         void ShowMessageDialog(wchar_t const *title, wchar_t const *message, UINT icon_flags) const noexcept;

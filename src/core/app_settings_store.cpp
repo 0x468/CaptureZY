@@ -19,7 +19,7 @@ namespace capturezy::core
         constexpr wchar_t const *kSettingsFileName = L"settings.json";
         constexpr wchar_t const *kDefaultSaveDirectoryName = L"CaptureZY";
         constexpr wchar_t const *kDefaultFilePrefix = L"CaptureZY";
-        constexpr unsigned int kSettingsVersion = 3;
+        constexpr unsigned int kSettingsVersion = 4;
 
         [[nodiscard]] std::wstring WideToUtf8FallbackPath(std::filesystem::path const &path)
         {
@@ -230,6 +230,9 @@ namespace capturezy::core
                 break;
             }
             json_text += "\",\n";
+            json_text += R"(  "confirm_exit": )";
+            json_text += settings.confirm_exit ? "true" : "false";
+            json_text += ",\n";
             json_text += R"(  "default_save_directory": ")";
             json_text += EscapeJsonString(settings.default_save_directory);
             json_text += "\",\n";
@@ -287,6 +290,29 @@ namespace capturezy::core
 
             value = static_cast<UINT>(std::stoul(std::string(json_text.substr(position, end_position - position))));
             return true;
+        }
+
+        [[nodiscard]] bool TryReadBoolean(std::string_view json_text, char const *key, bool &value)
+        {
+            std::size_t const position = FindJsonValueStart(json_text, key);
+            if (position == std::string_view::npos)
+            {
+                return false;
+            }
+
+            if (json_text.substr(position, 4) == "true")
+            {
+                value = true;
+                return true;
+            }
+
+            if (json_text.substr(position, 5) == "false")
+            {
+                value = false;
+                return true;
+            }
+
+            return false;
         }
 
         [[nodiscard]] bool TryReadString(std::string_view json_text, char const *key, std::wstring &value)
@@ -446,6 +472,12 @@ namespace capturezy::core
                 {
                     settings.tray_double_click_action = *parsed_action;
                 }
+            }
+
+            bool boolean_value = false;
+            if (TryReadBoolean(settings_json, "confirm_exit", boolean_value))
+            {
+                settings.confirm_exit = boolean_value;
             }
 
             if (TryReadString(settings_json, "default_save_directory", string_value))
