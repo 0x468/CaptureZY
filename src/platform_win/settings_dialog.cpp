@@ -4,6 +4,7 @@
 #include <commctrl.h>
 // clang-format on
 
+#include <algorithm>
 #include <shobjidl.h>
 #include <string>
 #include <string_view>
@@ -18,7 +19,7 @@ namespace capturezy::platform_win
     {
         constexpr wchar_t const *kSettingsDialogClassName = L"CaptureZY.SettingsDialog";
         constexpr int kSettingsDialogWidth = 560;
-        constexpr int kSettingsDialogHeight = 292;
+        constexpr int kSettingsDialogHeight = 548;
         constexpr int kScopeComboId = 3001;
         constexpr int kActionComboId = 3002;
         constexpr int kHotkeyControlId = 3003;
@@ -27,6 +28,8 @@ namespace capturezy::platform_win
         constexpr int kWinModifierCheckboxId = 3006;
         constexpr int kSavePrefixEditId = 3007;
         constexpr int kResetDefaultsButtonId = 3008;
+        constexpr int kTraySingleClickComboId = 3009;
+        constexpr int kTrayDoubleClickComboId = 3010;
         constexpr int kDialogOkButtonId = IDOK;
         constexpr int kDialogCancelButtonId = IDCANCEL;
 
@@ -66,30 +69,78 @@ namespace capturezy::platform_win
             (void)initialized;
         }
 
+        [[nodiscard]] bool TryGetVisibleOwnerRect(HWND owner_window, RECT &owner_rect) noexcept
+        {
+            if (owner_window == nullptr || IsWindowVisible(owner_window) == FALSE || IsIconic(owner_window) != FALSE)
+            {
+                return false;
+            }
+
+            if (GetWindowRect(owner_window, &owner_rect) == FALSE)
+            {
+                return false;
+            }
+
+            return owner_rect.right > owner_rect.left && owner_rect.bottom > owner_rect.top;
+        }
+
+        [[nodiscard]] RECT MonitorWorkAreaForDialog(HWND owner_window) noexcept
+        {
+            HMONITOR monitor = nullptr;
+            RECT owner_rect{};
+            if (TryGetVisibleOwnerRect(owner_window, owner_rect))
+            {
+                monitor = MonitorFromRect(&owner_rect, MONITOR_DEFAULTTONEAREST);
+            }
+            else
+            {
+                POINT cursor_position{};
+                GetCursorPos(&cursor_position);
+                monitor = MonitorFromPoint(cursor_position, MONITOR_DEFAULTTONEAREST);
+            }
+
+            MONITORINFO monitor_info{};
+            monitor_info.cbSize = sizeof(monitor_info);
+            if (monitor != nullptr && GetMonitorInfoW(monitor, &monitor_info) != FALSE)
+            {
+                return monitor_info.rcWork;
+            }
+
+            RECT work_area{};
+            work_area.left = 0;
+            work_area.top = 0;
+            work_area.right = GetSystemMetrics(SM_CXSCREEN);
+            work_area.bottom = GetSystemMetrics(SM_CYSCREEN);
+            return work_area;
+        }
+
+        // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
         void CenterWindowToOwner(HWND window, HWND owner_window) noexcept
         {
             RECT dialog_rect{};
             GetWindowRect(window, &dialog_rect);
 
-            RECT anchor_rect{};
-            if (owner_window != nullptr)
-            {
-                GetWindowRect(owner_window, &anchor_rect);
-            }
-            else
-            {
-                anchor_rect.left = 0;
-                anchor_rect.top = 0;
-                anchor_rect.right = GetSystemMetrics(SM_CXSCREEN);
-                anchor_rect.bottom = GetSystemMetrics(SM_CYSCREEN);
-            }
-
             int const dialog_width = dialog_rect.right - dialog_rect.left;
             int const dialog_height = dialog_rect.bottom - dialog_rect.top;
+            RECT work_area = MonitorWorkAreaForDialog(owner_window);
+
+            RECT anchor_rect = work_area;
+            RECT owner_rect{};
+            if (TryGetVisibleOwnerRect(owner_window, owner_rect))
+            {
+                anchor_rect = owner_rect;
+            }
+
             int const anchor_width = anchor_rect.right - anchor_rect.left;
             int const anchor_height = anchor_rect.bottom - anchor_rect.top;
-            int const left = anchor_rect.left + ((anchor_width - dialog_width) / 2);
-            int const top = anchor_rect.top + ((anchor_height - dialog_height) / 2);
+            int const unclamped_left = anchor_rect.left + ((anchor_width - dialog_width) / 2);
+            int const unclamped_top = anchor_rect.top + ((anchor_height - dialog_height) / 2);
+            int const min_left = work_area.left;
+            int const max_left = std::max(work_area.left, work_area.right - dialog_width);
+            int const min_top = work_area.top;
+            int const max_top = std::max(work_area.top, work_area.bottom - dialog_height);
+            int const left = std::clamp(unclamped_left, min_left, max_left);
+            int const top = std::clamp(unclamped_top, min_top, max_top);
 
             SetWindowPos(window, nullptr, left, top, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
         }
@@ -231,6 +282,48 @@ namespace capturezy::platform_win
             }
         }
 
+        [[nodiscard]] int TrayClickActionSelectionIndex(core::TrayIconClickActionSetting action) noexcept
+        {
+            switch (action)
+            {
+            case core::TrayIconClickActionSetting::Disabled:
+                return 0;
+
+            case core::TrayIconClickActionSetting::StartCapture:
+                return 2;
+
+            case core::TrayIconClickActionSetting::OpenMenu:
+            default:
+                return 1;
+            }
+        }
+
+        [[nodiscard]] core::TrayIconClickActionSetting TrayClickActionSettingFromIndex(int selection_index) noexcept
+        {
+            switch (selection_index)
+            {
+            case 0:
+                return core::TrayIconClickActionSetting::Disabled;
+
+            case 2:
+                return core::TrayIconClickActionSetting::StartCapture;
+
+            case 1:
+            default:
+                return core::TrayIconClickActionSetting::OpenMenu;
+            }
+        }
+
+        void InitializeTrayClickActionCombo(HWND combo_box) noexcept
+        {
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast,performance-no-int-to-ptr)
+            SendMessageW(combo_box, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"禁用"));
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast,performance-no-int-to-ptr)
+            SendMessageW(combo_box, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"打开托盘菜单"));
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast,performance-no-int-to-ptr)
+            SendMessageW(combo_box, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"按默认设置开始截图"));
+        }
+
         class SettingsDialog final
         {
           public:
@@ -346,63 +439,92 @@ namespace capturezy::platform_win
                 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast,performance-no-int-to-ptr)
                 SendMessageW(action_combo_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"直接保存"));
 
-                HWND hotkey_label = CreateWindowExW(0, L"STATIC", L"截图热键", WS_CHILD | WS_VISIBLE, kLabelX, 96,
+                HWND tray_single_click_action_label = CreateWindowExW(0, L"STATIC", L"托盘单击动作",
+                                                                      WS_CHILD | WS_VISIBLE, kLabelX, 96, kLabelWidth,
+                                                                      20, window_, nullptr, instance_, nullptr);
+                SendMessageW(tray_single_click_action_label, WM_SETFONT, FontMessageParam(font), TRUE);
+
+                tray_single_click_combo_ = CreateWindowExW(
+                    0, L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
+                    kControlX, 92, kControlWidth, 120, window_, ControlMenuHandle(kTraySingleClickComboId), instance_,
+                    nullptr);
+                SendMessageW(tray_single_click_combo_, WM_SETFONT, FontMessageParam(font), TRUE);
+                InitializeTrayClickActionCombo(tray_single_click_combo_);
+
+                HWND tray_double_click_action_label = CreateWindowExW(0, L"STATIC", L"托盘双击动作",
+                                                                      WS_CHILD | WS_VISIBLE, kLabelX, 196, kLabelWidth,
+                                                                      20, window_, nullptr, instance_, nullptr);
+                SendMessageW(tray_double_click_action_label, WM_SETFONT, FontMessageParam(font), TRUE);
+
+                tray_double_click_combo_ = CreateWindowExW(
+                    0, L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
+                    kControlX, 192, kControlWidth, 120, window_, ControlMenuHandle(kTrayDoubleClickComboId), instance_,
+                    nullptr);
+                SendMessageW(tray_double_click_combo_, WM_SETFONT, FontMessageParam(font), TRUE);
+                InitializeTrayClickActionCombo(tray_double_click_combo_);
+
+                HWND tray_double_click_hint = CreateWindowExW(
+                    0, L"STATIC", L"提示：启用与单击不同的双击动作后，单击响应会按系统双击时间略有延迟。",
+                    WS_CHILD | WS_VISIBLE, kControlX, 226, 360, 32, window_, nullptr, instance_, nullptr);
+                SendMessageW(tray_double_click_hint, WM_SETFONT, FontMessageParam(font), TRUE);
+
+                HWND hotkey_label = CreateWindowExW(0, L"STATIC", L"截图热键", WS_CHILD | WS_VISIBLE, kLabelX, 326,
                                                     kLabelWidth, 20, window_, nullptr, instance_, nullptr);
                 SendMessageW(hotkey_label, WM_SETFONT, FontMessageParam(font), TRUE);
 
                 hotkey_control_ = CreateWindowExW(0, HOTKEY_CLASSW, nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-                                                  kControlX, 92, 212, 24, window_, ControlMenuHandle(kHotkeyControlId),
+                                                  kControlX, 322, 212, 24, window_, ControlMenuHandle(kHotkeyControlId),
                                                   instance_, nullptr);
                 SendMessageW(hotkey_control_, WM_SETFONT, FontMessageParam(font), TRUE);
 
                 win_modifier_checkbox_ = CreateWindowExW(
-                    0, L"BUTTON", L"Win", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX, kControlX + 224, 94, 64,
-                    20, window_, ControlMenuHandle(kWinModifierCheckboxId), instance_, nullptr);
+                    0, L"BUTTON", L"Win", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX, kControlX + 224, 324,
+                    64, 20, window_, ControlMenuHandle(kWinModifierCheckboxId), instance_, nullptr);
                 SendMessageW(win_modifier_checkbox_, WM_SETFONT, FontMessageParam(font), TRUE);
 
                 HWND hotkey_hint = CreateWindowExW(0, L"STATIC", L"至少包含一个修饰键。", WS_CHILD | WS_VISIBLE,
-                                                   kControlX, 118, kControlWidth, 18, window_, nullptr, instance_,
+                                                   kControlX, 348, kControlWidth, 18, window_, nullptr, instance_,
                                                    nullptr);
                 SendMessageW(hotkey_hint, WM_SETFONT, FontMessageParam(font), TRUE);
 
                 HWND save_directory_label = CreateWindowExW(0, L"STATIC", L"默认保存目录", WS_CHILD | WS_VISIBLE,
-                                                            kLabelX, 152, kLabelWidth, 20, window_, nullptr, instance_,
+                                                            kLabelX, 382, kLabelWidth, 20, window_, nullptr, instance_,
                                                             nullptr);
                 SendMessageW(save_directory_label, WM_SETFONT, FontMessageParam(font), TRUE);
 
                 save_directory_edit_ = CreateWindowExW(
                     WS_EX_CLIENTEDGE, L"EDIT", nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL, kControlX,
-                    148, kControlWidth, 24, window_, ControlMenuHandle(kSaveDirectoryEditId), instance_, nullptr);
+                    378, kControlWidth, 24, window_, ControlMenuHandle(kSaveDirectoryEditId), instance_, nullptr);
                 SendMessageW(save_directory_edit_, WM_SETFONT, FontMessageParam(font), TRUE);
 
                 HWND browse_button = CreateWindowExW(
                     0, L"BUTTON", L"浏览...", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
-                    kControlX + kControlWidth + 8, 147, kButtonWidth, 26, window_,
+                    kControlX + kControlWidth + 8, 377, kButtonWidth, 26, window_,
                     ControlMenuHandle(kBrowseSaveDirectoryButtonId), instance_, nullptr);
                 SendMessageW(browse_button, WM_SETFONT, FontMessageParam(font), TRUE);
 
                 HWND save_prefix_label = CreateWindowExW(0, L"STATIC", L"默认文件名前缀", WS_CHILD | WS_VISIBLE,
-                                                         kLabelX, 188, kLabelWidth, 20, window_, nullptr, instance_,
+                                                         kLabelX, 418, kLabelWidth, 20, window_, nullptr, instance_,
                                                          nullptr);
                 SendMessageW(save_prefix_label, WM_SETFONT, FontMessageParam(font), TRUE);
 
                 save_prefix_edit_ = CreateWindowExW(
                     WS_EX_CLIENTEDGE, L"EDIT", nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL, kControlX,
-                    184, kControlWidth, 24, window_, ControlMenuHandle(kSavePrefixEditId), instance_, nullptr);
+                    414, kControlWidth, 24, window_, ControlMenuHandle(kSavePrefixEditId), instance_, nullptr);
                 SendMessageW(save_prefix_edit_, WM_SETFONT, FontMessageParam(font), TRUE);
 
                 HWND reset_button = CreateWindowExW(
-                    0, L"BUTTON", L"恢复默认", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, 210, 230, 88, 28,
+                    0, L"BUTTON", L"恢复默认", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, 210, 460, 88, 28,
                     window_, ControlMenuHandle(kResetDefaultsButtonId), instance_, nullptr);
                 SendMessageW(reset_button, WM_SETFONT, FontMessageParam(font), TRUE);
 
                 HWND ok_button = CreateWindowExW(0, L"BUTTON", L"确定",
-                                                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON, 310, 230, 88,
+                                                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON, 310, 460, 88,
                                                  28, window_, ControlMenuHandle(kDialogOkButtonId), instance_, nullptr);
                 SendMessageW(ok_button, WM_SETFONT, FontMessageParam(font), TRUE);
 
                 HWND cancel_button = CreateWindowExW(
-                    0, L"BUTTON", L"取消", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, 410, 230, 88, 28,
+                    0, L"BUTTON", L"取消", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, 410, 460, 88, 28,
                     window_, ControlMenuHandle(kDialogCancelButtonId), instance_, nullptr);
                 SendMessageW(cancel_button, WM_SETFONT, FontMessageParam(font), TRUE);
 
@@ -414,6 +536,10 @@ namespace capturezy::platform_win
             {
                 SendMessageW(scope_combo_, CB_SETCURSEL, ScopeSelectionIndex(settings.default_capture_scope), 0);
                 SendMessageW(action_combo_, CB_SETCURSEL, ActionSelectionIndex(settings.default_capture_action), 0);
+                SendMessageW(tray_single_click_combo_, CB_SETCURSEL,
+                             TrayClickActionSelectionIndex(settings.tray_single_click_action), 0);
+                SendMessageW(tray_double_click_combo_, CB_SETCURSEL,
+                             TrayClickActionSelectionIndex(settings.tray_double_click_action), 0);
                 SendMessageW(hotkey_control_, HKM_SETHOTKEY, HotkeyWordFromSetting(settings.capture_hotkey), 0);
                 SetCheckboxState(win_modifier_checkbox_, (settings.capture_hotkey.modifiers & MOD_WIN) != 0);
                 SetWindowTextW(save_directory_edit_, settings.default_save_directory.c_str());
@@ -438,10 +564,16 @@ namespace capturezy::platform_win
             void Accept()
             {
                 core::AppSettings settings = initial_settings_;
-                settings.default_capture_scope = ScopeSettingFromIndex(
-                    static_cast<int>(SendMessageW(scope_combo_, CB_GETCURSEL, 0, 0)));
-                settings.default_capture_action = ActionSettingFromIndex(
-                    static_cast<int>(SendMessageW(action_combo_, CB_GETCURSEL, 0, 0)));
+                int const scope_selection_index = static_cast<int>(SendMessageW(scope_combo_, CB_GETCURSEL, 0, 0));
+                int const action_selection_index = static_cast<int>(SendMessageW(action_combo_, CB_GETCURSEL, 0, 0));
+                int const single_selection_index = static_cast<int>(
+                    SendMessageW(tray_single_click_combo_, CB_GETCURSEL, 0, 0));
+                int const double_selection_index = static_cast<int>(
+                    SendMessageW(tray_double_click_combo_, CB_GETCURSEL, 0, 0));
+                settings.default_capture_scope = ScopeSettingFromIndex(scope_selection_index);
+                settings.default_capture_action = ActionSettingFromIndex(action_selection_index);
+                settings.tray_single_click_action = TrayClickActionSettingFromIndex(single_selection_index);
+                settings.tray_double_click_action = TrayClickActionSettingFromIndex(double_selection_index);
                 settings.default_save_directory = TrimWhitespace(ReadWindowText(save_directory_edit_));
                 settings.default_save_file_prefix = TrimWhitespace(ReadWindowText(save_prefix_edit_));
                 settings.capture_hotkey = HotkeySettingFromDialog(
@@ -558,6 +690,8 @@ namespace capturezy::platform_win
             HWND window_{};
             HWND scope_combo_{};
             HWND action_combo_{};
+            HWND tray_single_click_combo_{};
+            HWND tray_double_click_combo_{};
             HWND hotkey_control_{};
             HWND win_modifier_checkbox_{};
             HWND save_directory_edit_{};

@@ -3,6 +3,7 @@
 #include <cctype>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <shlobj.h>
 #include <string>
 #include <string_view>
@@ -16,7 +17,7 @@ namespace capturezy::core
         constexpr wchar_t const *kSettingsFileName = L"settings.json";
         constexpr wchar_t const *kDefaultSaveDirectoryName = L"CaptureZY";
         constexpr wchar_t const *kDefaultFilePrefix = L"CaptureZY";
-        constexpr unsigned int kSettingsVersion = 1;
+        constexpr unsigned int kSettingsVersion = 3;
 
         [[nodiscard]] std::wstring WideToUtf8FallbackPath(std::filesystem::path const &path)
         {
@@ -116,6 +117,47 @@ namespace capturezy::core
             return escaped_value;
         }
 
+        [[nodiscard]] std::optional<CaptureActionSetting> ParseCaptureActionSetting(std::wstring_view value) noexcept
+        {
+            if (value == L"copy_only")
+            {
+                return CaptureActionSetting::CopyOnly;
+            }
+
+            if (value == L"save_to_file")
+            {
+                return CaptureActionSetting::SaveToFile;
+            }
+
+            if (value == L"copy_and_pin")
+            {
+                return CaptureActionSetting::CopyAndPin;
+            }
+
+            return std::nullopt;
+        }
+
+        [[nodiscard]] std::optional<TrayIconClickActionSetting>
+        ParseTrayClickActionSetting(std::wstring_view value) noexcept
+        {
+            if (value == L"disabled")
+            {
+                return TrayIconClickActionSetting::Disabled;
+            }
+
+            if (value == L"open_menu")
+            {
+                return TrayIconClickActionSetting::OpenMenu;
+            }
+
+            if (value == L"start_capture")
+            {
+                return TrayIconClickActionSetting::StartCapture;
+            }
+
+            return std::nullopt;
+        }
+
         [[nodiscard]] std::string BuildSettingsJson(AppSettings const &settings)
         {
             std::string json_text;
@@ -150,6 +192,41 @@ namespace capturezy::core
                 break;
             }
 
+            json_text += "\",\n";
+            json_text += R"(  "tray_single_click_action": ")";
+            switch (settings.tray_single_click_action)
+            {
+            case TrayIconClickActionSetting::Disabled:
+                json_text += "disabled";
+                break;
+
+            case TrayIconClickActionSetting::StartCapture:
+                json_text += "start_capture";
+                break;
+
+            case TrayIconClickActionSetting::OpenMenu:
+            default:
+                json_text += "open_menu";
+                break;
+            }
+
+            json_text += "\",\n";
+            json_text += R"(  "tray_double_click_action": ")";
+            switch (settings.tray_double_click_action)
+            {
+            case TrayIconClickActionSetting::OpenMenu:
+                json_text += "open_menu";
+                break;
+
+            case TrayIconClickActionSetting::StartCapture:
+                json_text += "start_capture";
+                break;
+
+            case TrayIconClickActionSetting::Disabled:
+            default:
+                json_text += "disabled";
+                break;
+            }
             json_text += "\",\n";
             json_text += R"(  "default_save_directory": ")";
             json_text += EscapeJsonString(settings.default_save_directory);
@@ -307,6 +384,8 @@ namespace capturezy::core
         return settings;
     }
 
+    // 配置读取需要集中处理兼容字段和默认值回填，这里保留单入口实现并局部抑制复杂度告警。
+    // NOLINTNEXTLINE(readability-function-cognitive-complexity)
     AppSettings AppSettingsStore::Load()
     {
         AppSettings settings = LoadDefaults();
@@ -337,17 +416,32 @@ namespace capturezy::core
 
             if (TryReadString(settings_json, "default_capture_action", string_value))
             {
-                if (string_value == L"copy_only")
+                if (auto const parsed_action = ParseCaptureActionSetting(string_value); parsed_action.has_value())
                 {
-                    settings.default_capture_action = CaptureActionSetting::CopyOnly;
+                    settings.default_capture_action = *parsed_action;
                 }
-                else if (string_value == L"save_to_file")
+            }
+
+            if (TryReadString(settings_json, "tray_single_click_action", string_value))
+            {
+                if (auto const parsed_action = ParseTrayClickActionSetting(string_value); parsed_action.has_value())
                 {
-                    settings.default_capture_action = CaptureActionSetting::SaveToFile;
+                    settings.tray_single_click_action = *parsed_action;
                 }
-                else if (string_value == L"copy_and_pin")
+            }
+            else if (TryReadString(settings_json, "tray_left_click_action", string_value))
+            {
+                if (auto const parsed_action = ParseTrayClickActionSetting(string_value); parsed_action.has_value())
                 {
-                    settings.default_capture_action = CaptureActionSetting::CopyAndPin;
+                    settings.tray_single_click_action = *parsed_action;
+                }
+            }
+
+            if (TryReadString(settings_json, "tray_double_click_action", string_value))
+            {
+                if (auto const parsed_action = ParseTrayClickActionSetting(string_value); parsed_action.has_value())
+                {
+                    settings.tray_double_click_action = *parsed_action;
                 }
             }
 

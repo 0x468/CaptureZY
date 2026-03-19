@@ -22,6 +22,13 @@ namespace capturezy::core
         SaveToFile,
     };
 
+    enum class TrayIconClickActionSetting : std::uint8_t
+    {
+        Disabled,
+        OpenMenu,
+        StartCapture,
+    };
+
     struct HotkeySetting final
     {
         UINT modifiers{MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT};
@@ -33,6 +40,8 @@ namespace capturezy::core
         HotkeySetting capture_hotkey{};
         CaptureScopeSetting default_capture_scope{CaptureScopeSetting::Region};
         CaptureActionSetting default_capture_action{CaptureActionSetting::CopyAndPin};
+        TrayIconClickActionSetting tray_single_click_action{TrayIconClickActionSetting::OpenMenu};
+        TrayIconClickActionSetting tray_double_click_action{TrayIconClickActionSetting::Disabled};
         std::wstring default_save_directory;
         std::wstring default_save_file_prefix{L"CaptureZY"};
 

@@ -68,6 +68,10 @@ namespace capturezy::platform_win
         void HideToTray() noexcept;
         void ShowMessageDialog(wchar_t const *title, wchar_t const *message, UINT icon_flags) const noexcept;
         void ShowTrayMenu();
+        void ExecuteTrayClickAction(core::TrayIconClickActionSetting action);
+        [[nodiscard]] bool ShouldDelaySingleTrayClickAction() const noexcept;
+        void SchedulePendingSingleTrayClickAction();
+        void CancelPendingSingleTrayClickAction() noexcept;
         void ExecutePendingCaptureRequest();
         void ProcessCaptureResult(feature_capture::CaptureResult capture_result);
         void HandleOverlayResult(feature_capture::OverlayResult result);
@@ -88,6 +92,8 @@ namespace capturezy::platform_win
         NOTIFYICONDATAW tray_icon_{};
         CaptureRequest pending_capture_request_;
         bool tray_icon_added_{false};
+        bool pending_single_tray_click_action_{false};
+        bool ignore_next_tray_left_button_up_{false};
         bool hotkeys_registered_{false};
         bool allow_close_{false};
     };

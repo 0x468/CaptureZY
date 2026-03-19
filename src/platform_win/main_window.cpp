@@ -17,6 +17,7 @@ namespace capturezy::platform_win
         constexpr UINT kTrayIconId = 1;
         constexpr UINT kTrayMessage = WM_APP + 1;
         constexpr UINT kExecutePendingCaptureMessage = WM_APP + 2;
+        constexpr UINT_PTR kTrayLeftClickTimerId = 2;
         constexpr UINT_PTR kBeginCaptureCommandId = 1002;
         constexpr UINT_PTR kBeginCaptureAndSaveCommandId = 1003;
         constexpr UINT_PTR kBeginFullScreenCaptureCommandId = 1004;
@@ -129,6 +130,7 @@ namespace capturezy::platform_win
             }
             return label;
         }
+
     } // namespace
 
     MainWindow::MainWindow(HINSTANCE instance, core::AppState &app_state, core::AppSettings &app_settings) noexcept
@@ -237,6 +239,11 @@ namespace capturezy::platform_win
 
     void MainWindow::BeginCaptureEntry(CaptureRequest capture_request)
     {
+        if (app_state_->Mode() == core::AppMode::CapturePending)
+        {
+            return;
+        }
+
         pending_capture_request_ = capture_request;
         app_state_->BeginCapture();
         UpdateWindowPresentation();
@@ -257,15 +264,7 @@ namespace capturezy::platform_win
         wcsncpy_s(tray_icon_.szTip, tray_tooltip.c_str(), _TRUNCATE);
 
         tray_icon_added_ = Shell_NotifyIconW(NIM_ADD, &tray_icon_) == TRUE;
-        if (!tray_icon_added_)
-        {
-            return false;
-        }
-
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-union-access)
-        tray_icon_.uVersion = NOTIFYICON_VERSION;
-        Shell_NotifyIconW(NIM_SETVERSION, &tray_icon_);
-        return true;
+        return tray_icon_added_;
     }
 
     bool MainWindow::ApplySettings(core::AppSettings new_settings, bool persist, wchar_t const *hotkey_error_message,
@@ -273,6 +272,9 @@ namespace capturezy::platform_win
     {
         core::AppSettings const previous_settings = *app_settings_;
         bool const previous_hotkeys_registered = hotkeys_registered_;
+
+        CancelPendingSingleTrayClickAction();
+        ignore_next_tray_left_button_up_ = false;
 
         UnregisterHotkeys();
         *app_settings_ = std::move(new_settings);
@@ -531,6 +533,54 @@ namespace capturezy::platform_win
         DestroyMenu(menu);
     }
 
+    void MainWindow::ExecuteTrayClickAction(core::TrayIconClickActionSetting action)
+    {
+        switch (action)
+        {
+        case core::TrayIconClickActionSetting::Disabled:
+            return;
+
+        case core::TrayIconClickActionSetting::StartCapture:
+            BeginCaptureEntry();
+            return;
+
+        case core::TrayIconClickActionSetting::OpenMenu:
+        default:
+            ShowTrayMenu();
+            return;
+        }
+    }
+
+    bool MainWindow::ShouldDelaySingleTrayClickAction() const noexcept
+    {
+        return app_settings_->tray_double_click_action != core::TrayIconClickActionSetting::Disabled &&
+               app_settings_->tray_double_click_action != app_settings_->tray_single_click_action;
+    }
+
+    void MainWindow::SchedulePendingSingleTrayClickAction()
+    {
+        if (window_ == nullptr)
+        {
+            return;
+        }
+
+        pending_single_tray_click_action_ = true;
+        if (SetTimer(window_, kTrayLeftClickTimerId, GetDoubleClickTime(), nullptr) == 0)
+        {
+            pending_single_tray_click_action_ = false;
+            ExecuteTrayClickAction(app_settings_->tray_single_click_action);
+        }
+    }
+
+    void MainWindow::CancelPendingSingleTrayClickAction() noexcept
+    {
+        if (window_ != nullptr)
+        {
+            KillTimer(window_, kTrayLeftClickTimerId);
+        }
+        pending_single_tray_click_action_ = false;
+    }
+
     void MainWindow::ExecutePendingCaptureRequest()
     {
         if (pending_capture_request_.scope == CaptureScope::FullScreen)
@@ -739,11 +789,41 @@ namespace capturezy::platform_win
     {
         switch (static_cast<UINT>(l_param))
         {
+        case WM_LBUTTONDOWN:
+            if (!ShouldDelaySingleTrayClickAction())
+            {
+                ignore_next_tray_left_button_up_ = true;
+                ExecuteTrayClickAction(app_settings_->tray_single_click_action);
+            }
+            return true;
+
+        case WM_LBUTTONUP:
+            if (ignore_next_tray_left_button_up_)
+            {
+                ignore_next_tray_left_button_up_ = false;
+                return true;
+            }
+
+            if (ShouldDelaySingleTrayClickAction())
+            {
+                SchedulePendingSingleTrayClickAction();
+            }
+            return true;
+
         case WM_CONTEXTMENU:
         case WM_RBUTTONUP:
-        case WM_LBUTTONUP:
-        case WM_LBUTTONDBLCLK:
+            CancelPendingSingleTrayClickAction();
+            ignore_next_tray_left_button_up_ = false;
             ShowTrayMenu();
+            return true;
+
+        case WM_LBUTTONDBLCLK:
+            if (ShouldDelaySingleTrayClickAction())
+            {
+                CancelPendingSingleTrayClickAction();
+                ignore_next_tray_left_button_up_ = true;
+                ExecuteTrayClickAction(app_settings_->tray_double_click_action);
+            }
             return true;
 
         default:
@@ -784,6 +864,7 @@ namespace capturezy::platform_win
             return DefWindowProcW(window_, message, w_param, l_param);
 
         case WM_DESTROY:
+            CancelPendingSingleTrayClickAction();
             pin_manager_.CloseAll();
             UnregisterHotkeys();
             RemoveTrayIcon();
@@ -800,6 +881,19 @@ namespace capturezy::platform_win
         case kExecutePendingCaptureMessage:
             ExecutePendingCaptureRequest();
             return 0;
+
+        case WM_TIMER:
+            if (w_param == kTrayLeftClickTimerId)
+            {
+                KillTimer(window_, kTrayLeftClickTimerId);
+                if (pending_single_tray_click_action_)
+                {
+                    pending_single_tray_click_action_ = false;
+                    ExecuteTrayClickAction(app_settings_->tray_single_click_action);
+                }
+                return 0;
+            }
+            break;
 
         case feature_capture::CaptureOverlay::ResultMessage():
             HandleOverlayResult(static_cast<feature_capture::OverlayResult>(w_param));
