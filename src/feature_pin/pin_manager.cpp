@@ -1,10 +1,43 @@
 #include "feature_pin/pin_manager.h"
 
 #include <algorithm>
+#include <format>
 #include <utility>
+
+#include "core/log.h"
 
 namespace capturezy::feature_pin
 {
+    namespace
+    {
+        void LogOpenCountMessage(std::size_t open_count) noexcept
+        {
+            try
+            {
+                core::Log::Write(core::LogLevel::Info, core::LogCategory::Pin,
+                                 std::format(L"Created pin window. open_count={}.", open_count));
+            }
+            catch (...)
+            {
+                core::Log::Write(core::LogLevel::Info, core::LogCategory::Pin, L"Created pin window.");
+            }
+        }
+
+        void LogPrunedCountMessage(std::size_t previous_count, std::size_t current_count) noexcept
+        {
+            try
+            {
+                core::Log::Write(
+                    core::LogLevel::Debug, core::LogCategory::Pin,
+                    std::format(L"Pruned closed pins. before={}, after={}.", previous_count, current_count));
+            }
+            catch (...)
+            {
+                core::Log::Write(core::LogLevel::Debug, core::LogCategory::Pin, L"Pruned closed pins.");
+            }
+        }
+    } // namespace
+
     PinManager::PinManager(HINSTANCE instance, core::AppSettings const &app_settings) noexcept
         : instance_(instance), app_settings_(&app_settings)
     {
@@ -19,6 +52,7 @@ namespace capturezy::feature_pin
     {
         if (!capture_result.IsValid())
         {
+            CAPTUREZY_LOG_WARNING(core::LogCategory::Pin, L"Skip pin creation because capture result is invalid.");
             return false;
         }
 
@@ -28,16 +62,19 @@ namespace capturezy::feature_pin
         pin_window->SetStateChangedCallback([this]() { NotifyInventoryChanged(); });
         if (!pin_window->Create(std::move(capture_result)))
         {
+            CAPTUREZY_LOG_ERROR(core::LogCategory::Pin, L"Pin window creation failed.");
             return false;
         }
 
         pin_windows_.push_back(std::move(pin_window));
+        LogOpenCountMessage(pin_windows_.size());
         NotifyInventoryChanged();
         return true;
     }
 
     void PinManager::ShowAll() noexcept
     {
+        CAPTUREZY_LOG_DEBUG(core::LogCategory::Pin, L"Show all pins requested.");
         for (auto &pin_window : pin_windows_)
         {
             if (pin_window != nullptr)
@@ -49,6 +86,7 @@ namespace capturezy::feature_pin
 
     void PinManager::HideAll() noexcept
     {
+        CAPTUREZY_LOG_DEBUG(core::LogCategory::Pin, L"Hide all pins requested.");
         for (auto &pin_window : pin_windows_)
         {
             if (pin_window != nullptr)
@@ -60,6 +98,7 @@ namespace capturezy::feature_pin
 
     void PinManager::CloseAll() noexcept
     {
+        CAPTUREZY_LOG_DEBUG(core::LogCategory::Pin, L"Close all pins requested.");
         for (auto &pin_window : pin_windows_)
         {
             if (pin_window != nullptr)
@@ -73,9 +112,15 @@ namespace capturezy::feature_pin
 
     void PinManager::PruneClosedPins() noexcept
     {
+        std::size_t const previous_count = pin_windows_.size();
         std::erase_if(pin_windows_, [](std::unique_ptr<PinWindow> const &pin_window) {
             return pin_window == nullptr || !pin_window->IsOpen();
         });
+
+        if (pin_windows_.size() != previous_count)
+        {
+            LogPrunedCountMessage(previous_count, pin_windows_.size());
+        }
     }
 
     void PinManager::NotifyInventoryChanged() const

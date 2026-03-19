@@ -1,10 +1,12 @@
 #include "feature_pin/pin_window.h"
 
 #include <algorithm>
+#include <format>
 #include <string>
 #include <utility>
 #include <windowsx.h>
 
+#include "core/log.h"
 #include "feature_capture/capture_file_dialog.h"
 #include "feature_capture/screen_capture.h"
 
@@ -60,6 +62,19 @@ namespace capturezy::feature_pin
             return monitor_info.rcWork;
         }
 
+        void LogScaleMessage(int scale_percent) noexcept
+        {
+            try
+            {
+                core::Log::Write(core::LogLevel::Debug, core::LogCategory::Pin,
+                                 std::format(L"Pin window scale updated to {}%.", scale_percent));
+            }
+            catch (...)
+            {
+                core::Log::Write(core::LogLevel::Debug, core::LogCategory::Pin, L"Pin window scale updated.");
+            }
+        }
+
     } // namespace
 
     PinWindow::PinWindow(HINSTANCE instance, core::AppSettings const &app_settings) noexcept
@@ -76,6 +91,7 @@ namespace capturezy::feature_pin
     {
         if (!capture_result.IsValid() || RegisterWindowClass() == 0)
         {
+            CAPTUREZY_LOG_ERROR(core::LogCategory::Pin, L"Pin window setup failed before window creation.");
             return false;
         }
 
@@ -93,11 +109,13 @@ namespace capturezy::feature_pin
         if (window_ == nullptr)
         {
             capture_result_ = {};
+            CAPTUREZY_LOG_ERROR(core::LogCategory::Pin, L"CreateWindowExW failed for pin window.");
             return false;
         }
 
         ShowWindow(window_, SW_SHOWNORMAL);
         UpdateWindow(window_);
+        CAPTUREZY_LOG_INFO(core::LogCategory::Pin, L"Pin window created and shown.");
         return true;
     }
 
@@ -130,6 +148,7 @@ namespace capturezy::feature_pin
         }
 
         ShowWindow(window_, SW_SHOWNOACTIVATE);
+        CAPTUREZY_LOG_DEBUG(core::LogCategory::Pin, L"Pin window shown.");
         if (scale_overlay_window_ != nullptr && IsWindowVisible(scale_overlay_window_) != FALSE)
         {
             UpdateScaleOverlayPosition();
@@ -150,6 +169,7 @@ namespace capturezy::feature_pin
 
         HideScaleOverlay();
         ShowWindow(window_, SW_HIDE);
+        CAPTUREZY_LOG_DEBUG(core::LogCategory::Pin, L"Pin window hidden.");
 
         if (state_changed_callback_)
         {
@@ -178,6 +198,9 @@ namespace capturezy::feature_pin
             SetWindowPos(scale_overlay_window_, topmost_ ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
                          SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
         }
+
+        CAPTUREZY_LOG_INFO(core::LogCategory::Pin,
+                           topmost_ ? L"Pin window topmost changed to on." : L"Pin window topmost changed to off.");
     }
 
     void PinWindow::CopyToClipboard() const noexcept
@@ -187,7 +210,13 @@ namespace capturezy::feature_pin
             return;
         }
 
-        (void)feature_capture::ScreenCapture::CopyBitmapToClipboard(window_, capture_result_);
+        if (feature_capture::ScreenCapture::CopyBitmapToClipboard(window_, capture_result_))
+        {
+            CAPTUREZY_LOG_INFO(core::LogCategory::Pin, L"Copied pinned image to clipboard.");
+            return;
+        }
+
+        CAPTUREZY_LOG_WARNING(core::LogCategory::Pin, L"Failed to copy pinned image to clipboard.");
     }
 
     void PinWindow::SaveToFile() const
@@ -197,7 +226,13 @@ namespace capturezy::feature_pin
             return;
         }
 
-        (void)feature_capture::SaveCaptureResultWithPngDialog(window_, capture_result_, *app_settings_);
+        if (feature_capture::SaveCaptureResultWithPngDialog(window_, capture_result_, *app_settings_))
+        {
+            CAPTUREZY_LOG_INFO(core::LogCategory::Pin, L"Pinned image saved through dialog.");
+            return;
+        }
+
+        CAPTUREZY_LOG_DEBUG(core::LogCategory::Pin, L"Pinned image save dialog closed without saving.");
     }
 
     void PinWindow::ShowContextMenu(POINT anchor_screen_point) noexcept
@@ -332,6 +367,7 @@ namespace capturezy::feature_pin
                      SWP_NOACTIVATE | SWP_NOZORDER);
         RedrawWindow(window_, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE);
         ShowScaleOverlay();
+        LogScaleMessage(scale_percent_);
         return true;
     }
 
@@ -704,6 +740,7 @@ namespace capturezy::feature_pin
             capture_result_ = {};
             ResetScaledBitmapCache();
             window_ = nullptr;
+            CAPTUREZY_LOG_INFO(core::LogCategory::Pin, L"Pin window destroyed.");
             if (state_changed_callback_)
             {
                 state_changed_callback_();

@@ -11,6 +11,9 @@ namespace capturezy::core
     {
         constexpr std::wstring_view App = L"app";
         constexpr std::wstring_view Capture = L"capture";
+        constexpr std::wstring_view Clipboard = L"clipboard";
+        constexpr std::wstring_view FileIO = L"file_io";
+        constexpr std::wstring_view Pin = L"pin";
         constexpr std::wstring_view Platform = L"platform";
         constexpr std::wstring_view Settings = L"settings";
         constexpr std::wstring_view SettingsDialog = L"settings_dialog";
@@ -32,6 +35,7 @@ namespace capturezy::core
         bool debugger_output_enabled{true};
         bool file_output_enabled{true};
         std::size_t max_file_size_bytes{1024U * 1024U};
+        std::size_t max_retained_files{3};
     };
 
     class Log final
@@ -43,7 +47,7 @@ namespace capturezy::core
         static void Shutdown() noexcept;
         static void SetMinimumLevel(LogLevel level) noexcept;
         [[nodiscard]] static std::wstring LogFilePath();
-        [[nodiscard]] static std::wstring RotatedLogFilePath();
+        [[nodiscard]] static std::wstring RotatedLogFilePath(std::size_t index = 1);
         static void Write(LogLevel level, std::wstring_view category, std::wstring_view message) noexcept;
         static void Write(LogLevel level, std::wstring_view category, std::string_view message) noexcept;
     };

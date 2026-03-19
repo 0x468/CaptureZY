@@ -10,6 +10,7 @@
 #include <string_view>
 #include <system_error>
 
+#include "core/log.h"
 #include "feature_capture/screen_capture.h"
 
 namespace capturezy::feature_capture
@@ -110,6 +111,8 @@ namespace capturezy::feature_capture
     {
         if (!capture_result.IsValid() || app_settings.default_save_directory.empty())
         {
+            CAPTUREZY_LOG_WARNING(core::LogCategory::FileIO,
+                                  L"Skip saving capture to default path because capture or save directory is invalid.");
             return false;
         }
 
@@ -118,6 +121,8 @@ namespace capturezy::feature_capture
         std::filesystem::create_directories(save_directory, error_code);
         if (error_code)
         {
+            CAPTUREZY_LOG_ERROR(core::LogCategory::FileIO,
+                                std::wstring(L"Failed to create save directory: ") + save_directory.wstring() + L".");
             return false;
         }
 
@@ -125,6 +130,8 @@ namespace capturezy::feature_capture
                                                                     app_settings);
         if (!ScreenCapture::SaveBitmapToPng(capture_result, save_path.c_str()))
         {
+            CAPTUREZY_LOG_ERROR(core::LogCategory::FileIO,
+                                std::wstring(L"Failed to save capture to default path: ") + save_path.wstring() + L".");
             return false;
         }
 
@@ -133,6 +140,8 @@ namespace capturezy::feature_capture
             *saved_file_path = save_path.wstring();
         }
 
+        CAPTUREZY_LOG_INFO(core::LogCategory::FileIO,
+                           std::wstring(L"Saved capture to default path: ") + save_path.wstring() + L".");
         return true;
     }
 
@@ -141,6 +150,8 @@ namespace capturezy::feature_capture
     {
         if (owner_window == nullptr || !capture_result.IsValid())
         {
+            CAPTUREZY_LOG_WARNING(core::LogCategory::FileIO,
+                                  L"Skip save dialog because owner window or capture result is invalid.");
             return false;
         }
 
@@ -171,9 +182,19 @@ namespace capturezy::feature_capture
 
         if (GetSaveFileNameW(&dialog) == FALSE)
         {
+            CAPTUREZY_LOG_DEBUG(core::LogCategory::FileIO, L"Save dialog cancelled.");
             return false;
         }
 
-        return ScreenCapture::SaveBitmapToPng(capture_result, file_path.data());
+        if (!ScreenCapture::SaveBitmapToPng(capture_result, file_path.data()))
+        {
+            CAPTUREZY_LOG_ERROR(core::LogCategory::FileIO,
+                                std::wstring(L"Failed to save capture from dialog path: ") + file_path.data() + L".");
+            return false;
+        }
+
+        CAPTUREZY_LOG_INFO(core::LogCategory::FileIO,
+                           std::wstring(L"Saved capture from dialog path: ") + file_path.data() + L".");
+        return true;
     }
 } // namespace capturezy::feature_capture

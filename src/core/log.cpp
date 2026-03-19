@@ -1,5 +1,6 @@
 #include "core/log.h"
 
+#include <algorithm>
 #include <cwctype>
 #include <filesystem>
 #include <format>
@@ -21,11 +22,11 @@ namespace capturezy::core
     {
         constexpr wchar_t const *kLogsDirectoryName = L"Logs";
         constexpr wchar_t const *kLogFileName = L"capturezy.log";
-        constexpr wchar_t const *kRotatedLogFileName = L"capturezy.log.1";
         constexpr wchar_t const *kLogLevelEnvVar = L"CAPTUREZY_LOG_LEVEL";
         constexpr wchar_t const *kLogDebuggerEnvVar = L"CAPTUREZY_LOG_DEBUGGER";
         constexpr wchar_t const *kLogFileEnvVar = L"CAPTUREZY_LOG_FILE";
         constexpr wchar_t const *kLogMaxSizeKbEnvVar = L"CAPTUREZY_LOG_MAX_KB";
+        constexpr wchar_t const *kLogMaxFilesEnvVar = L"CAPTUREZY_LOG_MAX_FILES";
 
         struct LogState final
         {
@@ -70,6 +71,16 @@ namespace capturezy::core
             }
 
             return std::filesystem::path(local_app_data) / AppMetadata::ProductName() / kLogsDirectoryName;
+        }
+
+        [[nodiscard]] std::filesystem::path LogFilePathObject()
+        {
+            return LogsDirectoryPath() / kLogFileName;
+        }
+
+        [[nodiscard]] std::filesystem::path RotatedLogFilePathObject(std::size_t index)
+        {
+            return LogsDirectoryPath() / std::format(L"{}.{}", kLogFileName, index);
         }
 
         [[nodiscard]] std::wstring WidenUtf8(std::string_view utf8_text)
@@ -233,6 +244,18 @@ namespace capturezy::core
             }
         }
 
+        [[nodiscard]] std::size_t ParseCount(std::wstring_view value, std::size_t fallback) noexcept
+        {
+            try
+            {
+                return std::stoull(std::wstring(value));
+            }
+            catch (...)
+            {
+                return fallback;
+            }
+        }
+
         [[nodiscard]] std::wstring TimestampString()
         {
             SYSTEMTIME local_time{};
@@ -270,10 +293,56 @@ namespace capturezy::core
             return file_size.QuadPart;
         }
 
+        void RotateLogFiles(std::filesystem::path const &log_path, LogConfig const &config)
+        {
+            std::error_code error_code;
+            if (config.max_retained_files == 0)
+            {
+                std::ofstream truncate_stream(log_path, std::ios::binary | std::ios::trunc);
+                (void)truncate_stream;
+                return;
+            }
+
+            for (std::size_t index = config.max_retained_files; index >= 1; --index)
+            {
+                std::filesystem::path const source_path = index == 1 ? log_path : RotatedLogFilePathObject(index - 1);
+                std::filesystem::path const target_path = RotatedLogFilePathObject(index);
+
+                if (!std::filesystem::exists(source_path, error_code))
+                {
+                    error_code.clear();
+                    if (index == 1)
+                    {
+                        break;
+                    }
+
+                    continue;
+                }
+                error_code.clear();
+
+                std::filesystem::remove(target_path, error_code);
+                error_code.clear();
+                std::filesystem::rename(source_path, target_path, error_code);
+                if (error_code)
+                {
+                    if (index == 1)
+                    {
+                        std::ofstream truncate_stream(log_path, std::ios::binary | std::ios::trunc);
+                        (void)truncate_stream;
+                    }
+                    return;
+                }
+
+                if (index == 1)
+                {
+                    break;
+                }
+            }
+        }
+
         void EnsureLogFileReady(LogConfig const &config)
         {
-            std::filesystem::path const log_path = Log::LogFilePath();
-            std::filesystem::path const rotated_log_path = Log::RotatedLogFilePath();
+            std::filesystem::path const log_path = LogFilePathObject();
             std::error_code error_code;
             std::filesystem::create_directories(log_path.parent_path(), error_code);
             if (error_code)
@@ -292,16 +361,7 @@ namespace capturezy::core
                 return;
             }
 
-            std::filesystem::remove(rotated_log_path, error_code);
-            error_code.clear();
-            std::filesystem::rename(log_path, rotated_log_path, error_code);
-            if (!error_code)
-            {
-                return;
-            }
-
-            std::ofstream truncate_stream(log_path, std::ios::binary | std::ios::trunc);
-            (void)truncate_stream;
+            RotateLogFiles(log_path, config);
         }
 
         [[nodiscard]] bool IsEnabled(LogLevel level, LogConfig const &config) noexcept
@@ -328,6 +388,8 @@ namespace capturezy::core
                                                       config.file_output_enabled);
             config.max_file_size_bytes = ParseSizeKb(ReadEnvironmentVariable(kLogMaxSizeKbEnvVar),
                                                      config.max_file_size_bytes);
+            config.max_retained_files = ParseCount(ReadEnvironmentVariable(kLogMaxFilesEnvVar),
+                                                   config.max_retained_files);
             return config;
         }
         catch (...)
@@ -380,12 +442,12 @@ namespace capturezy::core
 
     std::wstring Log::LogFilePath()
     {
-        return (LogsDirectoryPath() / kLogFileName).wstring();
+        return LogFilePathObject().wstring();
     }
 
-    std::wstring Log::RotatedLogFilePath()
+    std::wstring Log::RotatedLogFilePath(std::size_t index)
     {
-        return (LogsDirectoryPath() / kRotatedLogFileName).wstring();
+        return RotatedLogFilePathObject(std::max<std::size_t>(1, index)).wstring();
     }
 
     void Log::Write(LogLevel level, std::wstring_view category, std::wstring_view message) noexcept
@@ -418,7 +480,7 @@ namespace capturezy::core
             }
 
             EnsureLogFileReady(state.config);
-            std::ofstream stream(LogFilePath(), std::ios::binary | std::ios::app);
+            std::ofstream stream(LogFilePathObject(), std::ios::binary | std::ios::app);
             if (!stream.is_open())
             {
                 return;

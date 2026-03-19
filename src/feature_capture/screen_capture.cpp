@@ -1,10 +1,12 @@
 #include "feature_capture/screen_capture.h"
 
 #include <chrono>
+#include <format>
 #include <utility>
 #include <wincodec.h>
 #include <wrl/client.h>
 
+#include "core/log.h"
 #include "feature_capture/capture_result.h"
 
 namespace capturezy::feature_capture
@@ -23,6 +25,19 @@ namespace capturezy::feature_capture
             return rect.bottom - rect.top;
         }
 
+        void LogHResultFailure(wchar_t const *stage, HRESULT result) noexcept
+        {
+            try
+            {
+                CAPTUREZY_LOG_ERROR(core::LogCategory::FileIO,
+                                    std::format(L"{} failed. hr=0x{:08X}.", stage, static_cast<unsigned long>(result)));
+            }
+            catch (...)
+            {
+                CAPTUREZY_LOG_ERROR(core::LogCategory::FileIO, L"File I/O HRESULT failure.");
+            }
+        }
+
         [[nodiscard]] bool WriteBitmapToPng(IWICImagingFactory *imaging_factory, HBITMAP bitmap, SIZE bitmap_size,
                                             wchar_t const *file_path) noexcept
         {
@@ -31,6 +46,7 @@ namespace capturezy::feature_capture
                                                                       wic_bitmap.GetAddressOf());
             if (FAILED(result))
             {
+                LogHResultFailure(L"CreateBitmapFromHBITMAP", result);
                 return false;
             }
 
@@ -38,12 +54,14 @@ namespace capturezy::feature_capture
             result = imaging_factory->CreateStream(stream.GetAddressOf());
             if (FAILED(result))
             {
+                LogHResultFailure(L"CreateStream", result);
                 return false;
             }
 
             result = stream->InitializeFromFilename(file_path, GENERIC_WRITE);
             if (FAILED(result))
             {
+                LogHResultFailure(L"InitializeFromFilename", result);
                 return false;
             }
 
@@ -51,12 +69,14 @@ namespace capturezy::feature_capture
             result = imaging_factory->CreateEncoder(GUID_ContainerFormatPng, nullptr, encoder.GetAddressOf());
             if (FAILED(result))
             {
+                LogHResultFailure(L"CreateEncoder", result);
                 return false;
             }
 
             result = encoder->Initialize(stream.Get(), WICBitmapEncoderNoCache);
             if (FAILED(result))
             {
+                LogHResultFailure(L"Encoder Initialize", result);
                 return false;
             }
 
@@ -65,18 +85,21 @@ namespace capturezy::feature_capture
             result = encoder->CreateNewFrame(frame.GetAddressOf(), property_bag.GetAddressOf());
             if (FAILED(result))
             {
+                LogHResultFailure(L"CreateNewFrame", result);
                 return false;
             }
 
             result = frame->Initialize(property_bag.Get());
             if (FAILED(result))
             {
+                LogHResultFailure(L"Frame Initialize", result);
                 return false;
             }
 
             result = frame->SetSize(static_cast<UINT>(bitmap_size.cx), static_cast<UINT>(bitmap_size.cy));
             if (FAILED(result))
             {
+                LogHResultFailure(L"Frame SetSize", result);
                 return false;
             }
 
@@ -84,22 +107,32 @@ namespace capturezy::feature_capture
             result = frame->SetPixelFormat(&pixel_format);
             if (FAILED(result))
             {
+                LogHResultFailure(L"Frame SetPixelFormat", result);
                 return false;
             }
 
             result = frame->WriteSource(wic_bitmap.Get(), nullptr);
             if (FAILED(result))
             {
+                LogHResultFailure(L"Frame WriteSource", result);
                 return false;
             }
 
             result = frame->Commit();
             if (FAILED(result))
             {
+                LogHResultFailure(L"Frame Commit", result);
                 return false;
             }
 
-            return SUCCEEDED(encoder->Commit());
+            result = encoder->Commit();
+            if (FAILED(result))
+            {
+                LogHResultFailure(L"Encoder Commit", result);
+                return false;
+            }
+
+            return true;
         }
     } // namespace
 
@@ -263,13 +296,22 @@ namespace capturezy::feature_capture
 
     bool ScreenCapture::CopyBitmapToClipboard(HWND owner_window, CaptureResult const &capture_result) noexcept
     {
-        if (!capture_result.IsValid() || OpenClipboard(owner_window) == FALSE)
+        if (!capture_result.IsValid())
         {
+            CAPTUREZY_LOG_WARNING(core::LogCategory::Clipboard,
+                                  L"Skip clipboard copy because capture result is invalid.");
+            return false;
+        }
+
+        if (OpenClipboard(owner_window) == FALSE)
+        {
+            CAPTUREZY_LOG_ERROR(core::LogCategory::Clipboard, L"OpenClipboard failed.");
             return false;
         }
 
         if (EmptyClipboard() == FALSE)
         {
+            CAPTUREZY_LOG_ERROR(core::LogCategory::Clipboard, L"EmptyClipboard failed.");
             CloseClipboard();
             return false;
         }
@@ -277,6 +319,7 @@ namespace capturezy::feature_capture
         CapturedBitmap bitmap = capture_result.CloneBitmap();
         if (!bitmap.IsValid())
         {
+            CAPTUREZY_LOG_ERROR(core::LogCategory::Clipboard, L"Failed to clone bitmap for clipboard copy.");
             CloseClipboard();
             return false;
         }
@@ -284,12 +327,14 @@ namespace capturezy::feature_capture
         HBITMAP const clipboard_bitmap = bitmap.Release();
         if (SetClipboardData(CF_BITMAP, clipboard_bitmap) == nullptr)
         {
+            CAPTUREZY_LOG_ERROR(core::LogCategory::Clipboard, L"SetClipboardData failed.");
             CloseClipboard();
             DeleteObject(clipboard_bitmap);
             return false;
         }
 
         CloseClipboard();
+        CAPTUREZY_LOG_INFO(core::LogCategory::Clipboard, L"Copied capture bitmap to clipboard.");
         return true;
     }
 
@@ -297,6 +342,8 @@ namespace capturezy::feature_capture
     {
         if (!capture_result.IsValid() || file_path == nullptr || *file_path == L'\0')
         {
+            CAPTUREZY_LOG_WARNING(core::LogCategory::FileIO,
+                                  L"Skip PNG save because capture result or file path is invalid.");
             return false;
         }
 
@@ -305,6 +352,7 @@ namespace capturezy::feature_capture
                                                         IID_PPV_ARGS(imaging_factory.GetAddressOf()));
         if (FAILED(factory_result) || imaging_factory == nullptr)
         {
+            LogHResultFailure(L"CoCreateInstance(CLSID_WICImagingFactory)", factory_result);
             return false;
         }
 
