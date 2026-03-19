@@ -2,6 +2,7 @@ add_library(
   capturezy_platform_win
   STATIC
     main_window.cpp
+    main_window_capture.cpp
     main_window_settings.cpp
     settings_dialog.cpp
     tray_menu.cpp

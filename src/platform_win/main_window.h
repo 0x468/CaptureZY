@@ -24,6 +24,8 @@ namespace capturezy::platform_win
         [[nodiscard]] static int RunMessageLoop();
 
       private:
+        static constexpr UINT kExecutePendingCaptureMessage = WM_APP + 2;
+
         enum class CaptureAction : std::uint8_t
         {
             CopyOnly,
