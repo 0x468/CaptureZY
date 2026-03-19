@@ -112,6 +112,8 @@ pwsh -ExecutionPolicy Bypass -File scripts/run_clang_tidy_changed.ps1 -BaseRef o
 - `Release` 构建默认关闭调试器输出，仅保留文件输出
 - 当前日志文件达到阈值后，会按顺序轮转到 `.1/.2/.3`
 - 当前已覆盖应用启动、设置、托盘、截图、剪贴板、文件保存和贴图关键路径
+- 当前每条日志都会带 `session_id`、`process_id` 和 `thread_id`
+- 当前 crash report 会写入对应 `session_id` 和运行中的日志文件路径，便于关联排障
 
 ### 运行时环境变量
 
