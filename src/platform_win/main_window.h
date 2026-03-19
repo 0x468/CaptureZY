@@ -24,7 +24,11 @@ namespace capturezy::platform_win
         [[nodiscard]] static int RunMessageLoop();
 
       private:
+        static constexpr UINT kTrayIconId = 1;
+        static constexpr UINT kTrayMessage = WM_APP + 1;
+        static constexpr UINT_PTR kTrayLeftClickTimerId = 2;
         static constexpr UINT kExecutePendingCaptureMessage = WM_APP + 2;
+        static constexpr int kCaptureHotkeyId = 1;
 
         enum class CaptureAction : std::uint8_t
         {

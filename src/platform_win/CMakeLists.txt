@@ -4,6 +4,7 @@ add_library(
     main_window.cpp
     main_window_capture.cpp
     main_window_settings.cpp
+    main_window_tray.cpp
     settings_dialog.cpp
     tray_menu.cpp
 )
