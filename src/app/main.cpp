@@ -10,6 +10,25 @@
 
 namespace
 {
+    [[nodiscard]] std::wstring BuildStartupSummary()
+    {
+        std::wstring summary = L"Startup context: build=";
+#ifdef _DEBUG
+        summary += L"debug";
+#else
+        summary += L"release";
+#endif
+        summary += L", session_id=";
+        summary += capturezy::core::Log::SessionId();
+        summary += L", process_id=";
+        summary += std::to_wstring(capturezy::core::Log::ProcessId());
+        summary += L", log_file=";
+        summary += capturezy::core::Log::LogFilePath();
+        summary += L", diagnostics_dir=";
+        summary += capturezy::core::CrashDiagnostics::DiagnosticsDirectory();
+        return summary;
+    }
+
 #ifdef CAPTUREZY_ENABLE_DIAGNOSTIC_SELF_TEST
     void RunDiagnosticsSelfTest(std::wstring_view command_line)
     {
@@ -36,6 +55,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, // NOLINT(bugprone-easily-swappable-par
     capturezy::core::CrashDiagnostics::Install();
     capturezy::core::Log::Initialize();
     CAPTUREZY_LOG_INFO(capturezy::core::LogCategory::App, L"Process startup.");
+    CAPTUREZY_LOG_INFO(capturezy::core::LogCategory::App, BuildStartupSummary());
 
     try
     {

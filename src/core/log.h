@@ -1,5 +1,9 @@
 #pragma once
 
+// clang-format off
+#include <windows.h>
+// clang-format on
+
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -46,6 +50,8 @@ namespace capturezy::core
         static void Initialize(LogConfig config) noexcept;
         static void Shutdown() noexcept;
         static void SetMinimumLevel(LogLevel level) noexcept;
+        [[nodiscard]] static std::wstring SessionId();
+        [[nodiscard]] static DWORD ProcessId() noexcept;
         [[nodiscard]] static std::wstring LogFilePath();
         [[nodiscard]] static std::wstring RotatedLogFilePath(std::size_t index = 1);
         static void Write(LogLevel level, std::wstring_view category, std::wstring_view message) noexcept;

@@ -3,6 +3,7 @@
 #include <objbase.h>
 #include <shellscalingapi.h>
 
+#include "core/app_settings_store.h"
 #include "core/log.h"
 #include "render_d2d/render_backend.h"
 
@@ -57,6 +58,22 @@ namespace
 
 namespace capturezy::app
 {
+    namespace
+    {
+        [[nodiscard]] std::wstring RuntimeEnvironmentSummary(bool dpi_aware, int show_command)
+        {
+            std::wstring summary = L"Runtime environment: dpi_aware=";
+            summary += dpi_aware ? L"true" : L"false";
+            summary += L", show_command=";
+            summary += std::to_wstring(show_command);
+            summary += L", render_backend=";
+            summary += render_d2d::RenderBackend::DisplayName();
+            summary += L", settings_file=";
+            summary += core::AppSettingsStore::SettingsFilePath();
+            return summary;
+        }
+    } // namespace
+
     Application::Application(HINSTANCE instance) : main_window_(instance, app_state_, app_settings_) {}
 
     Application::~Application() noexcept
@@ -92,14 +109,15 @@ namespace capturezy::app
 
     int Application::Run(int show_command)
     {
-        (void)render_d2d::RenderBackend::DisplayName();
-        (void)EnablePerMonitorDpiAwareness();
+        bool const dpi_aware = EnablePerMonitorDpiAwareness();
+        CAPTUREZY_LOG_INFO(core::LogCategory::App, RuntimeEnvironmentSummary(dpi_aware, show_command));
 
         if (!InitializeCom())
         {
             CAPTUREZY_LOG_ERROR(core::LogCategory::App, L"COM initialization failed.");
             return -1;
         }
+        CAPTUREZY_LOG_DEBUG(core::LogCategory::App, L"COM apartment initialized.");
 
         app_settings_ = core::AppSettingsStore::Load();
         CAPTUREZY_LOG_INFO(core::LogCategory::Settings,

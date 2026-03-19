@@ -12,6 +12,7 @@
 #include <system_error>
 
 #include "core/app_metadata.h"
+#include "core/log.h"
 
 namespace capturezy::core
 {
@@ -187,6 +188,7 @@ namespace capturezy::core
             stream << L"timestamp: " << LocalTimestampString() << L"\n";
             stream << L"process_id: " << GetCurrentProcessId() << L"\n";
             stream << L"thread_id: " << GetCurrentThreadId() << L"\n";
+            stream << L"session_id: " << Log::SessionId() << L"\n";
             stream << L"report_base: " << base_name << L"\n";
 
             if (exception_pointers != nullptr && exception_pointers->ExceptionRecord != nullptr)
@@ -198,6 +200,7 @@ namespace capturezy::core
             }
 
             stream << L"minidump_written: " << (dump_written ? L"true" : L"false") << L"\n";
+            stream << L"log_file: " << Log::LogFilePath() << L"\n";
             stream << L"diagnostics_directory: " << CrashDiagnostics::DiagnosticsDirectory() << L"\n";
             return stream.str();
         }
@@ -210,9 +213,11 @@ namespace capturezy::core
             stream << L"timestamp: " << LocalTimestampString() << L"\n";
             stream << L"process_id: " << GetCurrentProcessId() << L"\n";
             stream << L"thread_id: " << GetCurrentThreadId() << L"\n";
+            stream << L"session_id: " << Log::SessionId() << L"\n";
             stream << L"origin: " << report_spec.origin << L"\n";
             stream << L"details: " << (report_spec.details.empty() ? L"<none>" : std::wstring(report_spec.details))
                    << L"\n";
+            stream << L"log_file: " << Log::LogFilePath() << L"\n";
             stream << L"diagnostics_directory: " << CrashDiagnostics::DiagnosticsDirectory() << L"\n";
             return stream.str();
         }
@@ -221,6 +226,7 @@ namespace capturezy::core
         {
             try
             {
+                CAPTUREZY_LOG_ERROR(LogCategory::App, L"Unhandled exception filter invoked.");
                 std::wstring const base_name = BuildDiagnosticBaseName(L"crash");
                 bool const dump_written = WriteMiniDump(base_name, exception_pointers);
                 std::wstring const report_text = BuildUnhandledExceptionReportText(base_name, exception_pointers,

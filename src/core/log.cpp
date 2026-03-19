@@ -32,6 +32,8 @@ namespace capturezy::core
         {
             LogConfig config{};
             bool initialized{false};
+            DWORD process_id{GetCurrentProcessId()};
+            std::wstring session_id;
             std::mutex mutex;
         };
 
@@ -39,6 +41,15 @@ namespace capturezy::core
         {
             static LogState state{};
             return state;
+        }
+
+        [[nodiscard]] std::wstring CompactTimestampString()
+        {
+            SYSTEMTIME local_time{};
+            GetLocalTime(&local_time);
+            return std::format(L"{:04}{:02}{:02}-{:02}{:02}{:02}{:03}", local_time.wYear, local_time.wMonth,
+                               local_time.wDay, local_time.wHour, local_time.wMinute, local_time.wSecond,
+                               local_time.wMilliseconds);
         }
 
         [[nodiscard]] std::wstring GetKnownFolderPath(REFKNOWNFOLDERID folder_id)
@@ -265,7 +276,23 @@ namespace capturezy::core
                                local_time.wMilliseconds);
         }
 
-        [[nodiscard]] std::wstring BuildLogLine(LogLevel level, std::wstring_view category, std::wstring_view message)
+        [[nodiscard]] std::wstring BuildSessionId(DWORD process_id)
+        {
+            return std::format(L"{}-p{}", CompactTimestampString(), process_id);
+        }
+
+        [[nodiscard]] std::wstring_view EnsureSessionId(LogState &state)
+        {
+            if (state.session_id.empty())
+            {
+                state.session_id = BuildSessionId(state.process_id);
+            }
+
+            return state.session_id;
+        }
+
+        [[nodiscard]] std::wstring BuildLogLine(LogLevel level, std::wstring_view category, std::wstring_view message,
+                                                DWORD process_id, std::wstring_view session_id, DWORD thread_id)
         {
             std::wstring line = L"[";
             line += TimestampString();
@@ -273,6 +300,12 @@ namespace capturezy::core
             line += LevelName(level);
             line += L"] [";
             line += category;
+            line += L"] [sid=";
+            line += session_id;
+            line += L" pid=";
+            line += std::to_wstring(process_id);
+            line += L" tid=";
+            line += std::to_wstring(thread_id);
             line += L"] ";
             line += message;
             line += L"\r\n";
@@ -417,6 +450,7 @@ namespace capturezy::core
             LogState &state = State();
             std::scoped_lock lock(state.mutex);
             state.config = config;
+            (void)EnsureSessionId(state);
             EnsureLogFileReady(state.config);
             state.initialized = true;
         }
@@ -445,6 +479,18 @@ namespace capturezy::core
         return LogFilePathObject().wstring();
     }
 
+    std::wstring Log::SessionId()
+    {
+        LogState &state = State();
+        std::scoped_lock lock(state.mutex);
+        return std::wstring(EnsureSessionId(state));
+    }
+
+    DWORD Log::ProcessId() noexcept
+    {
+        return State().process_id;
+    }
+
     std::wstring Log::RotatedLogFilePath(std::size_t index)
     {
         return RotatedLogFilePathObject(std::max<std::size_t>(1, index)).wstring();
@@ -459,6 +505,7 @@ namespace capturezy::core
             if (!state.initialized)
             {
                 state.config = {};
+                (void)EnsureSessionId(state);
                 EnsureLogFileReady(state.config);
                 state.initialized = true;
             }
@@ -468,7 +515,9 @@ namespace capturezy::core
                 return;
             }
 
-            std::wstring const line = BuildLogLine(level, category, message);
+            std::wstring_view const session_id = EnsureSessionId(state);
+            std::wstring const line = BuildLogLine(level, category, message, state.process_id, session_id,
+                                                   GetCurrentThreadId());
             if (state.config.debugger_output_enabled)
             {
                 OutputDebugStringW(line.c_str());
