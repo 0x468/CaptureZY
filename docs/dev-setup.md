@@ -101,6 +101,8 @@ pwsh -ExecutionPolicy Bypass -File scripts/run_clang_tidy_changed.ps1 -BaseRef o
   `%LOCALAPPDATA%\CaptureZY\Logs\capturezy.log`
 - 当前轮转备份文件：
   `%LOCALAPPDATA%\CaptureZY\Logs\capturezy.log.1`
+  `%LOCALAPPDATA%\CaptureZY\Logs\capturezy.log.2`
+  `%LOCALAPPDATA%\CaptureZY\Logs\capturezy.log.3`
 
 ### 默认行为
 
@@ -108,7 +110,8 @@ pwsh -ExecutionPolicy Bypass -File scripts/run_clang_tidy_changed.ps1 -BaseRef o
 - `Release` 构建默认最小级别为 `info`
 - `Debug` 构建默认同时输出到调试器和文件
 - `Release` 构建默认关闭调试器输出，仅保留文件输出
-- 当前日志文件达到阈值后，会轮转到 `.1`
+- 当前日志文件达到阈值后，会按顺序轮转到 `.1/.2/.3`
+- 当前已覆盖应用启动、设置、托盘、截图、剪贴板、文件保存和贴图关键路径
 
 ### 运行时环境变量
 
@@ -120,6 +123,8 @@ pwsh -ExecutionPolicy Bypass -File scripts/run_clang_tidy_changed.ps1 -BaseRef o
   - 可用值：`true/false` `on/off` `yes/no` `1/0`
 - `CAPTUREZY_LOG_MAX_KB`
   - 例如：`256` `512` `1024`
+- `CAPTUREZY_LOG_MAX_FILES`
+  - 表示保留的轮转备份份数，例如：`0` `1` `3`
 
 ### 常用示例
 
