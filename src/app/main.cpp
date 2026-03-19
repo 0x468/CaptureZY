@@ -6,6 +6,7 @@
 
 #include "app/application.h"
 #include "core/crash_diagnostics.h"
+#include "core/log.h"
 
 namespace
 {
@@ -33,6 +34,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, // NOLINT(bugprone-easily-swappable-par
     (void)lpCmdLine;
 
     capturezy::core::CrashDiagnostics::Install();
+    capturezy::core::Log::Initialize();
+    capturezy::core::Log::Write(capturezy::core::LogLevel::Info, L"app", L"Process startup.");
 
     try
     {
@@ -40,10 +43,15 @@ int WINAPI wWinMain(HINSTANCE hInstance, // NOLINT(bugprone-easily-swappable-par
         RunDiagnosticsSelfTest(lpCmdLine != nullptr ? std::wstring_view(lpCmdLine) : std::wstring_view{});
 #endif
         capturezy::app::Application application(hInstance);
-        return application.Run(nShowCmd);
+        int const exit_code = application.Run(nShowCmd);
+        capturezy::core::Log::Write(capturezy::core::LogLevel::Info, L"app",
+                                    std::wstring(L"Application exited with code ") + std::to_wstring(exit_code) + L".");
+        capturezy::core::Log::Shutdown();
+        return exit_code;
     }
     catch (std::exception const &caught_exception)
     {
+        capturezy::core::Log::Write(capturezy::core::LogLevel::Error, L"app", caught_exception.what());
         std::wstring const report_path = capturezy::core::CrashDiagnostics::WriteCaughtExceptionReport(
             {.origin = "wWinMain", .details = caught_exception.what()});
         std::wstring message = L"程序发生未处理的 C++ 异常。";
@@ -53,10 +61,12 @@ int WINAPI wWinMain(HINSTANCE hInstance, // NOLINT(bugprone-easily-swappable-par
             message += report_path;
         }
         MessageBoxW(nullptr, message.c_str(), L"CaptureZY", MB_OK | MB_ICONERROR);
+        capturezy::core::Log::Shutdown();
         return -1;
     }
     catch (...)
     {
+        capturezy::core::Log::Write(capturezy::core::LogLevel::Error, L"app", L"Unknown top-level exception.");
         std::wstring const report_path = capturezy::core::CrashDiagnostics::WriteCaughtExceptionReport(
             {.origin = "wWinMain", .details = "unknown exception"});
         std::wstring message = L"程序发生未知未处理异常。";
@@ -66,6 +76,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, // NOLINT(bugprone-easily-swappable-par
             message += report_path;
         }
         MessageBoxW(nullptr, message.c_str(), L"CaptureZY", MB_OK | MB_ICONERROR);
+        capturezy::core::Log::Shutdown();
         return -1;
     }
 }

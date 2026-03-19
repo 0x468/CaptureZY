@@ -2,6 +2,7 @@ add_library(
   capturezy_core
   STATIC
     crash_diagnostics.cpp
+    log.cpp
     app_settings.cpp
     app_settings_store.cpp
     app_state.cpp

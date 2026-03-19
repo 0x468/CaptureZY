@@ -12,6 +12,7 @@
 #include <wrl/client.h>
 
 #include "core/app_settings_store.h"
+#include "core/log.h"
 
 namespace capturezy::platform_win
 {
@@ -579,6 +580,12 @@ namespace capturezy::platform_win
                 settings.capture_hotkey = HotkeySettingFromDialog(
                     static_cast<WORD>(SendMessageW(hotkey_control_, HKM_GETHOTKEY, 0, 0)),
                     IsCheckboxChecked(win_modifier_checkbox_));
+
+                core::Log::Write(core::LogLevel::Debug, L"settings_dialog",
+                                 std::wstring(L"Accept settings. single=") +
+                                     std::to_wstring(static_cast<int>(settings.tray_single_click_action)) +
+                                     L", double=" +
+                                     std::to_wstring(static_cast<int>(settings.tray_double_click_action)) + L".");
 
                 if (settings.capture_hotkey.virtual_key == 0)
                 {

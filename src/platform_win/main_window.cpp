@@ -6,6 +6,7 @@
 
 #include "core/app_metadata.h"
 #include "core/app_settings_store.h"
+#include "core/log.h"
 #include "feature_capture/capture_file_dialog.h"
 #include "feature_capture/screen_capture.h"
 #include "platform_win/settings_dialog.h"
@@ -143,6 +144,7 @@ namespace capturezy::platform_win
     {
         if (RegisterWindowClass() == 0)
         {
+            core::Log::Write(core::LogLevel::Error, L"platform", L"Main window class registration failed.");
             return false;
         }
 
@@ -151,6 +153,7 @@ namespace capturezy::platform_win
 
         if (window_ == nullptr)
         {
+            core::Log::Write(core::LogLevel::Error, L"platform", L"Main window creation failed.");
             return false;
         }
 
@@ -163,6 +166,7 @@ namespace capturezy::platform_win
 
         if (!CreateTrayIcon())
         {
+            core::Log::Write(core::LogLevel::Error, L"tray", L"Tray icon creation failed.");
             DestroyWindow(window_);
             return false;
         }
@@ -278,6 +282,10 @@ namespace capturezy::platform_win
 
         UnregisterHotkeys();
         *app_settings_ = std::move(new_settings);
+        core::Log::Write(core::LogLevel::Info, L"settings",
+                         std::wstring(L"Apply settings. single=") +
+                             std::to_wstring(static_cast<int>(app_settings_->tray_single_click_action)) + L", double=" +
+                             std::to_wstring(static_cast<int>(app_settings_->tray_double_click_action)) + L".");
         hotkeys_registered_ = RegisterHotkeys();
         if (!hotkeys_registered_)
         {
@@ -288,6 +296,7 @@ namespace capturezy::platform_win
                 hotkeys_registered_ = RegisterHotkeys();
             }
 
+            core::Log::Write(core::LogLevel::Warning, L"settings", hotkey_error_message);
             ShowMessageDialog(L"CaptureZY", hotkey_error_message, MB_ICONWARNING);
             return false;
         }
@@ -305,6 +314,7 @@ namespace capturezy::platform_win
             hotkeys_registered_ = RegisterHotkeys();
         }
 
+        core::Log::Write(core::LogLevel::Error, L"settings", save_error_message);
         ShowMessageDialog(L"CaptureZY", save_error_message, MB_ICONERROR);
         return false;
     }
