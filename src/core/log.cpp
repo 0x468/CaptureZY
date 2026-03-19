@@ -1,5 +1,6 @@
 #include "core/log.h"
 
+#include <cwctype>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -21,6 +22,10 @@ namespace capturezy::core
         constexpr wchar_t const *kLogsDirectoryName = L"Logs";
         constexpr wchar_t const *kLogFileName = L"capturezy.log";
         constexpr wchar_t const *kRotatedLogFileName = L"capturezy.log.1";
+        constexpr wchar_t const *kLogLevelEnvVar = L"CAPTUREZY_LOG_LEVEL";
+        constexpr wchar_t const *kLogDebuggerEnvVar = L"CAPTUREZY_LOG_DEBUGGER";
+        constexpr wchar_t const *kLogFileEnvVar = L"CAPTUREZY_LOG_FILE";
+        constexpr wchar_t const *kLogMaxSizeKbEnvVar = L"CAPTUREZY_LOG_MAX_KB";
 
         struct LogState final
         {
@@ -87,6 +92,45 @@ namespace capturezy::core
             return wide_text;
         }
 
+        [[nodiscard]] std::wstring ReadEnvironmentVariable(wchar_t const *name)
+        {
+            DWORD const length = GetEnvironmentVariableW(name, nullptr, 0);
+            if (length == 0)
+            {
+                return {};
+            }
+
+            std::wstring value(static_cast<std::size_t>(length), L'\0');
+            DWORD const copied = GetEnvironmentVariableW(name, value.data(), length);
+            if (copied == 0)
+            {
+                return {};
+            }
+
+            value.resize(static_cast<std::size_t>(copied));
+            return value;
+        }
+
+        [[nodiscard]] bool EqualsIgnoreCase(std::wstring_view left, std::wstring_view right) noexcept
+        {
+            if (left.size() != right.size())
+            {
+                return false;
+            }
+
+            auto left_it = left.begin();
+            auto right_it = right.begin();
+            for (; left_it != left.end(); ++left_it, ++right_it)
+            {
+                if (std::towlower(*left_it) != std::towlower(*right_it))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
         [[nodiscard]] std::string ToUtf8(std::wstring_view wide_text)
         {
             if (wide_text.empty())
@@ -126,6 +170,66 @@ namespace capturezy::core
             case LogLevel::Info:
             default:
                 return L"INFO";
+            }
+        }
+
+        [[nodiscard]] LogLevel ParseLogLevel(std::wstring_view value, LogLevel fallback) noexcept
+        {
+            if (EqualsIgnoreCase(value, L"error"))
+            {
+                return LogLevel::Error;
+            }
+
+            if (EqualsIgnoreCase(value, L"warn") || EqualsIgnoreCase(value, L"warning"))
+            {
+                return LogLevel::Warning;
+            }
+
+            if (EqualsIgnoreCase(value, L"debug"))
+            {
+                return LogLevel::Debug;
+            }
+
+            if (EqualsIgnoreCase(value, L"trace"))
+            {
+                return LogLevel::Trace;
+            }
+
+            if (EqualsIgnoreCase(value, L"info"))
+            {
+                return LogLevel::Info;
+            }
+
+            return fallback;
+        }
+
+        [[nodiscard]] bool ParseBoolean(std::wstring_view value, bool fallback) noexcept
+        {
+            if (value == L"1" || EqualsIgnoreCase(value, L"true") || EqualsIgnoreCase(value, L"on") ||
+                EqualsIgnoreCase(value, L"yes"))
+            {
+                return true;
+            }
+
+            if (value == L"0" || EqualsIgnoreCase(value, L"false") || EqualsIgnoreCase(value, L"off") ||
+                EqualsIgnoreCase(value, L"no"))
+            {
+                return false;
+            }
+
+            return fallback;
+        }
+
+        [[nodiscard]] std::size_t ParseSizeKb(std::wstring_view value, std::size_t fallback) noexcept
+        {
+            try
+            {
+                std::size_t parsed = std::stoull(std::wstring(value));
+                return parsed * 1024U;
+            }
+            catch (...)
+            {
+                return fallback;
             }
         }
 
@@ -208,13 +312,35 @@ namespace capturezy::core
 
     LogConfig Log::DefaultConfig() noexcept
     {
-        LogConfig config{};
+        try
+        {
+            LogConfig config{};
 #ifdef _DEBUG
-        config.minimum_level = LogLevel::Debug;
+            config.minimum_level = LogLevel::Debug;
 #else
-        config.minimum_level = LogLevel::Info;
+            config.minimum_level = LogLevel::Info;
+            config.debugger_output_enabled = false;
 #endif
-        return config;
+            config.minimum_level = ParseLogLevel(ReadEnvironmentVariable(kLogLevelEnvVar), config.minimum_level);
+            config.debugger_output_enabled = ParseBoolean(ReadEnvironmentVariable(kLogDebuggerEnvVar),
+                                                          config.debugger_output_enabled);
+            config.file_output_enabled = ParseBoolean(ReadEnvironmentVariable(kLogFileEnvVar),
+                                                      config.file_output_enabled);
+            config.max_file_size_bytes = ParseSizeKb(ReadEnvironmentVariable(kLogMaxSizeKbEnvVar),
+                                                     config.max_file_size_bytes);
+            return config;
+        }
+        catch (...)
+        {
+            LogConfig fallback{};
+#ifdef _DEBUG
+            fallback.minimum_level = LogLevel::Debug;
+#else
+            fallback.minimum_level = LogLevel::Info;
+            fallback.debugger_output_enabled = false;
+#endif
+            return fallback;
+        }
     }
 
     void Log::Initialize() noexcept
