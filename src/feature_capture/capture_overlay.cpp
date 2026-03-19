@@ -14,8 +14,8 @@ namespace capturezy::feature_capture
     {
         constexpr wchar_t const *kOverlayWindowClassName = L"CaptureZY.CaptureOverlay";
         constexpr BYTE kOverlayAlpha = 96;
-        constexpr wchar_t const
-            *kOverlayInstruction = L"窗口预选：悬停高亮，单击截取窗口；也可随时按住左键拖拽框选，Ctrl+A 全屏，Esc 取消";
+        constexpr wchar_t const *kOverlayInstruction = L"窗口预选：悬停高亮，单击截取窗口；也可随时按住左键拖拽框选，Ct"
+                                                       L"rl+A 全屏，右键或 Esc 取消";
         constexpr int kDragThreshold = 4;
 
         void SetWindowUserData(HWND window, CaptureOverlay *overlay)
@@ -528,6 +528,11 @@ namespace capturezy::feature_capture
 
         case WM_LBUTTONUP:
             CompletePointerSelection(l_param);
+            return 0;
+
+        case WM_RBUTTONUP:
+        case WM_NCRBUTTONUP:
+            Finish(OverlayResult::Cancelled);
             return 0;
 
         case WM_PAINT:
