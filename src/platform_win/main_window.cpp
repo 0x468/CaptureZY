@@ -132,6 +132,22 @@ namespace capturezy::platform_win
             return label;
         }
 
+        [[nodiscard]] wchar_t const *TrayClickActionName(core::TrayIconClickActionSetting action) noexcept
+        {
+            switch (action)
+            {
+            case core::TrayIconClickActionSetting::Disabled:
+                return L"disabled";
+
+            case core::TrayIconClickActionSetting::StartCapture:
+                return L"start_capture";
+
+            case core::TrayIconClickActionSetting::OpenMenu:
+            default:
+                return L"open_menu";
+            }
+        }
+
     } // namespace
 
     MainWindow::MainWindow(HINSTANCE instance, core::AppState &app_state, core::AppSettings &app_settings) noexcept
@@ -245,9 +261,15 @@ namespace capturezy::platform_win
     {
         if (app_state_->Mode() == core::AppMode::CapturePending)
         {
+            CAPTUREZY_LOG_DEBUG(core::LogCategory::Capture,
+                                L"Capture request ignored because capture is already pending.");
             return;
         }
 
+        CAPTUREZY_LOG_INFO(core::LogCategory::Capture,
+                           std::wstring(L"Begin capture request. scope=") +
+                               std::to_wstring(static_cast<int>(capture_request.scope)) + L", action=" +
+                               std::to_wstring(static_cast<int>(capture_request.action)) + L".");
         pending_capture_request_ = capture_request;
         app_state_->BeginCapture();
         UpdateWindowPresentation();
@@ -322,6 +344,7 @@ namespace capturezy::platform_win
 
     void MainWindow::OpenSettingsDialog()
     {
+        CAPTUREZY_LOG_DEBUG(core::LogCategory::SettingsDialog, L"Open settings dialog.");
         bool const hotkeys_were_active = hotkeys_registered_;
         if (hotkeys_were_active)
         {
@@ -334,12 +357,14 @@ namespace capturezy::platform_win
             if (ApplySettings(std::move(*updated_settings), true, L"新设置中的截图热键注册失败，已保留当前配置。",
                               L"设置写回配置文件失败，已恢复当前配置。"))
             {
+                CAPTUREZY_LOG_INFO(core::LogCategory::SettingsDialog, L"Settings dialog accepted.");
                 ShowMessageDialog(L"CaptureZY", L"设置已更新。", MB_ICONINFORMATION);
             }
 
             return;
         }
 
+        CAPTUREZY_LOG_DEBUG(core::LogCategory::SettingsDialog, L"Settings dialog cancelled.");
         if (hotkeys_were_active)
         {
             hotkeys_registered_ = RegisterHotkeys();
@@ -398,10 +423,12 @@ namespace capturezy::platform_win
     {
         if (ApplySettings(core::AppSettingsStore::Load(), false, L"配置已读取，但新热键注册失败，已恢复旧热键。", L""))
         {
+            CAPTUREZY_LOG_INFO(core::LogCategory::Settings, L"Settings reloaded from disk.");
             ShowMessageDialog(L"CaptureZY", L"配置已重载。", MB_ICONINFORMATION);
             return true;
         }
 
+        CAPTUREZY_LOG_WARNING(core::LogCategory::Settings, L"Settings reload failed.");
         return false;
     }
 
@@ -546,6 +573,8 @@ namespace capturezy::platform_win
 
     void MainWindow::ExecuteTrayClickAction(core::TrayIconClickActionSetting action)
     {
+        CAPTUREZY_LOG_DEBUG(core::LogCategory::Tray,
+                            std::wstring(L"Execute tray action: ") + TrayClickActionName(action) + L".");
         switch (action)
         {
         case core::TrayIconClickActionSetting::Disabled:
@@ -576,6 +605,7 @@ namespace capturezy::platform_win
         }
 
         pending_single_tray_click_action_ = true;
+        CAPTUREZY_LOG_TRACE(core::LogCategory::Tray, L"Scheduled pending single tray click action.");
         if (SetTimer(window_, kTrayLeftClickTimerId, GetDoubleClickTime(), nullptr) == 0)
         {
             pending_single_tray_click_action_ = false;
@@ -590,6 +620,7 @@ namespace capturezy::platform_win
             KillTimer(window_, kTrayLeftClickTimerId);
         }
         pending_single_tray_click_action_ = false;
+        CAPTUREZY_LOG_TRACE(core::LogCategory::Tray, L"Cancelled pending single tray click action.");
     }
 
     void MainWindow::ExecutePendingCaptureRequest()
@@ -671,10 +702,12 @@ namespace capturezy::platform_win
     {
         if (result == feature_capture::OverlayResult::PlaceholderCaptured)
         {
+            CAPTUREZY_LOG_INFO(core::LogCategory::Capture, L"Overlay reported capture completion.");
             ProcessCaptureResult(capture_overlay_.FrozenSelectionResult());
             return;
         }
 
+        CAPTUREZY_LOG_INFO(core::LogCategory::Capture, L"Overlay reported capture cancellation.");
         app_state_->ReturnToIdle();
         UpdateWindowPresentation();
     }
@@ -801,6 +834,7 @@ namespace capturezy::platform_win
         switch (static_cast<UINT>(l_param))
         {
         case WM_LBUTTONDOWN:
+            CAPTUREZY_LOG_TRACE(core::LogCategory::Tray, L"Tray message: WM_LBUTTONDOWN.");
             if (!ShouldDelaySingleTrayClickAction())
             {
                 ignore_next_tray_left_button_up_ = true;
@@ -809,6 +843,7 @@ namespace capturezy::platform_win
             return true;
 
         case WM_LBUTTONUP:
+            CAPTUREZY_LOG_TRACE(core::LogCategory::Tray, L"Tray message: WM_LBUTTONUP.");
             if (ignore_next_tray_left_button_up_)
             {
                 ignore_next_tray_left_button_up_ = false;
@@ -823,12 +858,14 @@ namespace capturezy::platform_win
 
         case WM_CONTEXTMENU:
         case WM_RBUTTONUP:
+            CAPTUREZY_LOG_TRACE(core::LogCategory::Tray, L"Tray message: context menu/right button up.");
             CancelPendingSingleTrayClickAction();
             ignore_next_tray_left_button_up_ = false;
             ShowTrayMenu();
             return true;
 
         case WM_LBUTTONDBLCLK:
+            CAPTUREZY_LOG_TRACE(core::LogCategory::Tray, L"Tray message: WM_LBUTTONDBLCLK.");
             if (ShouldDelaySingleTrayClickAction())
             {
                 CancelPendingSingleTrayClickAction();

@@ -6,6 +6,7 @@
 #include <dwmapi.h>
 // clang-format on
 
+#include "core/log.h"
 #include "feature_capture/capture_result.h"
 
 namespace capturezy::feature_capture
@@ -112,6 +113,7 @@ namespace capturezy::feature_capture
 
     bool CaptureOverlay::Show(HWND owner_window)
     {
+        CAPTUREZY_LOG_DEBUG(core::LogCategory::Capture, L"Show capture overlay.");
         owner_window_ = owner_window;
         origin_left_ = 0;
         origin_top_ = 0;
@@ -136,6 +138,7 @@ namespace capturezy::feature_capture
 
         if (RegisterWindowClass() == 0)
         {
+            CAPTUREZY_LOG_ERROR(core::LogCategory::Capture, L"Capture overlay class registration failed.");
             return false;
         }
 
@@ -156,6 +159,7 @@ namespace capturezy::feature_capture
 
         if (overlay_window_ == nullptr)
         {
+            CAPTUREZY_LOG_ERROR(core::LogCategory::Capture, L"Capture overlay window creation failed.");
             return false;
         }
 
@@ -532,6 +536,7 @@ namespace capturezy::feature_capture
 
         case WM_RBUTTONUP:
         case WM_NCRBUTTONUP:
+            CAPTUREZY_LOG_DEBUG(core::LogCategory::Capture, L"Overlay cancelled by right click.");
             Finish(OverlayResult::Cancelled);
             return 0;
 
@@ -562,6 +567,9 @@ namespace capturezy::feature_capture
 
     void CaptureOverlay::Finish(OverlayResult result) noexcept
     {
+        CAPTUREZY_LOG_DEBUG(core::LogCategory::Capture, result == OverlayResult::PlaceholderCaptured
+                                                            ? L"Overlay finishing with capture."
+                                                            : L"Overlay finishing with cancellation.");
         if (result == OverlayResult::PlaceholderCaptured)
         {
             final_capture_result_ = FrozenSelectionResult();
