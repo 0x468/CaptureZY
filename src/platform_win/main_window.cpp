@@ -10,6 +10,7 @@
 #include "feature_capture/capture_file_dialog.h"
 #include "feature_capture/screen_capture.h"
 #include "platform_win/settings_dialog.h"
+#include "platform_win/tray_menu.h"
 
 namespace capturezy::platform_win
 {
@@ -19,24 +20,6 @@ namespace capturezy::platform_win
         constexpr UINT kTrayMessage = WM_APP + 1;
         constexpr UINT kExecutePendingCaptureMessage = WM_APP + 2;
         constexpr UINT_PTR kTrayLeftClickTimerId = 2;
-        constexpr UINT_PTR kBeginCaptureCommandId = 1002;
-        constexpr UINT_PTR kBeginCaptureAndSaveCommandId = 1003;
-        constexpr UINT_PTR kBeginFullScreenCaptureCommandId = 1004;
-        constexpr UINT_PTR kBeginFullScreenCaptureAndSaveCommandId = 1005;
-        constexpr UINT_PTR kShowAllPinsCommandId = 1006;
-        constexpr UINT_PTR kHideAllPinsCommandId = 1007;
-        constexpr UINT_PTR kCloseAllPinsCommandId = 1008;
-        constexpr UINT_PTR kExitApplicationCommandId = 1009;
-        constexpr UINT_PTR kEditSettingsFileCommandId = 1010;
-        constexpr UINT_PTR kOpenSettingsDirectoryCommandId = 1011;
-        constexpr UINT_PTR kReloadSettingsCommandId = 1012;
-        constexpr UINT_PTR kSetDefaultScopeRegionCommandId = 1013;
-        constexpr UINT_PTR kSetDefaultScopeFullScreenCommandId = 1014;
-        constexpr UINT_PTR kSetDefaultActionCopyOnlyCommandId = 1015;
-        constexpr UINT_PTR kSetDefaultActionCopyAndPinCommandId = 1016;
-        constexpr UINT_PTR kSetDefaultActionSaveToFileCommandId = 1017;
-        constexpr UINT_PTR kOpenDefaultSaveDirectoryCommandId = 1018;
-        constexpr UINT_PTR kOpenSettingsDialogCommandId = 1022;
         constexpr int kCaptureHotkeyId = 1;
         // Win32 约定上经常需要把对象指针塞进 GWLP_USERDATA，这里统一封装并局部抑制告警。
         void SetWindowUserData(HWND window, MainWindow *main_window)
@@ -65,71 +48,6 @@ namespace capturezy::platform_win
         {
             // NOLINTNEXTLINE(performance-no-int-to-ptr,cppcoreguidelines-pro-type-reinterpret-cast)
             return reinterpret_cast<INT_PTR>(result) > 32;
-        }
-
-        struct BatchPinMenuLabelParts final
-        {
-            wchar_t const *action_prefix;
-            wchar_t const *item_label;
-        };
-
-        struct PinInventoryCounts final
-        {
-            std::size_t open_pin_count;
-            std::size_t visible_pin_count;
-            std::size_t hidden_pin_count;
-        };
-
-        [[nodiscard]] std::wstring BatchPinMenuLabel(BatchPinMenuLabelParts parts, std::size_t count)
-        {
-            if (count == 0)
-            {
-                return parts.action_prefix;
-            }
-
-            std::wstring label = parts.action_prefix;
-            label += L" ";
-            label += std::to_wstring(count);
-            label += L" ";
-            label += parts.item_label;
-            return label;
-        }
-
-        [[nodiscard]] std::wstring PinInventorySummaryLabel(PinInventoryCounts counts)
-        {
-            if (counts.visible_pin_count == 0 && counts.hidden_pin_count == 0)
-            {
-                return L"贴图：当前无贴图";
-            }
-
-            std::wstring label = L"贴图：显示 ";
-            label += std::to_wstring(counts.visible_pin_count);
-            label += L" 个";
-            if (counts.hidden_pin_count != 0)
-            {
-                label += L"，隐藏 ";
-                label += std::to_wstring(counts.hidden_pin_count);
-                label += L" 个";
-            }
-            return label;
-        }
-
-        [[nodiscard]] std::wstring CloseAllPinsLabel(PinInventoryCounts counts)
-        {
-            if (counts.open_pin_count == 0)
-            {
-                return L"关闭全部贴图";
-            }
-
-            std::wstring label = BatchPinMenuLabel({.action_prefix = L"关闭", .item_label = L"个贴图"},
-                                                   counts.open_pin_count);
-            if (counts.hidden_pin_count != 0)
-            {
-                label += L"（含 ";
-                label += std::to_wstring(counts.hidden_pin_count);
-                label += L" 个隐藏）";
-            }
-            return label;
         }
 
         [[nodiscard]] wchar_t const *TrayClickActionName(core::TrayIconClickActionSetting action) noexcept
@@ -455,120 +373,7 @@ namespace capturezy::platform_win
 
     void MainWindow::ShowTrayMenu()
     {
-        HMENU menu = CreatePopupMenu();
-        if (menu == nullptr)
-        {
-            return;
-        }
-
-        HMENU default_scope_menu = CreatePopupMenu();
-        HMENU default_action_menu = CreatePopupMenu();
-        if (default_scope_menu == nullptr || default_action_menu == nullptr)
-        {
-            if (default_action_menu != nullptr)
-            {
-                DestroyMenu(default_action_menu);
-            }
-            if (default_scope_menu != nullptr)
-            {
-                DestroyMenu(default_scope_menu);
-            }
-            DestroyMenu(menu);
-            return;
-        }
-
-        std::size_t const open_pin_count = pin_manager_.OpenPinCount();
-        std::size_t const visible_pin_count = pin_manager_.VisiblePinCount();
-        std::size_t const hidden_pin_count = pin_manager_.HiddenPinCount();
-        PinInventoryCounts const pin_counts{.open_pin_count = open_pin_count,
-                                            .visible_pin_count = visible_pin_count,
-                                            .hidden_pin_count = hidden_pin_count};
-
-        UINT show_all_pins_flags = MF_STRING;
-        if (hidden_pin_count == 0)
-        {
-            show_all_pins_flags |= MF_GRAYED;
-        }
-
-        UINT hide_all_pins_flags = MF_STRING;
-        if (visible_pin_count == 0)
-        {
-            hide_all_pins_flags |= MF_GRAYED;
-        }
-
-        UINT close_all_pins_flags = MF_STRING;
-        if (open_pin_count == 0)
-        {
-            close_all_pins_flags |= MF_GRAYED;
-        }
-
-        AppendMenuW(menu, MF_STRING, kBeginCaptureCommandId, L"开始截图");
-        AppendMenuW(menu, MF_STRING, kBeginCaptureAndSaveCommandId, L"开始截图并保存");
-        AppendMenuW(menu, MF_STRING, kBeginFullScreenCaptureCommandId, L"全屏截图");
-        AppendMenuW(menu, MF_STRING, kBeginFullScreenCaptureAndSaveCommandId, L"全屏截图并保存");
-        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-        AppendMenuW(menu, MF_STRING, kOpenSettingsDialogCommandId, L"设置...");
-        AppendMenuW(default_scope_menu,
-                    app_settings_->default_capture_scope == core::CaptureScopeSetting::Region ? MF_STRING | MF_CHECKED
-                                                                                              : MF_STRING,
-                    kSetDefaultScopeRegionCommandId, L"区域截图");
-        AppendMenuW(default_scope_menu,
-                    app_settings_->default_capture_scope == core::CaptureScopeSetting::FullScreen
-                        ? MF_STRING | MF_CHECKED
-                        : MF_STRING,
-                    kSetDefaultScopeFullScreenCommandId, L"全屏截图");
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast,performance-no-int-to-ptr)
-        auto const default_scope_menu_handle = reinterpret_cast<UINT_PTR>(default_scope_menu);
-        AppendMenuW(menu, MF_POPUP, default_scope_menu_handle, L"默认截图范围");
-        AppendMenuW(default_action_menu,
-                    app_settings_->default_capture_action == core::CaptureActionSetting::CopyOnly
-                        ? MF_STRING | MF_CHECKED
-                        : MF_STRING,
-                    kSetDefaultActionCopyOnlyCommandId, L"仅复制");
-        AppendMenuW(default_action_menu,
-                    app_settings_->default_capture_action == core::CaptureActionSetting::CopyAndPin
-                        ? MF_STRING | MF_CHECKED
-                        : MF_STRING,
-                    kSetDefaultActionCopyAndPinCommandId, L"复制并贴图");
-        AppendMenuW(default_action_menu,
-                    app_settings_->default_capture_action == core::CaptureActionSetting::SaveToFile
-                        ? MF_STRING | MF_CHECKED
-                        : MF_STRING,
-                    kSetDefaultActionSaveToFileCommandId, L"直接保存");
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast,performance-no-int-to-ptr)
-        auto const default_action_menu_handle = reinterpret_cast<UINT_PTR>(default_action_menu);
-        AppendMenuW(menu, MF_POPUP, default_action_menu_handle, L"默认截图动作");
-        AppendMenuW(menu, MF_STRING, kEditSettingsFileCommandId, L"编辑配置文件");
-        AppendMenuW(menu, MF_STRING, kOpenSettingsDirectoryCommandId, L"打开配置目录");
-        AppendMenuW(menu, MF_STRING, kOpenDefaultSaveDirectoryCommandId, L"打开默认保存目录");
-        AppendMenuW(menu, MF_STRING, kReloadSettingsCommandId, L"重新加载配置");
-        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-        std::wstring const show_all_pins_label = hidden_pin_count == 0
-                                                     ? L"恢复全部贴图"
-                                                     : BatchPinMenuLabel(
-                                                           {.action_prefix = L"恢复", .item_label = L"个隐藏贴图"},
-                                                           hidden_pin_count);
-        std::wstring const hide_all_pins_label = visible_pin_count == 0 ? L"隐藏全部贴图"
-                                                                        : BatchPinMenuLabel({.action_prefix = L"隐藏",
-                                                                                             .item_label = L"个贴图"},
-                                                                                            visible_pin_count);
-        std::wstring const close_all_pins_label = CloseAllPinsLabel(pin_counts);
-
-        AppendMenuW(menu, MF_STRING | MF_DISABLED, 0, PinInventorySummaryLabel(pin_counts).c_str());
-        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-        AppendMenuW(menu, show_all_pins_flags, kShowAllPinsCommandId, show_all_pins_label.c_str());
-        AppendMenuW(menu, hide_all_pins_flags, kHideAllPinsCommandId, hide_all_pins_label.c_str());
-        AppendMenuW(menu, close_all_pins_flags, kCloseAllPinsCommandId, close_all_pins_label.c_str());
-        AppendMenuW(menu, MF_STRING, kExitApplicationCommandId, L"退出");
-
-        POINT cursor_position{};
-        GetCursorPos(&cursor_position);
-        SetForegroundWindow(window_);
-        TrackPopupMenu(menu, TPM_BOTTOMALIGN | TPM_LEFTALIGN | TPM_RIGHTBUTTON, cursor_position.x, cursor_position.y, 0,
-                       window_, nullptr);
-        PostMessageW(window_, WM_NULL, 0, 0);
-
-        DestroyMenu(menu);
+        ShowMainTrayMenu(window_, *app_settings_, pin_manager_);
     }
 
     void MainWindow::ExecuteTrayClickAction(core::TrayIconClickActionSetting action)
@@ -716,99 +521,99 @@ namespace capturezy::platform_win
     {
         switch (LOWORD(w_param))
         {
-        case kBeginCaptureCommandId:
+        case TrayMenuCommand::BeginCapture:
             BeginCaptureEntry();
             return true;
 
-        case kBeginCaptureAndSaveCommandId:
+        case TrayMenuCommand::BeginCaptureAndSave:
             BeginCaptureEntry(CaptureRequest{CaptureScope::Region, CaptureAction::SaveToFile});
             return true;
 
-        case kBeginFullScreenCaptureCommandId:
+        case TrayMenuCommand::BeginFullScreenCapture:
             BeginCaptureEntry(CaptureRequest{CaptureScope::FullScreen, CaptureAction::CopyOnly});
             return true;
 
-        case kBeginFullScreenCaptureAndSaveCommandId:
+        case TrayMenuCommand::BeginFullScreenCaptureAndSave:
             BeginCaptureEntry(CaptureRequest{CaptureScope::FullScreen, CaptureAction::SaveToFile});
             return true;
 
-        case kOpenSettingsDialogCommandId:
+        case TrayMenuCommand::OpenSettingsDialog:
             OpenSettingsDialog();
             return true;
 
-        case kSetDefaultScopeRegionCommandId: {
+        case TrayMenuCommand::SetDefaultScopeRegion: {
             core::AppSettings updated_settings = *app_settings_;
             updated_settings.default_capture_scope = core::CaptureScopeSetting::Region;
             return ApplySettings(std::move(updated_settings), true, L"应用新配置失败，已保留当前配置。",
                                  L"配置保存失败。");
         }
 
-        case kSetDefaultScopeFullScreenCommandId: {
+        case TrayMenuCommand::SetDefaultScopeFullScreen: {
             core::AppSettings updated_settings = *app_settings_;
             updated_settings.default_capture_scope = core::CaptureScopeSetting::FullScreen;
             return ApplySettings(std::move(updated_settings), true, L"应用新配置失败，已保留当前配置。",
                                  L"配置保存失败。");
         }
 
-        case kSetDefaultActionCopyOnlyCommandId: {
+        case TrayMenuCommand::SetDefaultActionCopyOnly: {
             core::AppSettings updated_settings = *app_settings_;
             updated_settings.default_capture_action = core::CaptureActionSetting::CopyOnly;
             return ApplySettings(std::move(updated_settings), true, L"应用新配置失败，已保留当前配置。",
                                  L"配置保存失败。");
         }
 
-        case kSetDefaultActionCopyAndPinCommandId: {
+        case TrayMenuCommand::SetDefaultActionCopyAndPin: {
             core::AppSettings updated_settings = *app_settings_;
             updated_settings.default_capture_action = core::CaptureActionSetting::CopyAndPin;
             return ApplySettings(std::move(updated_settings), true, L"应用新配置失败，已保留当前配置。",
                                  L"配置保存失败。");
         }
 
-        case kSetDefaultActionSaveToFileCommandId: {
+        case TrayMenuCommand::SetDefaultActionSaveToFile: {
             core::AppSettings updated_settings = *app_settings_;
             updated_settings.default_capture_action = core::CaptureActionSetting::SaveToFile;
             return ApplySettings(std::move(updated_settings), true, L"应用新配置失败，已保留当前配置。",
                                  L"配置保存失败。");
         }
 
-        case kEditSettingsFileCommandId:
+        case TrayMenuCommand::EditSettingsFile:
             if (!OpenSettingsFileForEditing())
             {
                 ShowMessageDialog(L"CaptureZY", L"无法打开配置文件。", MB_ICONERROR);
             }
             return true;
 
-        case kOpenSettingsDirectoryCommandId:
+        case TrayMenuCommand::OpenSettingsDirectory:
             if (!OpenSettingsDirectory())
             {
                 ShowMessageDialog(L"CaptureZY", L"无法打开配置目录。", MB_ICONERROR);
             }
             return true;
 
-        case kOpenDefaultSaveDirectoryCommandId:
+        case TrayMenuCommand::OpenDefaultSaveDirectory:
             if (!OpenDefaultSaveDirectory())
             {
                 ShowMessageDialog(L"CaptureZY", L"无法打开默认保存目录。", MB_ICONERROR);
             }
             return true;
 
-        case kReloadSettingsCommandId:
+        case TrayMenuCommand::ReloadSettings:
             (void)ReloadSettings();
             return true;
 
-        case kShowAllPinsCommandId:
+        case TrayMenuCommand::ShowAllPins:
             pin_manager_.ShowAll();
             return true;
 
-        case kHideAllPinsCommandId:
+        case TrayMenuCommand::HideAllPins:
             pin_manager_.HideAll();
             return true;
 
-        case kCloseAllPinsCommandId:
+        case TrayMenuCommand::CloseAllPins:
             pin_manager_.CloseAll();
             return true;
 
-        case kExitApplicationCommandId:
+        case TrayMenuCommand::ExitApplication:
             allow_close_ = true;
             DestroyWindow(window_);
             return true;

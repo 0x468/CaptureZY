@@ -3,6 +3,7 @@ add_library(
   STATIC
     main_window.cpp
     settings_dialog.cpp
+    tray_menu.cpp
 )
 
 capturezy_apply_defaults(capturezy_platform_win)
