@@ -90,3 +90,53 @@ pwsh -ExecutionPolicy Bypass -File scripts/run_clang_tidy_changed.ps1 -BaseRef o
 - 不以 Linux 构建为目标
 - 当前骨架只验证仓库布局与 Win32 入口
 - 等截图 API 接入后，再补充 Windows SDK 版本要求
+
+## 日志
+
+### 日志文件位置
+
+- 默认日志目录：
+  `%LOCALAPPDATA%\CaptureZY\Logs`
+- 当前主日志文件：
+  `%LOCALAPPDATA%\CaptureZY\Logs\capturezy.log`
+- 当前轮转备份文件：
+  `%LOCALAPPDATA%\CaptureZY\Logs\capturezy.log.1`
+
+### 默认行为
+
+- `Debug` 构建默认最小级别为 `debug`
+- `Release` 构建默认最小级别为 `info`
+- `Debug` 构建默认同时输出到调试器和文件
+- `Release` 构建默认关闭调试器输出，仅保留文件输出
+- 当前日志文件达到阈值后，会轮转到 `.1`
+
+### 运行时环境变量
+
+- `CAPTUREZY_LOG_LEVEL`
+  - 可用值：`error` `warning` `warn` `info` `debug` `trace`
+- `CAPTUREZY_LOG_DEBUGGER`
+  - 可用值：`true/false` `on/off` `yes/no` `1/0`
+- `CAPTUREZY_LOG_FILE`
+  - 可用值：`true/false` `on/off` `yes/no` `1/0`
+- `CAPTUREZY_LOG_MAX_KB`
+  - 例如：`256` `512` `1024`
+
+### 常用示例
+
+在当前 PowerShell 会话中临时把日志级别调到 `trace`：
+
+```powershell
+$env:CAPTUREZY_LOG_LEVEL = 'trace'
+```
+
+只保留文件日志，关闭调试器输出：
+
+```powershell
+$env:CAPTUREZY_LOG_DEBUGGER = 'false'
+```
+
+把日志文件大小阈值调到 256 KB：
+
+```powershell
+$env:CAPTUREZY_LOG_MAX_KB = '256'
+```
