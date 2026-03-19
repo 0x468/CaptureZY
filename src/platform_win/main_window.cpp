@@ -144,7 +144,7 @@ namespace capturezy::platform_win
     {
         if (RegisterWindowClass() == 0)
         {
-            core::Log::Write(core::LogLevel::Error, L"platform", L"Main window class registration failed.");
+            CAPTUREZY_LOG_ERROR(core::LogCategory::Platform, L"Main window class registration failed.");
             return false;
         }
 
@@ -153,7 +153,7 @@ namespace capturezy::platform_win
 
         if (window_ == nullptr)
         {
-            core::Log::Write(core::LogLevel::Error, L"platform", L"Main window creation failed.");
+            CAPTUREZY_LOG_ERROR(core::LogCategory::Platform, L"Main window creation failed.");
             return false;
         }
 
@@ -166,7 +166,7 @@ namespace capturezy::platform_win
 
         if (!CreateTrayIcon())
         {
-            core::Log::Write(core::LogLevel::Error, L"tray", L"Tray icon creation failed.");
+            CAPTUREZY_LOG_ERROR(core::LogCategory::Tray, L"Tray icon creation failed.");
             DestroyWindow(window_);
             return false;
         }
@@ -282,10 +282,11 @@ namespace capturezy::platform_win
 
         UnregisterHotkeys();
         *app_settings_ = std::move(new_settings);
-        core::Log::Write(core::LogLevel::Info, L"settings",
-                         std::wstring(L"Apply settings. single=") +
-                             std::to_wstring(static_cast<int>(app_settings_->tray_single_click_action)) + L", double=" +
-                             std::to_wstring(static_cast<int>(app_settings_->tray_double_click_action)) + L".");
+        CAPTUREZY_LOG_INFO(core::LogCategory::Settings,
+                           std::wstring(L"Apply settings. single=") +
+                               std::to_wstring(static_cast<int>(app_settings_->tray_single_click_action)) +
+                               L", double=" +
+                               std::to_wstring(static_cast<int>(app_settings_->tray_double_click_action)) + L".");
         hotkeys_registered_ = RegisterHotkeys();
         if (!hotkeys_registered_)
         {
@@ -296,7 +297,7 @@ namespace capturezy::platform_win
                 hotkeys_registered_ = RegisterHotkeys();
             }
 
-            core::Log::Write(core::LogLevel::Warning, L"settings", hotkey_error_message);
+            CAPTUREZY_LOG_WARNING(core::LogCategory::Settings, hotkey_error_message);
             ShowMessageDialog(L"CaptureZY", hotkey_error_message, MB_ICONWARNING);
             return false;
         }
@@ -314,7 +315,7 @@ namespace capturezy::platform_win
             hotkeys_registered_ = RegisterHotkeys();
         }
 
-        core::Log::Write(core::LogLevel::Error, L"settings", save_error_message);
+        CAPTUREZY_LOG_ERROR(core::LogCategory::Settings, save_error_message);
         ShowMessageDialog(L"CaptureZY", save_error_message, MB_ICONERROR);
         return false;
     }

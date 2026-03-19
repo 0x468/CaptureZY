@@ -20,6 +20,7 @@ namespace capturezy::core
     {
         constexpr wchar_t const *kLogsDirectoryName = L"Logs";
         constexpr wchar_t const *kLogFileName = L"capturezy.log";
+        constexpr wchar_t const *kRotatedLogFileName = L"capturezy.log.1";
 
         struct LogState final
         {
@@ -168,6 +169,7 @@ namespace capturezy::core
         void EnsureLogFileReady(LogConfig const &config)
         {
             std::filesystem::path const log_path = Log::LogFilePath();
+            std::filesystem::path const rotated_log_path = Log::RotatedLogFilePath();
             std::error_code error_code;
             std::filesystem::create_directories(log_path.parent_path(), error_code);
             if (error_code)
@@ -186,6 +188,14 @@ namespace capturezy::core
                 return;
             }
 
+            std::filesystem::remove(rotated_log_path, error_code);
+            error_code.clear();
+            std::filesystem::rename(log_path, rotated_log_path, error_code);
+            if (!error_code)
+            {
+                return;
+            }
+
             std::ofstream truncate_stream(log_path, std::ios::binary | std::ios::trunc);
             (void)truncate_stream;
         }
@@ -195,6 +205,22 @@ namespace capturezy::core
             return static_cast<int>(level) <= static_cast<int>(config.minimum_level);
         }
     } // namespace
+
+    LogConfig Log::DefaultConfig() noexcept
+    {
+        LogConfig config{};
+#ifdef _DEBUG
+        config.minimum_level = LogLevel::Debug;
+#else
+        config.minimum_level = LogLevel::Info;
+#endif
+        return config;
+    }
+
+    void Log::Initialize() noexcept
+    {
+        Initialize(DefaultConfig());
+    }
 
     void Log::Initialize(LogConfig config) noexcept
     {
@@ -229,6 +255,11 @@ namespace capturezy::core
     std::wstring Log::LogFilePath()
     {
         return (LogsDirectoryPath() / kLogFileName).wstring();
+    }
+
+    std::wstring Log::RotatedLogFilePath()
+    {
+        return (LogsDirectoryPath() / kRotatedLogFileName).wstring();
     }
 
     void Log::Write(LogLevel level, std::wstring_view category, std::wstring_view message) noexcept

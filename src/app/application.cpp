@@ -97,19 +97,20 @@ namespace capturezy::app
 
         if (!InitializeCom())
         {
-            core::Log::Write(core::LogLevel::Error, L"app", L"COM initialization failed.");
+            CAPTUREZY_LOG_ERROR(core::LogCategory::App, L"COM initialization failed.");
             return -1;
         }
 
         app_settings_ = core::AppSettingsStore::Load();
-        core::Log::Write(core::LogLevel::Info, L"settings",
-                         std::wstring(L"Loaded settings: single=") +
-                             std::to_wstring(static_cast<int>(app_settings_.tray_single_click_action)) + L", double=" +
-                             std::to_wstring(static_cast<int>(app_settings_.tray_double_click_action)) + L".");
+        CAPTUREZY_LOG_INFO(core::LogCategory::Settings,
+                           std::wstring(L"Loaded settings: single=") +
+                               std::to_wstring(static_cast<int>(app_settings_.tray_single_click_action)) +
+                               L", double=" +
+                               std::to_wstring(static_cast<int>(app_settings_.tray_double_click_action)) + L".");
 
         if (!main_window_.Create(show_command))
         {
-            core::Log::Write(core::LogLevel::Error, L"app", L"Main window creation failed.");
+            CAPTUREZY_LOG_ERROR(core::LogCategory::App, L"Main window creation failed.");
             return -1;
         }
 

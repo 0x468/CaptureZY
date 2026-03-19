@@ -392,7 +392,7 @@ namespace capturezy::core
     {
         AppSettings settings = LoadDefaults();
         std::filesystem::path const settings_path = SettingsFilePath();
-        Log::Write(LogLevel::Debug, L"settings", std::wstring(L"Loading settings from ") + settings_path.wstring());
+        CAPTUREZY_LOG_DEBUG(LogCategory::Settings, std::wstring(L"Loading settings from ") + settings_path.wstring());
         std::error_code error_code;
         if (std::filesystem::exists(settings_path, error_code))
         {
@@ -460,10 +460,10 @@ namespace capturezy::core
         }
 
         NormalizeSettings(settings);
-        Log::Write(LogLevel::Info, L"settings",
-                   std::wstring(L"Loaded settings file. single=") +
-                       std::to_wstring(static_cast<int>(settings.tray_single_click_action)) + L", double=" +
-                       std::to_wstring(static_cast<int>(settings.tray_double_click_action)) + L".");
+        CAPTUREZY_LOG_INFO(LogCategory::Settings,
+                           std::wstring(L"Loaded settings file. single=") +
+                               std::to_wstring(static_cast<int>(settings.tray_single_click_action)) + L", double=" +
+                               std::to_wstring(static_cast<int>(settings.tray_double_click_action)) + L".");
         (void)Save(settings);
         return settings;
     }
@@ -475,24 +475,36 @@ namespace capturezy::core
         std::filesystem::create_directories(settings_path.parent_path(), error_code);
         if (error_code)
         {
-            Log::Write(LogLevel::Error, L"settings", L"Failed to create settings directory.");
+            CAPTUREZY_LOG_ERROR(LogCategory::Settings, L"Failed to create settings directory.");
             return false;
         }
 
         std::ofstream settings_stream(settings_path, std::ios::binary | std::ios::trunc);
         if (!settings_stream.is_open())
         {
-            Log::Write(LogLevel::Error, L"settings", L"Failed to open settings file for writing.");
+            CAPTUREZY_LOG_ERROR(LogCategory::Settings, L"Failed to open settings file for writing.");
             return false;
         }
 
         std::string const settings_json = BuildSettingsJson(settings);
         settings_stream.write(settings_json.data(), static_cast<std::streamsize>(settings_json.size()));
         bool const save_ok = settings_stream.good();
-        Log::Write(save_ok ? LogLevel::Debug : LogLevel::Error, L"settings",
-                   std::wstring(L"Saved settings. single=") +
-                       std::to_wstring(static_cast<int>(settings.tray_single_click_action)) + L", double=" +
-                       std::to_wstring(static_cast<int>(settings.tray_double_click_action)) + L".");
+        if (save_ok)
+        {
+            CAPTUREZY_LOG_DEBUG(LogCategory::Settings,
+                                std::wstring(L"Saved settings. single=") +
+                                    std::to_wstring(static_cast<int>(settings.tray_single_click_action)) +
+                                    L", double=" +
+                                    std::to_wstring(static_cast<int>(settings.tray_double_click_action)) + L".");
+        }
+        else
+        {
+            CAPTUREZY_LOG_ERROR(LogCategory::Settings,
+                                std::wstring(L"Failed while saving settings. single=") +
+                                    std::to_wstring(static_cast<int>(settings.tray_single_click_action)) +
+                                    L", double=" +
+                                    std::to_wstring(static_cast<int>(settings.tray_double_click_action)) + L".");
+        }
         return save_ok;
     }
 

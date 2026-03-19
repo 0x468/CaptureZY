@@ -35,7 +35,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, // NOLINT(bugprone-easily-swappable-par
 
     capturezy::core::CrashDiagnostics::Install();
     capturezy::core::Log::Initialize();
-    capturezy::core::Log::Write(capturezy::core::LogLevel::Info, L"app", L"Process startup.");
+    CAPTUREZY_LOG_INFO(capturezy::core::LogCategory::App, L"Process startup.");
 
     try
     {
@@ -44,14 +44,14 @@ int WINAPI wWinMain(HINSTANCE hInstance, // NOLINT(bugprone-easily-swappable-par
 #endif
         capturezy::app::Application application(hInstance);
         int const exit_code = application.Run(nShowCmd);
-        capturezy::core::Log::Write(capturezy::core::LogLevel::Info, L"app",
-                                    std::wstring(L"Application exited with code ") + std::to_wstring(exit_code) + L".");
+        CAPTUREZY_LOG_INFO(capturezy::core::LogCategory::App,
+                           std::wstring(L"Application exited with code ") + std::to_wstring(exit_code) + L".");
         capturezy::core::Log::Shutdown();
         return exit_code;
     }
     catch (std::exception const &caught_exception)
     {
-        capturezy::core::Log::Write(capturezy::core::LogLevel::Error, L"app", caught_exception.what());
+        CAPTUREZY_LOG_ERROR(capturezy::core::LogCategory::App, caught_exception.what());
         std::wstring const report_path = capturezy::core::CrashDiagnostics::WriteCaughtExceptionReport(
             {.origin = "wWinMain", .details = caught_exception.what()});
         std::wstring message = L"程序发生未处理的 C++ 异常。";
@@ -66,7 +66,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, // NOLINT(bugprone-easily-swappable-par
     }
     catch (...)
     {
-        capturezy::core::Log::Write(capturezy::core::LogLevel::Error, L"app", L"Unknown top-level exception.");
+        CAPTUREZY_LOG_ERROR(capturezy::core::LogCategory::App, L"Unknown top-level exception.");
         std::wstring const report_path = capturezy::core::CrashDiagnostics::WriteCaughtExceptionReport(
             {.origin = "wWinMain", .details = "unknown exception"});
         std::wstring message = L"程序发生未知未处理异常。";
