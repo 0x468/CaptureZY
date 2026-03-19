@@ -19,6 +19,12 @@ target_compile_definitions(
     $<$<OR:$<CONFIG:Debug>,$<BOOL:${CAPTUREZY_FORCE_DIAGNOSTIC_SELF_TEST}>>:CAPTUREZY_ENABLE_DIAGNOSTIC_SELF_TEST>
 )
 
+target_link_options(
+  CaptureZY
+  PRIVATE
+    "/MANIFESTDEPENDENCY:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'"
+)
+
 target_link_libraries(
   CaptureZY
   PRIVATE

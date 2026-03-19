@@ -17,10 +17,29 @@ namespace capturezy::platform_win
 {
     namespace
     {
+        using TaskDialogIndirectFn = HRESULT(WINAPI *)(TASKDIALOGCONFIG const *, int *, int *,
+                                                       BOOL *); // NOLINT(cppcoreguidelines-avoid-c-arrays)
+
         [[nodiscard]] bool ShellExecuteSucceeded(HINSTANCE result) noexcept
         {
             // NOLINTNEXTLINE(performance-no-int-to-ptr,cppcoreguidelines-pro-type-reinterpret-cast)
             return reinterpret_cast<INT_PTR>(result) > 32;
+        }
+
+        [[nodiscard]] TaskDialogIndirectFn ResolveTaskDialogIndirect() noexcept
+        {
+            static TaskDialogIndirectFn const task_dialog_indirect = []() noexcept {
+                HMODULE const comctl32 = LoadLibraryW(L"comctl32.dll");
+                if (comctl32 == nullptr)
+                {
+                    return static_cast<TaskDialogIndirectFn>(nullptr);
+                }
+
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+                return reinterpret_cast<TaskDialogIndirectFn>(GetProcAddress(comctl32, "TaskDialogIndirect"));
+            }();
+
+            return task_dialog_indirect;
         }
 
         void PersistConfirmExitPreference(core::AppSettings &settings) noexcept
@@ -197,27 +216,39 @@ namespace capturezy::platform_win
 
         int button_pressed = IDCANCEL;
         BOOL verification_checked = FALSE;
-        HRESULT const result = TaskDialogIndirect(&dialog_config, &button_pressed, nullptr, &verification_checked);
-        if (SUCCEEDED(result))
+        if (TaskDialogIndirectFn const task_dialog_indirect = ResolveTaskDialogIndirect();
+            task_dialog_indirect != nullptr)
         {
-            CAPTUREZY_LOG_DEBUG(core::LogCategory::Platform, button_pressed == IDYES ? L"Exit confirmation accepted."
-                                                                                     : L"Exit confirmation cancelled.");
-            if (button_pressed != IDYES)
+            HRESULT const result = task_dialog_indirect(&dialog_config, &button_pressed, nullptr,
+                                                        &verification_checked);
+            if (SUCCEEDED(result))
             {
-                return false;
+                CAPTUREZY_LOG_DEBUG(core::LogCategory::Platform, button_pressed == IDYES
+                                                                     ? L"Exit confirmation accepted."
+                                                                     : L"Exit confirmation cancelled.");
+                if (button_pressed != IDYES)
+                {
+                    return false;
+                }
+
+                if (verification_checked != FALSE)
+                {
+                    app_settings_->confirm_exit = false;
+                    PersistConfirmExitPreference(*app_settings_);
+                }
+
+                return true;
             }
 
-            if (verification_checked != FALSE)
-            {
-                app_settings_->confirm_exit = false;
-                PersistConfirmExitPreference(*app_settings_);
-            }
-
-            return true;
+            CAPTUREZY_LOG_WARNING(core::LogCategory::Platform,
+                                  L"TaskDialogIndirect call failed for exit confirmation, using MessageBox fallback.");
+        }
+        else
+        {
+            CAPTUREZY_LOG_WARNING(core::LogCategory::Platform,
+                                  L"TaskDialogIndirect is unavailable, using MessageBox fallback.");
         }
 
-        CAPTUREZY_LOG_WARNING(core::LogCategory::Platform,
-                              L"TaskDialogIndirect failed for exit confirmation, using MessageBox fallback.");
         int const fallback_result = MessageBoxW(window_, L"确定要退出 CaptureZY 吗？", L"退出 CaptureZY",
                                                 MB_OKCANCEL | MB_ICONQUESTION);
         return fallback_result == IDOK;
