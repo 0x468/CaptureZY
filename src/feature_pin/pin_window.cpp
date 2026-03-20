@@ -24,7 +24,9 @@ namespace capturezy::feature_pin
         constexpr std::int32_t kMaxScalePercent = 400;
         constexpr std::int32_t kScaleStepPercent = 5;
         constexpr UINT_PTR kScaleOverlayTimerId = 1;
+        constexpr UINT_PTR kScaleCommitTimerId = 2;
         constexpr UINT kScaleOverlayDurationMs = 900;
+        constexpr UINT kScaleCommitDelayMs = 120;
         constexpr int kScaleOverlayWidth = 76;
         constexpr int kScaleOverlayHeight = 36;
         constexpr int kScaleOverlayMargin = 12;
@@ -98,8 +100,10 @@ namespace capturezy::feature_pin
         Close();
         capture_result_ = std::move(capture_result);
         ResetScaledBitmapCache();
+        ResetPaintBuffer();
         scale_percent_ = kDefaultScalePercent;
         topmost_ = true;
+        scale_interaction_active_ = false;
 
         RECT const window_rect = CalculateWindowRect(capture_result_.ScreenRect(), CurrentClientSize());
         window_ = CreateWindowExW(kPinWindowExStyle, kPinWindowClassName, kPinWindowTitle, kPinWindowStyle,
@@ -128,6 +132,7 @@ namespace capturezy::feature_pin
         }
 
         ResetScaledBitmapCache();
+        ResetPaintBuffer();
     }
 
     bool PinWindow::IsOpen() const noexcept
@@ -360,12 +365,15 @@ namespace capturezy::feature_pin
         GetWindowRect(window_, &window_rect);
 
         scale_percent_ = new_scale_percent;
+        scale_interaction_active_ = true;
         ResetScaledBitmapCache();
+        KillTimer(window_, kScaleCommitTimerId);
+        SetTimer(window_, kScaleCommitTimerId, kScaleCommitDelayMs, nullptr);
 
         SIZE const new_size = CurrentClientSize();
         SetWindowPos(window_, nullptr, window_rect.left, window_rect.top, new_size.cx, new_size.cy,
                      SWP_NOACTIVATE | SWP_NOZORDER);
-        RedrawWindow(window_, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE);
+        InvalidateRect(window_, nullptr, FALSE);
         ShowScaleOverlay();
         LogScaleMessage(scale_percent_);
         return true;
@@ -420,6 +428,12 @@ namespace capturezy::feature_pin
     {
         scaled_bitmap_cache_ = {};
         scaled_bitmap_cache_size_ = {};
+    }
+
+    void PinWindow::ResetPaintBuffer() noexcept
+    {
+        paint_buffer_ = {};
+        paint_buffer_size_ = {};
     }
 
     bool PinWindow::EnsureScaledBitmapCache(HDC device_context, SIZE target_size) noexcept
@@ -488,6 +502,90 @@ namespace capturezy::feature_pin
         return true;
     }
 
+    bool PinWindow::EnsurePaintBuffer(HDC device_context, SIZE target_size) noexcept
+    {
+        if (target_size.cx <= 0 || target_size.cy <= 0)
+        {
+            ResetPaintBuffer();
+            return false;
+        }
+
+        if (paint_buffer_.IsValid() && paint_buffer_size_.cx == target_size.cx &&
+            paint_buffer_size_.cy == target_size.cy)
+        {
+            return true;
+        }
+
+        HBITMAP buffer_bitmap = CreateCompatibleBitmap(device_context, target_size.cx, target_size.cy);
+        if (buffer_bitmap == nullptr)
+        {
+            ResetPaintBuffer();
+            return false;
+        }
+
+        paint_buffer_ = feature_capture::CapturedBitmap(buffer_bitmap, target_size);
+        paint_buffer_size_ = target_size;
+        return true;
+    }
+
+    bool PinWindow::DrawScaledBitmap(HDC destination_device_context, SIZE target_size) noexcept
+    {
+        if (!capture_result_.IsValid() || target_size.cx <= 0 || target_size.cy <= 0)
+        {
+            return false;
+        }
+
+        if (!scale_interaction_active_ && EnsureScaledBitmapCache(destination_device_context, target_size))
+        {
+            HDC image_device_context = CreateCompatibleDC(destination_device_context);
+            if (image_device_context == nullptr)
+            {
+                return false;
+            }
+
+            HGDIOBJ previous_image_bitmap = SelectObject(image_device_context, scaled_bitmap_cache_.Get());
+            bool const copied = BitBlt(destination_device_context, 0, 0, target_size.cx, target_size.cy,
+                                       image_device_context, 0, 0, SRCCOPY) != FALSE;
+            SelectObject(image_device_context, previous_image_bitmap);
+            DeleteDC(image_device_context);
+            return copied;
+        }
+
+        HDC source_device_context = CreateCompatibleDC(destination_device_context);
+        if (source_device_context == nullptr)
+        {
+            return false;
+        }
+
+        HGDIOBJ previous_source_bitmap = SelectObject(source_device_context, capture_result_.Bitmap().Get());
+        SetStretchBltMode(destination_device_context, scale_interaction_active_ ? COLORONCOLOR : HALFTONE);
+        SIZE const source_size = capture_result_.PixelSize();
+        bool const stretched = StretchBlt(destination_device_context, 0, 0, target_size.cx, target_size.cy,
+                                          source_device_context, 0, 0, source_size.cx, source_size.cy,
+                                          SRCCOPY) != FALSE;
+        SelectObject(source_device_context, previous_source_bitmap);
+        DeleteDC(source_device_context);
+        return stretched;
+    }
+
+    void PinWindow::FinishScaleInteraction() noexcept
+    {
+        if (window_ == nullptr)
+        {
+            return;
+        }
+
+        KillTimer(window_, kScaleCommitTimerId);
+        if (!scale_interaction_active_)
+        {
+            return;
+        }
+
+        scale_interaction_active_ = false;
+        ResetScaledBitmapCache();
+        RedrawWindow(window_, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE);
+    }
+
     void PinWindow::PaintWindow() noexcept
     {
         PAINTSTRUCT paint{};
@@ -498,20 +596,30 @@ namespace capturezy::feature_pin
         int const client_width = client_rect.right - client_rect.left;
         int const client_height = client_rect.bottom - client_rect.top;
         SIZE const target_size{.cx = client_width, .cy = client_height};
-        FillRect(device_context, &client_rect, GetSysColorBrush(COLOR_WINDOW));
-        if (EnsureScaledBitmapCache(device_context, target_size))
+        HDC paint_device_context = device_context;
+        HDC buffer_device_context = nullptr;
+        HGDIOBJ previous_buffer_bitmap = nullptr;
+        if (EnsurePaintBuffer(device_context, target_size))
         {
-            HDC image_device_context = CreateCompatibleDC(device_context);
-            if (image_device_context != nullptr)
+            buffer_device_context = CreateCompatibleDC(device_context);
+            if (buffer_device_context != nullptr)
             {
-                HGDIOBJ previous_image_bitmap = SelectObject(image_device_context, scaled_bitmap_cache_.Get());
-                BitBlt(device_context, 0, 0, client_width, client_height, image_device_context, 0, 0, SRCCOPY);
-                SelectObject(image_device_context, previous_image_bitmap);
-                DeleteDC(image_device_context);
+                previous_buffer_bitmap = SelectObject(buffer_device_context, paint_buffer_.Get());
+                paint_device_context = buffer_device_context;
             }
         }
 
-        FrameRect(device_context, &client_rect, GetSysColorBrush(COLOR_WINDOWFRAME));
+        FillRect(paint_device_context, &client_rect, GetSysColorBrush(COLOR_WINDOW));
+        (void)DrawScaledBitmap(paint_device_context, target_size);
+        FrameRect(paint_device_context, &client_rect, GetSysColorBrush(COLOR_WINDOWFRAME));
+
+        if (buffer_device_context != nullptr)
+        {
+            BitBlt(device_context, 0, 0, client_width, client_height, buffer_device_context, 0, 0, SRCCOPY);
+            SelectObject(buffer_device_context, previous_buffer_bitmap);
+            DeleteDC(buffer_device_context);
+        }
+
         EndPaint(window_, &paint);
     }
 
@@ -631,6 +739,8 @@ namespace capturezy::feature_pin
                     RECT window_rect{};
                     GetWindowRect(window_, &window_rect);
                     scale_percent_ = kDefaultScalePercent;
+                    scale_interaction_active_ = false;
+                    KillTimer(window_, kScaleCommitTimerId);
                     ResetScaledBitmapCache();
                     SIZE const size = CurrentClientSize();
                     SetWindowPos(window_, nullptr, window_rect.left, window_rect.top, size.cx, size.cy,
@@ -716,6 +826,11 @@ namespace capturezy::feature_pin
                 HideScaleOverlay();
                 return 0;
             }
+            if (w_param == kScaleCommitTimerId)
+            {
+                FinishScaleInteraction();
+                return 0;
+            }
             break;
 
         case WM_PAINT:
@@ -732,6 +847,7 @@ namespace capturezy::feature_pin
         case WM_DESTROY:
             EndDrag();
             HideScaleOverlay();
+            KillTimer(window_, kScaleCommitTimerId);
             if (scale_overlay_window_ != nullptr)
             {
                 DestroyWindow(scale_overlay_window_);
@@ -739,6 +855,7 @@ namespace capturezy::feature_pin
             }
             capture_result_ = {};
             ResetScaledBitmapCache();
+            ResetPaintBuffer();
             window_ = nullptr;
             CAPTUREZY_LOG_INFO(core::LogCategory::Pin, L"Pin window destroyed.");
             if (state_changed_callback_)

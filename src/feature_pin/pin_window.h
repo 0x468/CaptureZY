@@ -49,7 +49,11 @@ namespace capturezy::feature_pin
         void HideScaleOverlay() noexcept;
         void UpdateScaleOverlayPosition() const noexcept;
         void ResetScaledBitmapCache() noexcept;
+        void ResetPaintBuffer() noexcept;
         bool EnsureScaledBitmapCache(HDC device_context, SIZE target_size) noexcept;
+        bool EnsurePaintBuffer(HDC device_context, SIZE target_size) noexcept;
+        bool DrawScaledBitmap(HDC destination_device_context, SIZE target_size) noexcept;
+        void FinishScaleInteraction() noexcept;
         void BeginDrag(POINT cursor_screen_point) noexcept;
         void UpdateDrag(POINT cursor_screen_point) noexcept;
         void EndDrag() noexcept;
@@ -66,9 +70,12 @@ namespace capturezy::feature_pin
         feature_capture::CaptureResult capture_result_{};
         feature_capture::CapturedBitmap scaled_bitmap_cache_;
         SIZE scaled_bitmap_cache_size_{};
+        feature_capture::CapturedBitmap paint_buffer_;
+        SIZE paint_buffer_size_{};
         POINT drag_offset_{};
         std::int32_t scale_percent_{100};
         bool topmost_{true};
         bool dragging_{false};
+        bool scale_interaction_active_{false};
     };
 } // namespace capturezy::feature_pin
