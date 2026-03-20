@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <utility>
 
 // clang-format off
 #include <dwmapi.h>
@@ -19,8 +20,14 @@ namespace capturezy::feature_capture
         constexpr wchar_t const *kOverlayInstruction = L"窗口预选：悬停高亮，单击选择窗口；也可按住左键拖拽框选，Ctrl+"
                                                        L"A 全屏，右键或 Esc 取消";
         constexpr wchar_t const *kSelectionAdjustmentInstruction =
-            L"已选择区域：Enter 确认截图；左键单击区域内确认，重新拖拽可改选区，右键重置，Esc 取消";
+            L"已选择区域：Enter 确认截图；拖动边框可调大小，左键单击区域内确认，右键重置，Esc 取消";
         constexpr int kDragThreshold = 4;
+        constexpr int kSelectionResizePadding = 6;
+        constexpr int kMinSelectionExtent = 8;
+        constexpr int kResizeHandleRadius = 4;
+        constexpr int kResizeHandleHitRadius = 7;
+        constexpr int kResizeHandleDisplayExtent = 70;
+        constexpr int kPreviewInvalidationPadding = 10;
 
         void AlphaFillRect(HDC destination_device_context, RECT rect, BYTE alpha) noexcept;
 
@@ -230,6 +237,21 @@ namespace capturezy::feature_capture
             DeleteObject(selection_pen);
         }
 
+        void PaintResizeHandle(HDC destination_device_context, POINT center_point) noexcept
+        {
+            HPEN handle_pen = CreatePen(PS_SOLID, 1, RGB(0, 0, 0));
+            HBRUSH handle_brush = CreateSolidBrush(RGB(255, 255, 255));
+            HGDIOBJ old_pen = SelectObject(destination_device_context, handle_pen);
+            HGDIOBJ old_brush = SelectObject(destination_device_context, handle_brush);
+            Ellipse(destination_device_context, center_point.x - kResizeHandleRadius,
+                    center_point.y - kResizeHandleRadius, center_point.x + kResizeHandleRadius + 1,
+                    center_point.y + kResizeHandleRadius + 1);
+            SelectObject(destination_device_context, old_brush);
+            SelectObject(destination_device_context, old_pen);
+            DeleteObject(handle_brush);
+            DeleteObject(handle_pen);
+        }
+
         [[nodiscard]] HWND SelectionRootWindow(HWND window) noexcept
         {
             HWND root_window = GetAncestor(window, GA_ROOTOWNER);
@@ -367,6 +389,8 @@ namespace capturezy::feature_capture
         hover_window_rect_ = {};
         click_candidate_window_rect_ = {};
         committed_selection_rect_ = {};
+        resize_anchor_selection_rect_ = {};
+        resize_anchor_handle_ = ResizeHandle::None;
         pointer_down_ = false;
         drag_in_progress_ = false;
         has_selection_ = false;
@@ -374,6 +398,8 @@ namespace capturezy::feature_capture
         has_click_candidate_window_ = false;
         has_committed_selection_ = false;
         confirm_selection_on_click_ = false;
+        pointer_drag_mode_ = PointerDragMode::None;
+        active_resize_handle_ = ResizeHandle::None;
 
         if (overlay_window_ != nullptr)
         {
@@ -552,6 +578,50 @@ namespace capturezy::feature_capture
         return rect;
     }
 
+    bool CaptureOverlay::HasResizeHandle(ResizeHandle handle, ResizeHandle component) noexcept
+    {
+        return (static_cast<unsigned int>(handle) & static_cast<unsigned int>(component)) != 0U;
+    }
+
+    bool CaptureOverlay::ShouldShowResizeHandles(RECT selection_rect) noexcept
+    {
+        return (selection_rect.right - selection_rect.left) >= kResizeHandleDisplayExtent &&
+               (selection_rect.bottom - selection_rect.top) >= kResizeHandleDisplayExtent;
+    }
+
+    HCURSOR CaptureOverlay::CursorForResizeHandle(ResizeHandle handle) noexcept
+    {
+        LPCWSTR cursor_id = IDC_CROSS;
+        switch (handle)
+        {
+        case ResizeHandle::Left:
+        case ResizeHandle::Right:
+            cursor_id = IDC_SIZEWE;
+            break;
+
+        case ResizeHandle::Top:
+        case ResizeHandle::Bottom:
+            cursor_id = IDC_SIZENS;
+            break;
+
+        case ResizeHandle::LeftTop:
+        case ResizeHandle::RightBottom:
+            cursor_id = IDC_SIZENWSE;
+            break;
+
+        case ResizeHandle::RightTop:
+        case ResizeHandle::LeftBottom:
+            cursor_id = IDC_SIZENESW;
+            break;
+
+        case ResizeHandle::None:
+        default:
+            break;
+        }
+
+        return LoadCursorW(nullptr, cursor_id);
+    }
+
     bool CaptureOverlay::IsPointInsideCommittedSelection(POINT overlay_point) const noexcept
     {
         if (!has_committed_selection_)
@@ -561,6 +631,77 @@ namespace capturezy::feature_capture
 
         RECT selection_rect = OverlayToClientRect(committed_selection_rect_);
         return PtInRect(&selection_rect, overlay_point) != FALSE;
+    }
+
+    CaptureOverlay::ResizeHandle
+    CaptureOverlay::HitTestCommittedSelectionResizeHandle(POINT overlay_point) const noexcept
+    {
+        if (!has_committed_selection_)
+        {
+            return ResizeHandle::None;
+        }
+
+        RECT selection_rect = OverlayToClientRect(committed_selection_rect_);
+        if (!IsRectNonEmpty(selection_rect))
+        {
+            return ResizeHandle::None;
+        }
+
+        RECT expanded_rect = ExpandedRect(selection_rect, std::max(kSelectionResizePadding, kResizeHandleHitRadius));
+        if (PtInRect(&expanded_rect, overlay_point) == FALSE)
+        {
+            return ResizeHandle::None;
+        }
+
+        auto const append_handle = [](ResizeHandle handle, ResizeHandle component) noexcept {
+            return static_cast<ResizeHandle>(static_cast<unsigned int>(handle) | static_cast<unsigned int>(component));
+        };
+
+        if (ShouldShowResizeHandles(selection_rect))
+        {
+            int const center_x = (selection_rect.left + selection_rect.right) / 2;
+            int const center_y = (selection_rect.top + selection_rect.bottom) / 2;
+            std::array<std::pair<POINT, ResizeHandle>, 8> const handle_points{{
+                {POINT{.x = selection_rect.left, .y = selection_rect.top}, ResizeHandle::LeftTop},
+                {POINT{.x = center_x, .y = selection_rect.top}, ResizeHandle::Top},
+                {POINT{.x = selection_rect.right, .y = selection_rect.top}, ResizeHandle::RightTop},
+                {POINT{.x = selection_rect.right, .y = center_y}, ResizeHandle::Right},
+                {POINT{.x = selection_rect.right, .y = selection_rect.bottom}, ResizeHandle::RightBottom},
+                {POINT{.x = center_x, .y = selection_rect.bottom}, ResizeHandle::Bottom},
+                {POINT{.x = selection_rect.left, .y = selection_rect.bottom}, ResizeHandle::LeftBottom},
+                {POINT{.x = selection_rect.left, .y = center_y}, ResizeHandle::Left},
+            }};
+            for (auto const &[center_point, handle] : handle_points)
+            {
+                int const delta_x = overlay_point.x - center_point.x;
+                int const delta_y = overlay_point.y - center_point.y;
+                if ((delta_x * delta_x) + (delta_y * delta_y) <= (kResizeHandleHitRadius * kResizeHandleHitRadius))
+                {
+                    return handle;
+                }
+            }
+        }
+
+        ResizeHandle handle = ResizeHandle::None;
+        if (std::abs(overlay_point.x - selection_rect.left) <= kSelectionResizePadding)
+        {
+            handle = append_handle(handle, ResizeHandle::Left);
+        }
+        else if (std::abs(overlay_point.x - selection_rect.right) <= kSelectionResizePadding)
+        {
+            handle = append_handle(handle, ResizeHandle::Right);
+        }
+
+        if (std::abs(overlay_point.y - selection_rect.top) <= kSelectionResizePadding)
+        {
+            handle = append_handle(handle, ResizeHandle::Top);
+        }
+        else if (std::abs(overlay_point.y - selection_rect.bottom) <= kSelectionResizePadding)
+        {
+            handle = append_handle(handle, ResizeHandle::Bottom);
+        }
+
+        return handle;
     }
 
     bool CaptureOverlay::TryGetCurrentPreviewRect(RECT &rect) const noexcept
@@ -607,8 +748,9 @@ namespace capturezy::feature_capture
         }
 
         RECT invalid_rect{};
-        if (!TryUnionRect(had_old_preview ? ExpandedRect(old_preview_rect, 4) : RECT{},
-                          had_new_preview ? ExpandedRect(new_preview_rect, 4) : RECT{}, invalid_rect))
+        if (!TryUnionRect(had_old_preview ? ExpandedRect(old_preview_rect, kPreviewInvalidationPadding) : RECT{},
+                          had_new_preview ? ExpandedRect(new_preview_rect, kPreviewInvalidationPadding) : RECT{},
+                          invalid_rect))
         {
             return;
         }
@@ -622,14 +764,119 @@ namespace capturezy::feature_capture
         }
     }
 
+    void CaptureOverlay::UpdateCursorForOverlayPoint(POINT overlay_point) noexcept
+    {
+        ResizeHandle handle = ResizeHandle::None;
+        if (pointer_drag_mode_ == PointerDragMode::ResizeSelection && pointer_down_)
+        {
+            handle = active_resize_handle_;
+        }
+        else if (has_committed_selection_)
+        {
+            handle = HitTestCommittedSelectionResizeHandle(overlay_point);
+            active_resize_handle_ = handle;
+        }
+        else
+        {
+            active_resize_handle_ = ResizeHandle::None;
+        }
+
+        SetCursor(CursorForResizeHandle(handle));
+    }
+
     void CaptureOverlay::ResetCommittedSelection() noexcept
     {
         has_committed_selection_ = false;
         committed_selection_rect_ = {};
+        resize_anchor_selection_rect_ = {};
+        resize_anchor_handle_ = ResizeHandle::None;
         has_selection_ = false;
         drag_in_progress_ = false;
         has_click_candidate_window_ = false;
         confirm_selection_on_click_ = false;
+        pointer_drag_mode_ = PointerDragMode::None;
+        active_resize_handle_ = ResizeHandle::None;
+    }
+
+    void CaptureOverlay::BeginResizeSelection(POINT overlay_point) noexcept
+    {
+        drag_start_ = overlay_point;
+        drag_current_ = overlay_point;
+        pointer_down_ = true;
+        drag_in_progress_ = false;
+        has_selection_ = false;
+        has_click_candidate_window_ = false;
+        confirm_selection_on_click_ = false;
+        pointer_drag_mode_ = PointerDragMode::ResizeSelection;
+        resize_anchor_selection_rect_ = committed_selection_rect_;
+        resize_anchor_handle_ = active_resize_handle_;
+        SetCapture(overlay_window_);
+    }
+
+    void CaptureOverlay::UpdateResizeSelection(POINT overlay_point) noexcept
+    {
+        drag_current_ = overlay_point;
+        POINT const screen_point{.x = overlay_point.x + origin_left_, .y = overlay_point.y + origin_top_};
+        RECT resized_rect = resize_anchor_selection_rect_;
+        ResizeHandle resolved_handle = ResizeHandle::None;
+        auto const append_handle = [](ResizeHandle handle, ResizeHandle component) noexcept {
+            return static_cast<ResizeHandle>(static_cast<unsigned int>(handle) | static_cast<unsigned int>(component));
+        };
+        ResizeHandle horizontal_handle = ResizeHandle::None;
+        if (HasResizeHandle(resize_anchor_handle_, ResizeHandle::Left) ||
+            HasResizeHandle(resize_anchor_handle_, ResizeHandle::Right))
+        {
+            LONG const fixed_x = HasResizeHandle(resize_anchor_handle_, ResizeHandle::Left)
+                                     ? resize_anchor_selection_rect_.right
+                                     : resize_anchor_selection_rect_.left;
+            if (screen_point.x <= fixed_x)
+            {
+                resized_rect.left = std::min(screen_point.x, fixed_x - static_cast<LONG>(kMinSelectionExtent));
+                resized_rect.right = fixed_x;
+                horizontal_handle = ResizeHandle::Left;
+            }
+            else
+            {
+                resized_rect.left = fixed_x;
+                resized_rect.right = std::max(screen_point.x, fixed_x + static_cast<LONG>(kMinSelectionExtent));
+                horizontal_handle = ResizeHandle::Right;
+            }
+        }
+        ResizeHandle vertical_handle = ResizeHandle::None;
+        if (HasResizeHandle(resize_anchor_handle_, ResizeHandle::Top) ||
+            HasResizeHandle(resize_anchor_handle_, ResizeHandle::Bottom))
+        {
+            LONG const fixed_y = HasResizeHandle(resize_anchor_handle_, ResizeHandle::Top)
+                                     ? resize_anchor_selection_rect_.bottom
+                                     : resize_anchor_selection_rect_.top;
+            if (screen_point.y <= fixed_y)
+            {
+                resized_rect.top = std::min(screen_point.y, fixed_y - static_cast<LONG>(kMinSelectionExtent));
+                resized_rect.bottom = fixed_y;
+                vertical_handle = ResizeHandle::Top;
+            }
+            else
+            {
+                resized_rect.top = fixed_y;
+                resized_rect.bottom = std::max(screen_point.y, fixed_y + static_cast<LONG>(kMinSelectionExtent));
+                vertical_handle = ResizeHandle::Bottom;
+            }
+        }
+        if (horizontal_handle != ResizeHandle::None)
+        {
+            resolved_handle = append_handle(resolved_handle, horizontal_handle);
+        }
+        if (vertical_handle != ResizeHandle::None)
+        {
+            resolved_handle = append_handle(resolved_handle, vertical_handle);
+        }
+        active_resize_handle_ = resolved_handle;
+
+        if (EqualRect(&resized_rect, &committed_selection_rect_) == FALSE)
+        {
+            drag_in_progress_ = true;
+            committed_selection_rect_ = resized_rect;
+        }
     }
 
     bool CaptureOverlay::HandleKeyDown(WPARAM w_param)
@@ -655,8 +902,14 @@ namespace capturezy::feature_capture
             drag_in_progress_ = false;
             has_click_candidate_window_ = false;
             confirm_selection_on_click_ = false;
+            resize_anchor_selection_rect_ = {};
+            resize_anchor_handle_ = ResizeHandle::None;
             if (has_committed_selection_)
             {
+                POINT cursor_position{};
+                GetCursorPos(&cursor_position);
+                ScreenToClient(overlay_window_, &cursor_position);
+                UpdateCursorForOverlayPoint(cursor_position);
                 InvalidateRect(overlay_window_, nullptr, FALSE);
             }
             return true;
@@ -667,14 +920,22 @@ namespace capturezy::feature_capture
 
     void CaptureOverlay::BeginPointerSelection(LPARAM l_param) noexcept
     {
-        drag_start_.x = GET_X_LPARAM(l_param);
-        drag_start_.y = GET_Y_LPARAM(l_param);
+        POINT const overlay_point{.x = GET_X_LPARAM(l_param), .y = GET_Y_LPARAM(l_param)};
+        active_resize_handle_ = HitTestCommittedSelectionResizeHandle(overlay_point);
+        if (active_resize_handle_ != ResizeHandle::None)
+        {
+            BeginResizeSelection(overlay_point);
+            return;
+        }
+
+        drag_start_ = overlay_point;
         drag_current_ = drag_start_;
         pointer_down_ = true;
         drag_in_progress_ = false;
         has_selection_ = false;
         has_click_candidate_window_ = false;
         confirm_selection_on_click_ = IsPointInsideCommittedSelection(drag_start_);
+        pointer_drag_mode_ = PointerDragMode::CreateSelection;
         if (!has_committed_selection_ && has_hover_window_)
         {
             click_candidate_window_rect_ = hover_window_rect_;
@@ -691,16 +952,25 @@ namespace capturezy::feature_capture
 
         if (pointer_down_)
         {
-            drag_current_.x = GET_X_LPARAM(l_param);
-            drag_current_.y = GET_Y_LPARAM(l_param);
-            if (!drag_in_progress_ && (std::abs(drag_current_.x - drag_start_.x) >= kDragThreshold ||
-                                       std::abs(drag_current_.y - drag_start_.y) >= kDragThreshold))
+            POINT const overlay_point{.x = GET_X_LPARAM(l_param), .y = GET_Y_LPARAM(l_param)};
+            if (pointer_drag_mode_ == PointerDragMode::ResizeSelection)
             {
-                drag_in_progress_ = true;
-                has_selection_ = true;
-                has_click_candidate_window_ = false;
-                confirm_selection_on_click_ = false;
+                UpdateResizeSelection(overlay_point);
             }
+            else
+            {
+                drag_current_ = overlay_point;
+                if (!drag_in_progress_ && (std::abs(drag_current_.x - drag_start_.x) >= kDragThreshold ||
+                                           std::abs(drag_current_.y - drag_start_.y) >= kDragThreshold))
+                {
+                    drag_in_progress_ = true;
+                    has_selection_ = true;
+                    has_click_candidate_window_ = false;
+                    confirm_selection_on_click_ = false;
+                }
+            }
+
+            UpdateCursorForOverlayPoint(overlay_point);
 
             RECT new_preview_rect{};
             bool const had_new_preview = TryGetCurrentPreviewRect(new_preview_rect);
@@ -710,6 +980,8 @@ namespace capturezy::feature_capture
 
         if (has_committed_selection_)
         {
+            POINT const overlay_point{.x = GET_X_LPARAM(l_param), .y = GET_Y_LPARAM(l_param)};
+            UpdateCursorForOverlayPoint(overlay_point);
             return;
         }
 
@@ -734,11 +1006,27 @@ namespace capturezy::feature_capture
         bool const was_dragging = drag_in_progress_;
         bool const had_click_candidate = has_click_candidate_window_;
         bool const confirm_selection_on_click = confirm_selection_on_click_;
+        PointerDragMode const pointer_drag_mode = pointer_drag_mode_;
         RECT const click_candidate_rect = click_candidate_window_rect_;
         ReleaseCapture();
         drag_current_.x = GET_X_LPARAM(l_param);
         drag_current_.y = GET_Y_LPARAM(l_param);
         confirm_selection_on_click_ = false;
+        pointer_drag_mode_ = PointerDragMode::None;
+        active_resize_handle_ = ResizeHandle::None;
+        resize_anchor_selection_rect_ = {};
+        resize_anchor_handle_ = ResizeHandle::None;
+        if (pointer_drag_mode == PointerDragMode::ResizeSelection)
+        {
+            drag_in_progress_ = false;
+            if (has_committed_selection_)
+            {
+                UpdateCursorForOverlayPoint(drag_current_);
+                InvalidateRect(overlay_window_, nullptr, FALSE);
+            }
+            return;
+        }
+
         if (was_dragging)
         {
             drag_in_progress_ = false;
@@ -747,6 +1035,7 @@ namespace capturezy::feature_capture
             has_selection_ = false;
             if (has_committed_selection_)
             {
+                UpdateCursorForOverlayPoint(drag_current_);
                 InvalidateRect(overlay_window_, nullptr, FALSE);
             }
             return;
@@ -759,6 +1048,7 @@ namespace capturezy::feature_capture
             has_committed_selection_ = IsRectNonEmpty(committed_selection_rect_);
             if (has_committed_selection_)
             {
+                UpdateCursorForOverlayPoint(drag_current_);
                 InvalidateRect(overlay_window_, nullptr, FALSE);
             }
             return;
@@ -842,6 +1132,25 @@ namespace capturezy::feature_capture
             OffsetRect(&local_preview_rect, -paint_rect.left, -paint_rect.top);
             PaintOverlayPreviewRect(buffer_device_context, local_preview_rect, preview_rect, frozen_background_,
                                     border_color);
+            if (has_committed_selection_ && ShouldShowResizeHandles(preview_rect))
+            {
+                int const center_x = (local_preview_rect.left + local_preview_rect.right) / 2;
+                int const center_y = (local_preview_rect.top + local_preview_rect.bottom) / 2;
+                std::array<POINT, 8> const handle_points{{
+                    POINT{.x = local_preview_rect.left, .y = local_preview_rect.top},
+                    POINT{.x = center_x, .y = local_preview_rect.top},
+                    POINT{.x = local_preview_rect.right, .y = local_preview_rect.top},
+                    POINT{.x = local_preview_rect.right, .y = center_y},
+                    POINT{.x = local_preview_rect.right, .y = local_preview_rect.bottom},
+                    POINT{.x = center_x, .y = local_preview_rect.bottom},
+                    POINT{.x = local_preview_rect.left, .y = local_preview_rect.bottom},
+                    POINT{.x = local_preview_rect.left, .y = center_y},
+                }};
+                for (POINT const handle_point : handle_points)
+                {
+                    PaintResizeHandle(buffer_device_context, handle_point);
+                }
+            }
         }
 
         RECT local_client_rect = client_rect;
@@ -902,6 +1211,17 @@ namespace capturezy::feature_capture
             UpdatePointerSelection(l_param);
             return 0;
 
+        case WM_SETCURSOR:
+            if (LOWORD(l_param) == HTCLIENT)
+            {
+                POINT cursor_position{};
+                GetCursorPos(&cursor_position);
+                ScreenToClient(overlay_window_, &cursor_position);
+                UpdateCursorForOverlayPoint(cursor_position);
+                return TRUE;
+            }
+            break;
+
         case WM_LBUTTONUP:
             CompletePointerSelection(l_param);
             return 0;
@@ -916,6 +1236,8 @@ namespace capturezy::feature_capture
                 POINT cursor_position{};
                 GetCursorPos(&cursor_position);
                 (void)UpdateHoverWindowFromScreenPoint(cursor_position);
+                ScreenToClient(overlay_window_, &cursor_position);
+                UpdateCursorForOverlayPoint(cursor_position);
                 RECT new_preview_rect{};
                 bool const had_new_preview = TryGetCurrentPreviewRect(new_preview_rect);
                 InvalidatePreviewRectChange(old_preview_rect, had_old_preview, new_preview_rect, had_new_preview);
@@ -935,6 +1257,10 @@ namespace capturezy::feature_capture
             drag_in_progress_ = false;
             confirm_selection_on_click_ = false;
             has_click_candidate_window_ = false;
+            pointer_drag_mode_ = PointerDragMode::None;
+            active_resize_handle_ = ResizeHandle::None;
+            resize_anchor_selection_rect_ = {};
+            resize_anchor_handle_ = ResizeHandle::None;
             return 0;
 
         case WM_DESTROY:

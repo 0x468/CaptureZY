@@ -36,16 +36,43 @@ namespace capturezy::feature_capture
         }
 
       private:
+        enum class PointerDragMode : std::uint8_t
+        {
+            None,
+            CreateSelection,
+            ResizeSelection,
+        };
+
+        enum class ResizeHandle : std::uint8_t
+        {
+            None = 0,
+            Left = 1,
+            Top = 2,
+            LeftTop = 3,
+            Right = 4,
+            RightTop = 6,
+            Bottom = 8,
+            LeftBottom = 9,
+            RightBottom = 12,
+        };
+
         [[nodiscard]] RECT CurrentSelectionRect() const noexcept;
         [[nodiscard]] RECT CurrentSelectionRectScreen() const noexcept;
         [[nodiscard]] RECT OverlayRectScreen() const noexcept;
         [[nodiscard]] RECT OverlayToClientRect(RECT rect) const noexcept;
+        [[nodiscard]] static bool HasResizeHandle(ResizeHandle handle, ResizeHandle component) noexcept;
+        [[nodiscard]] static bool ShouldShowResizeHandles(RECT selection_rect) noexcept;
+        [[nodiscard]] static HCURSOR CursorForResizeHandle(ResizeHandle handle) noexcept;
         [[nodiscard]] bool IsPointInsideCommittedSelection(POINT overlay_point) const noexcept;
+        [[nodiscard]] ResizeHandle HitTestCommittedSelectionResizeHandle(POINT overlay_point) const noexcept;
         [[nodiscard]] bool TryGetCurrentPreviewRect(RECT &rect) const noexcept;
         [[nodiscard]] bool UpdateHoverWindowFromScreenPoint(POINT screen_point) noexcept;
         void InvalidatePreviewRectChange(RECT old_preview_rect, bool had_old_preview, RECT new_preview_rect,
                                          bool had_new_preview) noexcept;
+        void UpdateCursorForOverlayPoint(POINT overlay_point) noexcept;
         void ResetCommittedSelection() noexcept;
+        void BeginResizeSelection(POINT overlay_point) noexcept;
+        void UpdateResizeSelection(POINT overlay_point) noexcept;
         [[nodiscard]] bool HandleKeyDown(WPARAM w_param);
         void BeginPointerSelection(LPARAM l_param) noexcept;
         void UpdatePointerSelection(LPARAM l_param);
@@ -71,6 +98,7 @@ namespace capturezy::feature_capture
         RECT hover_window_rect_{};
         RECT click_candidate_window_rect_{};
         RECT committed_selection_rect_{};
+        RECT resize_anchor_selection_rect_{};
         bool pointer_down_{false};
         bool drag_in_progress_{false};
         bool has_selection_{false};
@@ -78,5 +106,8 @@ namespace capturezy::feature_capture
         bool has_click_candidate_window_{false};
         bool has_committed_selection_{false};
         bool confirm_selection_on_click_{false};
+        PointerDragMode pointer_drag_mode_{PointerDragMode::None};
+        ResizeHandle active_resize_handle_{ResizeHandle::None};
+        ResizeHandle resize_anchor_handle_{ResizeHandle::None};
     };
 } // namespace capturezy::feature_capture
