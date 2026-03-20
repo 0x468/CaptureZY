@@ -135,7 +135,20 @@ pwsh -File .\scripts\analyze_latest_dump.ps1 -InitialCommand '!analyze -v'
 
 优先考虑启用 Page Heap，再复现一次。
 
-常用命令：
+仓库内脚本入口：
+
+```powershell
+pwsh -File .\scripts\pageheap_capturezy.ps1 -Mode query
+pwsh -File .\scripts\pageheap_capturezy.ps1 -Mode enable
+pwsh -File .\scripts\pageheap_capturezy.ps1 -Mode disable
+```
+
+前提：
+
+- 这组命令通常需要在管理员 PowerShell 中执行。
+- 如果 `query` / `enable` / `disable` 返回访问被拒绝，优先确认当前终端是否具备管理员权限。
+
+对应底层命令：
 
 ```powershell
 gflags /p /enable CaptureZY.exe /full
@@ -152,6 +165,7 @@ gflags /p /disable CaptureZY.exe
 - `gflags` 会修改本机对应进程的调试设置，属于系统级诊断手段。
 - 启用后性能会下降，内存布局会改变。
 - 复现完成后应尽快关闭，避免干扰后续普通验证。
+- 建议先执行 `query`，确认当前状态，再决定是否启用。
 
 ### 7. `clang-cl` 的定位
 
@@ -212,6 +226,7 @@ gflags /p /disable CaptureZY.exe
 ```powershell
 pwsh -File .\scripts\show_latest_diagnostics.ps1
 pwsh -File .\scripts\analyze_latest_dump.ps1
+pwsh -File .\scripts\pageheap_capturezy.ps1 -Mode query
 ```
 
 如果当前机器安装了 WinDbg / Debugging Tools for Windows，第二个脚本会优先使用 `cdb.exe`。

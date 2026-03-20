@@ -488,6 +488,22 @@ pwsh -File .\scripts\analyze_latest_dump.ps1
 - 第二个脚本在本机安装了 `cdb.exe` 时可以正常打开最新 dump 并输出寄存器与堆栈。
 - 更完整的专项排查流程见 [docs/release-crash-diagnostics.md](D:/Repo/C++/CaptureZY/docs/release-crash-diagnostics.md)。
 
+### DIAG-05 Page Heap 脚本入口可用
+
+步骤：
+
+1. 执行：
+
+```powershell
+pwsh -File .\scripts\pageheap_capturezy.ps1 -Mode query
+```
+
+预期结果：
+
+- 如果本机安装了 `gflags.exe`，脚本可以输出当前 `CaptureZY.exe` 的 page heap 状态。
+- 如果返回访问被拒绝，应改为在管理员 PowerShell 中执行。
+- 如果后续需要启用或关闭 page heap，可按 [docs/release-crash-diagnostics.md](D:/Repo/C++/CaptureZY/docs/release-crash-diagnostics.md) 中的流程继续执行。
+
 ## DPI 与多显示器观察项
 
 ### DISP-01 高 DPI 基础观察
