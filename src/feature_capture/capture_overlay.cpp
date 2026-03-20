@@ -20,6 +20,8 @@ namespace capturezy::feature_capture
                                                        L"rl+A 全屏，右键或 Esc 取消";
         constexpr int kDragThreshold = 4;
 
+        void AlphaFillRect(HDC destination_device_context, RECT rect, BYTE alpha) noexcept;
+
         void SetWindowUserData(HWND window, CaptureOverlay *overlay)
         {
             // NOLINTNEXTLINE(performance-no-int-to-ptr,cppcoreguidelines-pro-type-reinterpret-cast)
@@ -35,6 +37,43 @@ namespace capturezy::feature_capture
         [[nodiscard]] bool IsRectNonEmpty(RECT rect) noexcept
         {
             return rect.right > rect.left && rect.bottom > rect.top;
+        }
+
+        [[nodiscard]] RECT ExpandedRect(RECT rect, int padding) noexcept
+        {
+            if (!IsRectNonEmpty(rect))
+            {
+                return {};
+            }
+
+            rect.left -= padding;
+            rect.top -= padding;
+            rect.right += padding;
+            rect.bottom += padding;
+            return rect;
+        }
+
+        [[nodiscard]] bool TryUnionRect(RECT first_rect, RECT second_rect, RECT &result_rect) noexcept
+        {
+            if (IsRectNonEmpty(first_rect) && IsRectNonEmpty(second_rect))
+            {
+                return UnionRect(&result_rect, &first_rect, &second_rect) != FALSE;
+            }
+
+            if (IsRectNonEmpty(first_rect))
+            {
+                result_rect = first_rect;
+                return true;
+            }
+
+            if (IsRectNonEmpty(second_rect))
+            {
+                result_rect = second_rect;
+                return true;
+            }
+
+            result_rect = {};
+            return false;
         }
 
         [[nodiscard]] RECT VirtualScreenRect() noexcept
@@ -93,6 +132,100 @@ namespace capturezy::feature_capture
             }
 
             return IntersectRect(&window_rect, &candidate_rect, &clip_rect) != FALSE;
+        }
+
+        [[nodiscard]] CapturedBitmap CreateDimmedBitmap(CapturedBitmap const &source_bitmap, BYTE alpha) noexcept
+        {
+            CapturedBitmap dimmed_bitmap = source_bitmap.Clone();
+            if (!dimmed_bitmap.IsValid())
+            {
+                return {};
+            }
+
+            HDC screen_device_context = GetDC(nullptr);
+            if (screen_device_context == nullptr)
+            {
+                return {};
+            }
+
+            HDC bitmap_device_context = CreateCompatibleDC(screen_device_context);
+            if (bitmap_device_context == nullptr)
+            {
+                ReleaseDC(nullptr, screen_device_context);
+                return {};
+            }
+
+            HGDIOBJ previous_bitmap = SelectObject(bitmap_device_context, dimmed_bitmap.Get());
+            RECT bitmap_rect{.left = 0, .top = 0, .right = dimmed_bitmap.Size().cx, .bottom = dimmed_bitmap.Size().cy};
+            AlphaFillRect(bitmap_device_context, bitmap_rect, alpha);
+            SelectObject(bitmap_device_context, previous_bitmap);
+            DeleteDC(bitmap_device_context);
+            ReleaseDC(nullptr, screen_device_context);
+            return dimmed_bitmap;
+        }
+
+        void PaintBitmapRect(HDC destination_device_context, RECT destination_rect, HBITMAP bitmap,
+                             POINT source_origin) noexcept
+        {
+            if (bitmap == nullptr || !IsRectNonEmpty(destination_rect))
+            {
+                return;
+            }
+
+            HDC bitmap_device_context = CreateCompatibleDC(destination_device_context);
+            if (bitmap_device_context == nullptr)
+            {
+                return;
+            }
+
+            HGDIOBJ previous_bitmap = SelectObject(bitmap_device_context, bitmap);
+            (void)BitBlt(destination_device_context, destination_rect.left, destination_rect.top,
+                         destination_rect.right - destination_rect.left, destination_rect.bottom - destination_rect.top,
+                         bitmap_device_context, source_origin.x, source_origin.y, SRCCOPY);
+            SelectObject(bitmap_device_context, previous_bitmap);
+            DeleteDC(bitmap_device_context);
+        }
+
+        void PaintOverlayBackgroundRect(HDC destination_device_context, RECT destination_rect, POINT source_origin,
+                                        CapturedBitmap const &dimmed_background,
+                                        CapturedBitmap const &frozen_background) noexcept
+        {
+            if (dimmed_background.IsValid())
+            {
+                PaintBitmapRect(destination_device_context, destination_rect, dimmed_background.Get(), source_origin);
+                return;
+            }
+
+            if (frozen_background.IsValid())
+            {
+                PaintBitmapRect(destination_device_context, destination_rect, frozen_background.Get(), source_origin);
+            }
+            else
+            {
+                FillRect(destination_device_context, &destination_rect, GetSysColorBrush(COLOR_WINDOWTEXT));
+            }
+
+            AlphaFillRect(destination_device_context, destination_rect, kOverlayAlpha);
+        }
+
+        void PaintOverlayPreviewRect(HDC destination_device_context, RECT destination_preview_rect,
+                                     RECT source_preview_rect, CapturedBitmap const &frozen_background,
+                                     COLORREF border_color) noexcept
+        {
+            if (frozen_background.IsValid())
+            {
+                PaintBitmapRect(destination_device_context, destination_preview_rect, frozen_background.Get(),
+                                POINT{.x = source_preview_rect.left, .y = source_preview_rect.top});
+            }
+
+            HPEN selection_pen = CreatePen(PS_SOLID, 2, border_color);
+            HGDIOBJ old_pen = SelectObject(destination_device_context, selection_pen);
+            HGDIOBJ old_brush = SelectObject(destination_device_context, GetStockObject(HOLLOW_BRUSH));
+            Rectangle(destination_device_context, destination_preview_rect.left, destination_preview_rect.top,
+                      destination_preview_rect.right, destination_preview_rect.bottom);
+            SelectObject(destination_device_context, old_brush);
+            SelectObject(destination_device_context, old_pen);
+            DeleteObject(selection_pen);
         }
 
         [[nodiscard]] HWND SelectionRootWindow(HWND window) noexcept
@@ -260,6 +393,7 @@ namespace capturezy::feature_capture
                                  RECT{.left = left, .top = top, .right = left + width, .bottom = top + height})
                                  .Bitmap()
                                  .Clone();
+        dimmed_background_ = CreateDimmedBitmap(frozen_background_, kOverlayAlpha);
 
         overlay_window_ = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED, kOverlayWindowClassName,
                                           L"CaptureZY Overlay", WS_POPUP, left, top, width, height, owner_window_,
@@ -288,6 +422,7 @@ namespace capturezy::feature_capture
         DestroyWindow(overlay_window_);
         overlay_window_ = nullptr;
         frozen_background_ = {};
+        dimmed_background_ = {};
     }
 
     bool CaptureOverlay::IsVisible() const noexcept
@@ -412,6 +547,24 @@ namespace capturezy::feature_capture
         return rect;
     }
 
+    bool CaptureOverlay::TryGetCurrentPreviewRect(RECT &rect) const noexcept
+    {
+        if (has_selection_)
+        {
+            rect = CurrentSelectionRect();
+            return IsRectNonEmpty(rect);
+        }
+
+        if (has_hover_window_ && !drag_in_progress_)
+        {
+            rect = OverlayToClientRect(hover_window_rect_);
+            return IsRectNonEmpty(rect);
+        }
+
+        rect = {};
+        return false;
+    }
+
     bool CaptureOverlay::UpdateHoverWindowFromScreenPoint(POINT screen_point) noexcept
     {
         RECT window_rect{};
@@ -421,6 +574,30 @@ namespace capturezy::feature_capture
         has_hover_window_ = found;
         hover_window_rect_ = found ? window_rect : RECT{};
         return changed;
+    }
+
+    void CaptureOverlay::InvalidatePreviewRectChange(RECT old_preview_rect, bool had_old_preview, RECT new_preview_rect,
+                                                     bool had_new_preview) noexcept
+    {
+        if (overlay_window_ == nullptr || (!had_old_preview && !had_new_preview))
+        {
+            return;
+        }
+
+        RECT invalid_rect{};
+        if (!TryUnionRect(had_old_preview ? ExpandedRect(old_preview_rect, 4) : RECT{},
+                          had_new_preview ? ExpandedRect(new_preview_rect, 4) : RECT{}, invalid_rect))
+        {
+            return;
+        }
+
+        RECT client_rect{};
+        GetClientRect(overlay_window_, &client_rect);
+        RECT clipped_invalid_rect{};
+        if (IntersectRect(&clipped_invalid_rect, &invalid_rect, &client_rect) != FALSE)
+        {
+            InvalidateRect(overlay_window_, &clipped_invalid_rect, FALSE);
+        }
     }
 
     bool CaptureOverlay::HandleKeyDown(WPARAM w_param)
@@ -461,6 +638,9 @@ namespace capturezy::feature_capture
 
     void CaptureOverlay::UpdatePointerSelection(LPARAM l_param)
     {
+        RECT old_preview_rect{};
+        bool const had_old_preview = TryGetCurrentPreviewRect(old_preview_rect);
+
         if (pointer_down_)
         {
             drag_current_.x = GET_X_LPARAM(l_param);
@@ -473,10 +653,9 @@ namespace capturezy::feature_capture
                 has_click_candidate_window_ = false;
             }
 
-            if (drag_in_progress_)
-            {
-                InvalidateRect(overlay_window_, nullptr, TRUE);
-            }
+            RECT new_preview_rect{};
+            bool const had_new_preview = TryGetCurrentPreviewRect(new_preview_rect);
+            InvalidatePreviewRectChange(old_preview_rect, had_old_preview, new_preview_rect, had_new_preview);
             return;
         }
 
@@ -484,7 +663,9 @@ namespace capturezy::feature_capture
         GetCursorPos(&cursor_position);
         if (UpdateHoverWindowFromScreenPoint(cursor_position))
         {
-            InvalidateRect(overlay_window_, nullptr, TRUE);
+            RECT new_preview_rect{};
+            bool const had_new_preview = TryGetCurrentPreviewRect(new_preview_rect);
+            InvalidatePreviewRectChange(old_preview_rect, had_old_preview, new_preview_rect, had_new_preview);
         }
     }
 
@@ -529,25 +710,40 @@ namespace capturezy::feature_capture
 
         RECT client_rect{};
         GetClientRect(overlay_window_, &client_rect);
-        if (frozen_background_.IsValid())
+        RECT const paint_rect = paint.rcPaint;
+        int const paint_width = paint_rect.right - paint_rect.left;
+        int const paint_height = paint_rect.bottom - paint_rect.top;
+        if (paint_width <= 0 || paint_height <= 0)
         {
-            HDC bitmap_device_context = CreateCompatibleDC(device_context);
-            if (bitmap_device_context != nullptr)
-            {
-                HGDIOBJ previous_bitmap = SelectObject(bitmap_device_context, frozen_background_.Get());
-                SIZE const background_size = frozen_background_.Size();
-                (void)BitBlt(device_context, 0, 0, background_size.cx, background_size.cy, bitmap_device_context, 0, 0,
-                             SRCCOPY);
-                SelectObject(bitmap_device_context, previous_bitmap);
-                DeleteDC(bitmap_device_context);
-            }
-        }
-        else
-        {
-            FillRect(device_context, &client_rect, GetSysColorBrush(COLOR_WINDOWTEXT));
+            EndPaint(overlay_window_, &paint);
+            return;
         }
 
-        AlphaFillRect(device_context, client_rect, kOverlayAlpha);
+        HDC buffer_device_context = CreateCompatibleDC(device_context);
+        HBITMAP buffer_bitmap = buffer_device_context != nullptr
+                                    ? CreateCompatibleBitmap(device_context, paint_width, paint_height)
+                                    : nullptr;
+        if (buffer_device_context == nullptr || buffer_bitmap == nullptr)
+        {
+            if (buffer_bitmap != nullptr)
+            {
+                DeleteObject(buffer_bitmap);
+            }
+            if (buffer_device_context != nullptr)
+            {
+                DeleteDC(buffer_device_context);
+            }
+
+            EndPaint(overlay_window_, &paint);
+            return;
+        }
+
+        HGDIOBJ previous_buffer_bitmap = SelectObject(buffer_device_context, buffer_bitmap);
+        RECT local_paint_rect{.left = 0, .top = 0, .right = paint_width, .bottom = paint_height};
+
+        PaintOverlayBackgroundRect(buffer_device_context, local_paint_rect,
+                                   POINT{.x = paint_rect.left, .y = paint_rect.top}, dimmed_background_,
+                                   frozen_background_);
 
         RECT preview_rect{};
         bool has_preview_rect = false;
@@ -567,33 +763,25 @@ namespace capturezy::feature_capture
 
         if (has_preview_rect)
         {
-            if (frozen_background_.IsValid())
-            {
-                HDC bitmap_device_context = CreateCompatibleDC(device_context);
-                if (bitmap_device_context != nullptr)
-                {
-                    HGDIOBJ previous_bitmap = SelectObject(bitmap_device_context, frozen_background_.Get());
-                    (void)BitBlt(device_context, preview_rect.left, preview_rect.top,
-                                 preview_rect.right - preview_rect.left, preview_rect.bottom - preview_rect.top,
-                                 bitmap_device_context, preview_rect.left, preview_rect.top, SRCCOPY);
-                    SelectObject(bitmap_device_context, previous_bitmap);
-                    DeleteDC(bitmap_device_context);
-                }
-            }
-
-            HPEN selection_pen = CreatePen(PS_SOLID, 2, border_color);
-            HGDIOBJ old_pen = SelectObject(device_context, selection_pen);
-            HGDIOBJ old_brush = SelectObject(device_context, GetStockObject(HOLLOW_BRUSH));
-            Rectangle(device_context, preview_rect.left, preview_rect.top, preview_rect.right, preview_rect.bottom);
-            SelectObject(device_context, old_brush);
-            SelectObject(device_context, old_pen);
-            DeleteObject(selection_pen);
+            RECT local_preview_rect = preview_rect;
+            OffsetRect(&local_preview_rect, -paint_rect.left, -paint_rect.top);
+            PaintOverlayPreviewRect(buffer_device_context, local_preview_rect, preview_rect, frozen_background_,
+                                    border_color);
         }
 
-        SetBkMode(device_context, TRANSPARENT);
-        SetTextColor(device_context, RGB(255, 255, 255));
-        DrawTextW(device_context, kOverlayInstruction, -1, &client_rect, DT_CENTER | DT_WORDBREAK | DT_TOP);
+        RECT local_client_rect = client_rect;
+        OffsetRect(&local_client_rect, -paint_rect.left, -paint_rect.top);
+        SetBkMode(buffer_device_context, TRANSPARENT);
+        SetTextColor(buffer_device_context, RGB(255, 255, 255));
+        DrawTextW(buffer_device_context, kOverlayInstruction, -1, &local_client_rect,
+                  DT_CENTER | DT_WORDBREAK | DT_TOP);
 
+        (void)BitBlt(device_context, paint_rect.left, paint_rect.top, paint_width, paint_height, buffer_device_context,
+                     0, 0, SRCCOPY);
+
+        SelectObject(buffer_device_context, previous_buffer_bitmap);
+        DeleteObject(buffer_bitmap);
+        DeleteDC(buffer_device_context);
         EndPaint(overlay_window_, &paint);
     }
 

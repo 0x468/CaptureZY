@@ -40,7 +40,10 @@ namespace capturezy::feature_capture
         [[nodiscard]] RECT CurrentSelectionRectScreen() const noexcept;
         [[nodiscard]] RECT OverlayRectScreen() const noexcept;
         [[nodiscard]] RECT OverlayToClientRect(RECT rect) const noexcept;
+        [[nodiscard]] bool TryGetCurrentPreviewRect(RECT &rect) const noexcept;
         [[nodiscard]] bool UpdateHoverWindowFromScreenPoint(POINT screen_point) noexcept;
+        void InvalidatePreviewRectChange(RECT old_preview_rect, bool had_old_preview, RECT new_preview_rect,
+                                         bool had_new_preview) noexcept;
         [[nodiscard]] bool HandleKeyDown(WPARAM w_param);
         void BeginPointerSelection(LPARAM l_param) noexcept;
         void UpdatePointerSelection(LPARAM l_param);
@@ -56,6 +59,7 @@ namespace capturezy::feature_capture
         HWND owner_window_{};
         HWND overlay_window_{};
         CapturedBitmap frozen_background_;
+        CapturedBitmap dimmed_background_;
         CaptureResult final_capture_result_{};
         int origin_left_{0};
         int origin_top_{0};
