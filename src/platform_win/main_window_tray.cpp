@@ -55,7 +55,7 @@ namespace capturezy::platform_win
 
     void MainWindow::ShowTrayMenu()
     {
-        ShowMainTrayMenu(window_, *app_settings_, pin_manager_);
+        ShowMainTrayMenu(window_, *app_settings_, *pin_manager_);
     }
 
     void MainWindow::ExecuteTrayClickAction(core::TrayIconClickActionSetting action)

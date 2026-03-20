@@ -76,7 +76,7 @@ namespace capturezy::platform_win
             return;
         }
 
-        if (!capture_overlay_.Show(window_))
+        if (!capture_overlay_->Show(window_))
         {
             app_state_->ReturnToIdle();
             UpdateWindowPresentation();
@@ -119,7 +119,7 @@ namespace capturezy::platform_win
                 if (feature_capture::ScreenCapture::CopyBitmapToClipboard(window_, capture_result))
                 {
                     capture_completed = true;
-                    pin_created = pin_manager_.CreatePin(std::move(capture_result));
+                    pin_created = pin_manager_->CreatePin(std::move(capture_result));
                 }
                 break;
             }
@@ -150,7 +150,7 @@ namespace capturezy::platform_win
 
     void MainWindow::HandleOverlayResult(feature_capture::OverlayResult result)
     {
-        feature_capture::CaptureResult capture_result = capture_overlay_.FrozenSelectionResult();
+        feature_capture::CaptureResult capture_result = capture_overlay_->FrozenSelectionResult();
         switch (result)
         {
         case feature_capture::OverlayResult::ConfirmedWithDefaultAction:

@@ -43,6 +43,29 @@ namespace capturezy::feature_pin
     {
     }
 
+    PinManager::MutationScope::MutationScope(PinManager &manager) noexcept : manager_(&manager)
+    {
+        ++manager_->mutation_depth_;
+    }
+
+    PinManager::MutationScope::~MutationScope() noexcept
+    {
+        if (manager_ == nullptr)
+        {
+            return;
+        }
+
+        if (manager_->mutation_depth_ > 0)
+        {
+            --manager_->mutation_depth_;
+        }
+
+        if (manager_->mutation_depth_ == 0)
+        {
+            manager_->RefreshCountCache();
+        }
+    }
+
     void PinManager::SetInventoryChangedCallback(InventoryChangedCallback callback)
     {
         inventory_changed_callback_ = std::move(callback);
@@ -56,6 +79,7 @@ namespace capturezy::feature_pin
             return false;
         }
 
+        MutationScope mutation_scope(*this);
         PruneClosedPins();
 
         auto pin_window = std::make_unique<PinWindow>(instance_, *app_settings_);
@@ -74,6 +98,7 @@ namespace capturezy::feature_pin
 
     void PinManager::ShowAll() noexcept
     {
+        MutationScope mutation_scope(*this);
         CAPTUREZY_LOG_DEBUG(core::LogCategory::Pin, L"Show all pins requested.");
         for (auto &pin_window : pin_windows_)
         {
@@ -86,6 +111,7 @@ namespace capturezy::feature_pin
 
     void PinManager::HideAll() noexcept
     {
+        MutationScope mutation_scope(*this);
         CAPTUREZY_LOG_DEBUG(core::LogCategory::Pin, L"Hide all pins requested.");
         for (auto &pin_window : pin_windows_)
         {
@@ -98,6 +124,7 @@ namespace capturezy::feature_pin
 
     void PinManager::CloseAll() noexcept
     {
+        MutationScope mutation_scope(*this);
         CAPTUREZY_LOG_DEBUG(core::LogCategory::Pin, L"Close all pins requested.");
         for (auto &pin_window : pin_windows_)
         {
@@ -112,6 +139,11 @@ namespace capturezy::feature_pin
 
     void PinManager::PruneClosedPins() noexcept
     {
+        if (mutation_depth_ > 1)
+        {
+            return;
+        }
+
         std::size_t const previous_count = pin_windows_.size();
         std::erase_if(pin_windows_, [](std::unique_ptr<PinWindow> const &pin_window) {
             return pin_window == nullptr || !pin_window->IsOpen();
@@ -121,6 +153,15 @@ namespace capturezy::feature_pin
         {
             LogPrunedCountMessage(previous_count, pin_windows_.size());
         }
+    }
+
+    void PinManager::RefreshCountCache() noexcept
+    {
+        cached_open_pin_count_ = pin_windows_.size();
+        cached_visible_pin_count_ = static_cast<std::size_t>(
+            std::count_if(pin_windows_.cbegin(), pin_windows_.cend(), [](std::unique_ptr<PinWindow> const &pin_window) {
+                return pin_window != nullptr && pin_window->IsVisible();
+            }));
     }
 
     void PinManager::NotifyInventoryChanged() const
@@ -133,22 +174,37 @@ namespace capturezy::feature_pin
 
     std::size_t PinManager::OpenPinCount() noexcept
     {
+        if (mutation_depth_ > 0)
+        {
+            return cached_open_pin_count_;
+        }
+
         PruneClosedPins();
+        RefreshCountCache();
         return pin_windows_.size();
     }
 
     std::size_t PinManager::VisiblePinCount() noexcept
     {
-        PruneClosedPins();
+        if (mutation_depth_ > 0)
+        {
+            return cached_visible_pin_count_;
+        }
 
-        return static_cast<std::size_t>(
-            std::count_if(pin_windows_.cbegin(), pin_windows_.cend(), [](std::unique_ptr<PinWindow> const &pin_window) {
-                return pin_window != nullptr && pin_window->IsVisible();
-            }));
+        PruneClosedPins();
+        RefreshCountCache();
+        return cached_visible_pin_count_;
     }
 
     std::size_t PinManager::HiddenPinCount() noexcept
     {
+        if (mutation_depth_ > 0)
+        {
+            return cached_open_pin_count_ >= cached_visible_pin_count_
+                       ? cached_open_pin_count_ - cached_visible_pin_count_
+                       : 0;
+        }
+
         std::size_t const open_pin_count = OpenPinCount();
         std::size_t const visible_pin_count = VisiblePinCount();
         return open_pin_count >= visible_pin_count ? open_pin_count - visible_pin_count : 0;

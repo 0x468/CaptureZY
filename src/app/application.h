@@ -1,5 +1,6 @@
 #pragma once
 
+#include <memory>
 #include <windows.h>
 
 #include "core/app_settings.h"
@@ -26,9 +27,10 @@ namespace capturezy::app
         bool InitializeCom() noexcept;
         void UninitializeCom() noexcept;
 
+        HINSTANCE instance_{};
         core::AppSettings app_settings_{};
         core::AppState app_state_{};
-        platform_win::MainWindow main_window_;
+        std::unique_ptr<platform_win::MainWindow> main_window_;
         bool com_initialized_{false};
     };
 } // namespace capturezy::app

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <memory>
+
 // clang-format off
 #include <windows.h>
 // clang-format on
@@ -95,8 +97,8 @@ namespace capturezy::platform_win
         core::AppSettings *app_settings_;
         core::AppState *app_state_;
         HWND window_{};
-        feature_capture::CaptureOverlay capture_overlay_;
-        feature_pin::PinManager pin_manager_;
+        std::unique_ptr<feature_capture::CaptureOverlay> capture_overlay_;
+        std::unique_ptr<feature_pin::PinManager> pin_manager_;
         NOTIFYICONDATAW tray_icon_{};
         CaptureRequest pending_capture_request_;
         bool tray_icon_added_{false};

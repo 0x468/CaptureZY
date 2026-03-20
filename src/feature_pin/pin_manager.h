@@ -29,11 +29,28 @@ namespace capturezy::feature_pin
         [[nodiscard]] std::size_t HiddenPinCount() noexcept;
 
       private:
+        class MutationScope final
+        {
+          public:
+            explicit MutationScope(PinManager &manager) noexcept;
+            ~MutationScope() noexcept;
+
+            MutationScope(MutationScope const &) = delete;
+            MutationScope &operator=(MutationScope const &) = delete;
+
+          private:
+            PinManager *manager_{};
+        };
+
+        void RefreshCountCache() noexcept;
         void NotifyInventoryChanged() const;
 
         HINSTANCE instance_;
         core::AppSettings const *app_settings_;
         InventoryChangedCallback inventory_changed_callback_{};
         std::vector<std::unique_ptr<PinWindow>> pin_windows_;
+        std::size_t mutation_depth_{0};
+        std::size_t cached_open_pin_count_{0};
+        std::size_t cached_visible_pin_count_{0};
     };
 } // namespace capturezy::feature_pin

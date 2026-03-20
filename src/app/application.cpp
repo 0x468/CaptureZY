@@ -1,5 +1,6 @@
 #include "app/application.h"
 
+#include <memory>
 #include <objbase.h>
 #include <shellscalingapi.h>
 
@@ -74,7 +75,7 @@ namespace capturezy::app
         }
     } // namespace
 
-    Application::Application(HINSTANCE instance) : main_window_(instance, app_state_, app_settings_) {}
+    Application::Application(HINSTANCE instance) : instance_(instance) {}
 
     Application::~Application() noexcept
     {
@@ -126,9 +127,11 @@ namespace capturezy::app
                                L", double=" +
                                std::to_wstring(static_cast<int>(app_settings_.tray_double_click_action)) + L".");
 
-        if (!main_window_.Create(show_command))
+        main_window_ = std::make_unique<platform_win::MainWindow>(instance_, app_state_, app_settings_);
+        if (!main_window_->Create(show_command))
         {
             CAPTUREZY_LOG_ERROR(core::LogCategory::App, L"Main window creation failed.");
+            main_window_.reset();
             return -1;
         }
 

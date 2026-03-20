@@ -1,5 +1,7 @@
 #include "platform_win/main_window.h"
 
+#include <memory>
+
 #include "core/app_metadata.h"
 #include "core/log.h"
 #include "platform_win/tray_menu.h"
@@ -24,8 +26,9 @@ namespace capturezy::platform_win
     } // namespace
 
     MainWindow::MainWindow(HINSTANCE instance, core::AppState &app_state, core::AppSettings &app_settings) noexcept
-        : instance_(instance), app_settings_(&app_settings), app_state_(&app_state), capture_overlay_(instance),
-          pin_manager_(instance, app_settings)
+        : instance_(instance), app_settings_(&app_settings), app_state_(&app_state),
+          capture_overlay_(std::make_unique<feature_capture::CaptureOverlay>(instance)),
+          pin_manager_(std::make_unique<feature_pin::PinManager>(instance, app_settings))
     {
     }
 
@@ -46,7 +49,7 @@ namespace capturezy::platform_win
             return false;
         }
 
-        pin_manager_.SetInventoryChangedCallback([this]() {
+        pin_manager_->SetInventoryChangedCallback([this]() {
             if (window_ != nullptr)
             {
                 UpdateWindowPresentation();
@@ -198,15 +201,15 @@ namespace capturezy::platform_win
             return true;
 
         case TrayMenuCommand::ShowAllPins:
-            pin_manager_.ShowAll();
+            pin_manager_->ShowAll();
             return true;
 
         case TrayMenuCommand::HideAllPins:
-            pin_manager_.HideAll();
+            pin_manager_->HideAll();
             return true;
 
         case TrayMenuCommand::CloseAllPins:
-            pin_manager_.CloseAll();
+            pin_manager_->CloseAll();
             return true;
 
         case TrayMenuCommand::ExitApplication:
@@ -267,7 +270,7 @@ namespace capturezy::platform_win
 
         case WM_DESTROY:
             CancelPendingSingleTrayClickAction();
-            pin_manager_.CloseAll();
+            pin_manager_->CloseAll();
             UnregisterHotkeys();
             RemoveTrayIcon();
             PostQuitMessage(0);
