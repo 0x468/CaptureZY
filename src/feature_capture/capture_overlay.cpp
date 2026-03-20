@@ -1,6 +1,7 @@
 #include "feature_capture/capture_overlay.h"
 
 #include <algorithm>
+#include <array>
 
 // clang-format off
 #include <dwmapi.h>
@@ -36,36 +37,143 @@ namespace capturezy::feature_capture
             return rect.right > rect.left && rect.bottom > rect.top;
         }
 
+        [[nodiscard]] RECT VirtualScreenRect() noexcept
+        {
+            RECT screen_rect{};
+            screen_rect.left = GetSystemMetrics(SM_XVIRTUALSCREEN);
+            screen_rect.top = GetSystemMetrics(SM_YVIRTUALSCREEN);
+            screen_rect.right = screen_rect.left + GetSystemMetrics(SM_CXVIRTUALSCREEN);
+            screen_rect.bottom = screen_rect.top + GetSystemMetrics(SM_CYVIRTUALSCREEN);
+            return screen_rect;
+        }
+
+        [[nodiscard]] bool WindowClassNameEquals(HWND window, wchar_t const *expected_class_name) noexcept
+        {
+            std::array<wchar_t, 64> class_name{};
+            int const class_name_length = GetClassNameW(window, class_name.data(), static_cast<int>(class_name.size()));
+            return class_name_length > 0 && lstrcmpW(class_name.data(), expected_class_name) == 0;
+        }
+
+        [[nodiscard]] bool IsTaskbarShellWindow(HWND window) noexcept
+        {
+            return WindowClassNameEquals(window, L"Shell_TrayWnd") ||
+                   WindowClassNameEquals(window, L"Shell_SecondaryTrayWnd") ||
+                   WindowClassNameEquals(window, L"NotifyIconOverflowWindow");
+        }
+
+        [[nodiscard]] bool IsExcludedShellWindow(HWND window) noexcept
+        {
+            return WindowClassNameEquals(window, L"Progman") || WindowClassNameEquals(window, L"WorkerW");
+        }
+
+        [[nodiscard]] bool IsWindowCloaked(HWND window) noexcept
+        {
+            DWORD cloaked = 0;
+            return SUCCEEDED(DwmGetWindowAttribute(window, DWMWA_CLOAKED, &cloaked, sizeof(cloaked))) && cloaked != 0;
+        }
+
+        [[nodiscard]] bool TryGetWindowRectForSelection(HWND window, RECT &window_rect) noexcept
+        {
+            HRESULT const dwm_result = DwmGetWindowAttribute(window, DWMWA_EXTENDED_FRAME_BOUNDS, &window_rect,
+                                                             sizeof(window_rect));
+            if (SUCCEEDED(dwm_result) && IsRectNonEmpty(window_rect))
+            {
+                return true;
+            }
+
+            return GetWindowRect(window, &window_rect) != FALSE && IsRectNonEmpty(window_rect);
+        }
+
+        [[nodiscard]] bool TryGetClippedWindowRectForSelection(HWND window, RECT clip_rect, RECT &window_rect) noexcept
+        {
+            RECT candidate_rect{};
+            if (!TryGetWindowRectForSelection(window, candidate_rect))
+            {
+                return false;
+            }
+
+            return IntersectRect(&window_rect, &candidate_rect, &clip_rect) != FALSE;
+        }
+
+        [[nodiscard]] HWND SelectionRootWindow(HWND window) noexcept
+        {
+            HWND root_window = GetAncestor(window, GA_ROOTOWNER);
+            if (root_window == nullptr)
+            {
+                root_window = GetAncestor(window, GA_ROOT);
+            }
+            if (root_window == nullptr)
+            {
+                root_window = window;
+            }
+
+            for (;;)
+            {
+                HWND const popup_window = GetLastActivePopup(root_window);
+                if (popup_window == nullptr || popup_window == root_window || IsWindowVisible(popup_window) == FALSE ||
+                    IsIconic(popup_window) != FALSE || IsWindowCloaked(popup_window))
+                {
+                    break;
+                }
+
+                root_window = popup_window;
+            }
+
+            return root_window;
+        }
+
+        [[nodiscard]] bool ShouldSkipWindowForSelection(HWND window, HWND excluded_window) noexcept
+        {
+            if (window == nullptr || window == excluded_window || window == GetDesktopWindow())
+            {
+                return true;
+            }
+
+            if (IsWindowVisible(window) == FALSE || IsIconic(window) != FALSE || IsWindowCloaked(window))
+            {
+                return true;
+            }
+
+            LONG_PTR const ex_style = GetWindowLongPtrW(window, GWL_EXSTYLE);
+            if ((ex_style & WS_EX_TOOLWINDOW) != 0 && !IsTaskbarShellWindow(window))
+            {
+                return true;
+            }
+
+            return IsExcludedShellWindow(window);
+        }
+
         [[nodiscard]] bool FindTopLevelWindowRectAtPoint(HWND excluded_window, POINT screen_point,
                                                          RECT &window_rect) noexcept
         {
+            RECT const virtual_screen_rect = VirtualScreenRect();
             for (HWND window = GetTopWindow(nullptr); window != nullptr; window = GetWindow(window, GW_HWNDNEXT))
             {
-                if (window == excluded_window || IsWindowVisible(window) == FALSE || IsIconic(window) != FALSE)
+                if (ShouldSkipWindowForSelection(window, excluded_window))
                 {
                     continue;
                 }
 
-                LONG_PTR const ex_style = GetWindowLongPtrW(window, GWL_EXSTYLE);
-                if ((ex_style & WS_EX_TOOLWINDOW) != 0)
+                RECT direct_rect{};
+                if (!TryGetClippedWindowRectForSelection(window, virtual_screen_rect, direct_rect) ||
+                    PtInRect(&direct_rect, screen_point) == FALSE)
                 {
                     continue;
                 }
 
-                RECT candidate_rect{};
-                HRESULT const dwm_result = DwmGetWindowAttribute(window, DWMWA_EXTENDED_FRAME_BOUNDS, &candidate_rect,
-                                                                 sizeof(candidate_rect));
-                if (FAILED(dwm_result) && GetWindowRect(window, &candidate_rect) == FALSE)
+                HWND const candidate_window = SelectionRootWindow(window);
+                if (candidate_window != window && !ShouldSkipWindowForSelection(candidate_window, excluded_window))
                 {
-                    continue;
+                    RECT candidate_rect{};
+                    if (TryGetClippedWindowRectForSelection(candidate_window, virtual_screen_rect, candidate_rect) &&
+                        PtInRect(&candidate_rect, screen_point) != FALSE)
+                    {
+                        window_rect = candidate_rect;
+                        return true;
+                    }
                 }
 
-                if (!IsRectNonEmpty(candidate_rect) || PtInRect(&candidate_rect, screen_point) == FALSE)
-                {
-                    continue;
-                }
-
-                window_rect = candidate_rect;
+                window_rect = direct_rect;
                 return true;
             }
 
