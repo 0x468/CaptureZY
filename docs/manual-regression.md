@@ -428,6 +428,28 @@
 - 程序按正常路径启动。
 - 不会因为该参数触发自测崩溃。
 
+### DIAG-04 Release 异常排查入口可用
+
+步骤：
+
+1. 在存在历史 crash report 或 dump 的机器上执行：
+
+```powershell
+pwsh -File .\scripts\show_latest_diagnostics.ps1
+```
+
+2. 再执行：
+
+```powershell
+pwsh -File .\scripts\analyze_latest_dump.ps1
+```
+
+预期结果：
+
+- 第一个脚本可以输出最新 crash report、最新 dump 和对应日志片段。
+- 第二个脚本在本机安装了 `cdb.exe` 时可以正常打开最新 dump 并输出寄存器与堆栈。
+- 更完整的专项排查流程见 [docs/release-crash-diagnostics.md](D:/Repo/C++/CaptureZY/docs/release-crash-diagnostics.md)。
+
 ## DPI 与多显示器观察项
 
 ### DISP-01 高 DPI 基础观察

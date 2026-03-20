@@ -85,6 +85,25 @@ pwsh -ExecutionPolicy Bypass -File scripts/run_clang_tidy_changed.ps1 -BaseRef o
 
 建议日常开发时只跑改动文件，阶段性再跑一次全量检查。
 
+## Release 崩溃专项诊断
+
+如果问题满足以下任一条件：
+
+- `Release` 崩溃但 `Debug` 正常
+- 崩溃点落在 STL、析构、回调、消息分发等表面位置
+- 怀疑是对象布局敏感或优化敏感的问题
+
+优先阅读：
+
+- [docs/release-crash-diagnostics.md](D:/Repo/C++/CaptureZY/docs/release-crash-diagnostics.md)
+
+仓库内可直接使用的诊断入口：
+
+```powershell
+pwsh -File .\scripts\show_latest_diagnostics.ps1
+pwsh -File .\scripts\analyze_latest_dump.ps1
+```
+
 ## 当前限制
 
 - 不以 Linux 构建为目标
