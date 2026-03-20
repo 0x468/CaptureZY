@@ -85,13 +85,18 @@ namespace capturezy::platform_win
 
     void MainWindow::ProcessCaptureResult(feature_capture::CaptureResult capture_result)
     {
+        ProcessCaptureResult(std::move(capture_result), pending_capture_request_.action);
+    }
+
+    void MainWindow::ProcessCaptureResult(feature_capture::CaptureResult capture_result, CaptureAction action)
+    {
         bool capture_completed = false;
         bool capture_saved = false;
         bool pin_created = false;
 
         if (capture_result.IsValid())
         {
-            switch (pending_capture_request_.action)
+            switch (action)
             {
             case CaptureAction::SaveToFile:
                 if (feature_capture::SaveCaptureResultToDefaultPath(capture_result, *app_settings_) ||
@@ -145,15 +150,35 @@ namespace capturezy::platform_win
 
     void MainWindow::HandleOverlayResult(feature_capture::OverlayResult result)
     {
-        if (result == feature_capture::OverlayResult::PlaceholderCaptured)
+        feature_capture::CaptureResult capture_result = capture_overlay_.FrozenSelectionResult();
+        switch (result)
         {
-            CAPTUREZY_LOG_INFO(core::LogCategory::Capture, L"Overlay reported capture completion.");
-            ProcessCaptureResult(capture_overlay_.FrozenSelectionResult());
+        case feature_capture::OverlayResult::ConfirmedWithDefaultAction:
+            CAPTUREZY_LOG_INFO(core::LogCategory::Capture, L"Overlay confirmed capture with default action.");
+            ProcessCaptureResult(std::move(capture_result), pending_capture_request_.action);
+            return;
+
+        case feature_capture::OverlayResult::CopyAndPin:
+            CAPTUREZY_LOG_INFO(core::LogCategory::Capture, L"Overlay confirmed capture with pin action.");
+            ProcessCaptureResult(std::move(capture_result), CaptureAction::CopyAndPin);
+            return;
+
+        case feature_capture::OverlayResult::CopyOnly:
+            CAPTUREZY_LOG_INFO(core::LogCategory::Capture, L"Overlay confirmed capture with copy action.");
+            ProcessCaptureResult(std::move(capture_result), CaptureAction::CopyOnly);
+            return;
+
+        case feature_capture::OverlayResult::SaveToFile:
+            CAPTUREZY_LOG_INFO(core::LogCategory::Capture, L"Overlay confirmed capture with save action.");
+            ProcessCaptureResult(std::move(capture_result), CaptureAction::SaveToFile);
+            return;
+
+        case feature_capture::OverlayResult::Cancelled:
+        default:
+            CAPTUREZY_LOG_INFO(core::LogCategory::Capture, L"Overlay reported capture cancellation.");
+            app_state_->ReturnToIdle();
+            UpdateWindowPresentation();
             return;
         }
-
-        CAPTUREZY_LOG_INFO(core::LogCategory::Capture, L"Overlay reported capture cancellation.");
-        app_state_->ReturnToIdle();
-        UpdateWindowPresentation();
     }
 } // namespace capturezy::platform_win

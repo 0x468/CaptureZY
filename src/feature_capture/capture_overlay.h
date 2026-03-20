@@ -16,7 +16,10 @@ namespace capturezy::feature_capture
     enum class OverlayResult : std::uint8_t
     {
         Cancelled,
-        PlaceholderCaptured,
+        ConfirmedWithDefaultAction,
+        CopyAndPin,
+        CopyOnly,
+        SaveToFile,
     };
 
     class CaptureOverlay final
@@ -57,6 +60,16 @@ namespace capturezy::feature_capture
             RightBottom = 12,
         };
 
+        enum class ToolbarAction : std::uint8_t
+        {
+            None,
+            Confirm,
+            CopyAndPin,
+            CopyOnly,
+            SaveToFile,
+            Cancel,
+        };
+
         [[nodiscard]] RECT CurrentSelectionRect() const noexcept;
         [[nodiscard]] RECT CurrentSelectionRectScreen() const noexcept;
         [[nodiscard]] RECT OverlayRectScreen() const noexcept;
@@ -65,8 +78,13 @@ namespace capturezy::feature_capture
         [[nodiscard]] static bool ShouldShowResizeHandles(RECT selection_rect) noexcept;
         [[nodiscard]] static HCURSOR CursorForResizeHandle(ResizeHandle handle) noexcept;
         [[nodiscard]] static HCURSOR MoveSelectionCursor() noexcept;
+        [[nodiscard]] static HCURSOR ToolbarCursor() noexcept;
+        [[nodiscard]] static wchar_t const *ToolbarActionLabel(ToolbarAction action) noexcept;
         [[nodiscard]] bool IsPointInsideCommittedSelection(POINT overlay_point) const noexcept;
         [[nodiscard]] ResizeHandle HitTestCommittedSelectionResizeHandle(POINT overlay_point) const noexcept;
+        [[nodiscard]] RECT ToolbarRect(RECT selection_rect, RECT bounds_rect) const noexcept;
+        [[nodiscard]] static RECT ToolbarButtonRect(RECT toolbar_rect, ToolbarAction action) noexcept;
+        [[nodiscard]] ToolbarAction HitTestToolbarAction(POINT overlay_point) const noexcept;
         [[nodiscard]] bool TryGetCurrentPreviewRect(RECT &rect) const noexcept;
         [[nodiscard]] bool UpdateHoverWindowFromScreenPoint(POINT screen_point) noexcept;
         void InvalidatePreviewRectChange(RECT old_preview_rect, bool had_old_preview, RECT new_preview_rect,
@@ -113,5 +131,6 @@ namespace capturezy::feature_capture
         PointerDragMode pointer_drag_mode_{PointerDragMode::None};
         ResizeHandle active_resize_handle_{ResizeHandle::None};
         ResizeHandle resize_anchor_handle_{ResizeHandle::None};
+        ToolbarAction pressed_toolbar_action_{ToolbarAction::None};
     };
 } // namespace capturezy::feature_capture

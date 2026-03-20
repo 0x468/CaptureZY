@@ -81,6 +81,7 @@ namespace capturezy::platform_win
         void CancelPendingSingleTrayClickAction() noexcept;
         void ExecutePendingCaptureRequest();
         void ProcessCaptureResult(feature_capture::CaptureResult capture_result);
+        void ProcessCaptureResult(feature_capture::CaptureResult capture_result, CaptureAction action);
         void HandleOverlayResult(feature_capture::OverlayResult result);
         [[nodiscard]] bool HandleCommand(WPARAM w_param);
         [[nodiscard]] bool HandleHotkey(WPARAM w_param);
