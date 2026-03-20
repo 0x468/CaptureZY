@@ -40,10 +40,12 @@ namespace capturezy::feature_capture
         [[nodiscard]] RECT CurrentSelectionRectScreen() const noexcept;
         [[nodiscard]] RECT OverlayRectScreen() const noexcept;
         [[nodiscard]] RECT OverlayToClientRect(RECT rect) const noexcept;
+        [[nodiscard]] bool IsPointInsideCommittedSelection(POINT overlay_point) const noexcept;
         [[nodiscard]] bool TryGetCurrentPreviewRect(RECT &rect) const noexcept;
         [[nodiscard]] bool UpdateHoverWindowFromScreenPoint(POINT screen_point) noexcept;
         void InvalidatePreviewRectChange(RECT old_preview_rect, bool had_old_preview, RECT new_preview_rect,
                                          bool had_new_preview) noexcept;
+        void ResetCommittedSelection() noexcept;
         [[nodiscard]] bool HandleKeyDown(WPARAM w_param);
         void BeginPointerSelection(LPARAM l_param) noexcept;
         void UpdatePointerSelection(LPARAM l_param);
@@ -68,10 +70,13 @@ namespace capturezy::feature_capture
         POINT drag_current_{};
         RECT hover_window_rect_{};
         RECT click_candidate_window_rect_{};
+        RECT committed_selection_rect_{};
         bool pointer_down_{false};
         bool drag_in_progress_{false};
         bool has_selection_{false};
         bool has_hover_window_{false};
         bool has_click_candidate_window_{false};
+        bool has_committed_selection_{false};
+        bool confirm_selection_on_click_{false};
     };
 } // namespace capturezy::feature_capture

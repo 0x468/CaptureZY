@@ -16,8 +16,10 @@ namespace capturezy::feature_capture
     {
         constexpr wchar_t const *kOverlayWindowClassName = L"CaptureZY.CaptureOverlay";
         constexpr BYTE kOverlayAlpha = 96;
-        constexpr wchar_t const *kOverlayInstruction = L"窗口预选：悬停高亮，单击截取窗口；也可随时按住左键拖拽框选，Ct"
-                                                       L"rl+A 全屏，右键或 Esc 取消";
+        constexpr wchar_t const *kOverlayInstruction = L"窗口预选：悬停高亮，单击选择窗口；也可按住左键拖拽框选，Ctrl+"
+                                                       L"A 全屏，右键或 Esc 取消";
+        constexpr wchar_t const *kSelectionAdjustmentInstruction =
+            L"已选择区域：Enter 确认截图；左键单击区域内确认，重新拖拽可改选区，右键重置，Esc 取消";
         constexpr int kDragThreshold = 4;
 
         void AlphaFillRect(HDC destination_device_context, RECT rect, BYTE alpha) noexcept;
@@ -364,11 +366,14 @@ namespace capturezy::feature_capture
         drag_current_ = {};
         hover_window_rect_ = {};
         click_candidate_window_rect_ = {};
+        committed_selection_rect_ = {};
         pointer_down_ = false;
         drag_in_progress_ = false;
         has_selection_ = false;
         has_hover_window_ = false;
         has_click_candidate_window_ = false;
+        has_committed_selection_ = false;
+        confirm_selection_on_click_ = false;
 
         if (overlay_window_ != nullptr)
         {
@@ -547,11 +552,28 @@ namespace capturezy::feature_capture
         return rect;
     }
 
+    bool CaptureOverlay::IsPointInsideCommittedSelection(POINT overlay_point) const noexcept
+    {
+        if (!has_committed_selection_)
+        {
+            return false;
+        }
+
+        RECT selection_rect = OverlayToClientRect(committed_selection_rect_);
+        return PtInRect(&selection_rect, overlay_point) != FALSE;
+    }
+
     bool CaptureOverlay::TryGetCurrentPreviewRect(RECT &rect) const noexcept
     {
-        if (has_selection_)
+        if (drag_in_progress_ && has_selection_)
         {
             rect = CurrentSelectionRect();
+            return IsRectNonEmpty(rect);
+        }
+
+        if (has_committed_selection_)
+        {
+            rect = OverlayToClientRect(committed_selection_rect_);
             return IsRectNonEmpty(rect);
         }
 
@@ -600,6 +622,16 @@ namespace capturezy::feature_capture
         }
     }
 
+    void CaptureOverlay::ResetCommittedSelection() noexcept
+    {
+        has_committed_selection_ = false;
+        committed_selection_rect_ = {};
+        has_selection_ = false;
+        drag_in_progress_ = false;
+        has_click_candidate_window_ = false;
+        confirm_selection_on_click_ = false;
+    }
+
     bool CaptureOverlay::HandleKeyDown(WPARAM w_param)
     {
         if (w_param == VK_ESCAPE)
@@ -608,10 +640,25 @@ namespace capturezy::feature_capture
             return true;
         }
 
+        if (w_param == VK_RETURN && has_committed_selection_)
+        {
+            last_selection_rect_ = committed_selection_rect_;
+            Finish(OverlayResult::PlaceholderCaptured);
+            return true;
+        }
+
         if (w_param == 'A' && (GetKeyState(VK_CONTROL) & 0x8000) != 0)
         {
-            last_selection_rect_ = OverlayRectScreen();
-            Finish(OverlayResult::PlaceholderCaptured);
+            committed_selection_rect_ = OverlayRectScreen();
+            has_committed_selection_ = IsRectNonEmpty(committed_selection_rect_);
+            has_selection_ = false;
+            drag_in_progress_ = false;
+            has_click_candidate_window_ = false;
+            confirm_selection_on_click_ = false;
+            if (has_committed_selection_)
+            {
+                InvalidateRect(overlay_window_, nullptr, FALSE);
+            }
             return true;
         }
 
@@ -627,7 +674,8 @@ namespace capturezy::feature_capture
         drag_in_progress_ = false;
         has_selection_ = false;
         has_click_candidate_window_ = false;
-        if (has_hover_window_)
+        confirm_selection_on_click_ = IsPointInsideCommittedSelection(drag_start_);
+        if (!has_committed_selection_ && has_hover_window_)
         {
             click_candidate_window_rect_ = hover_window_rect_;
             has_click_candidate_window_ = true;
@@ -651,11 +699,17 @@ namespace capturezy::feature_capture
                 drag_in_progress_ = true;
                 has_selection_ = true;
                 has_click_candidate_window_ = false;
+                confirm_selection_on_click_ = false;
             }
 
             RECT new_preview_rect{};
             bool const had_new_preview = TryGetCurrentPreviewRect(new_preview_rect);
             InvalidatePreviewRectChange(old_preview_rect, had_old_preview, new_preview_rect, had_new_preview);
+            return;
+        }
+
+        if (has_committed_selection_)
+        {
             return;
         }
 
@@ -679,28 +733,43 @@ namespace capturezy::feature_capture
         pointer_down_ = false;
         bool const was_dragging = drag_in_progress_;
         bool const had_click_candidate = has_click_candidate_window_;
+        bool const confirm_selection_on_click = confirm_selection_on_click_;
         RECT const click_candidate_rect = click_candidate_window_rect_;
         ReleaseCapture();
         drag_current_.x = GET_X_LPARAM(l_param);
         drag_current_.y = GET_Y_LPARAM(l_param);
+        confirm_selection_on_click_ = false;
         if (was_dragging)
         {
             drag_in_progress_ = false;
-            last_selection_rect_ = CurrentSelectionRectScreen();
-            Finish(IsRectNonEmpty(last_selection_rect_) ? OverlayResult::PlaceholderCaptured
-                                                        : OverlayResult::Cancelled);
+            committed_selection_rect_ = CurrentSelectionRectScreen();
+            has_committed_selection_ = IsRectNonEmpty(committed_selection_rect_);
+            has_selection_ = false;
+            if (has_committed_selection_)
+            {
+                InvalidateRect(overlay_window_, nullptr, FALSE);
+            }
             return;
         }
 
         if (had_click_candidate)
         {
             has_click_candidate_window_ = false;
-            last_selection_rect_ = click_candidate_rect;
-            Finish(OverlayResult::PlaceholderCaptured);
+            committed_selection_rect_ = click_candidate_rect;
+            has_committed_selection_ = IsRectNonEmpty(committed_selection_rect_);
+            if (has_committed_selection_)
+            {
+                InvalidateRect(overlay_window_, nullptr, FALSE);
+            }
             return;
         }
 
-        Finish(OverlayResult::Cancelled);
+        if (confirm_selection_on_click && has_committed_selection_)
+        {
+            last_selection_rect_ = committed_selection_rect_;
+            Finish(OverlayResult::PlaceholderCaptured);
+            return;
+        }
     }
 
     void CaptureOverlay::PaintOverlay() noexcept
@@ -749,9 +818,15 @@ namespace capturezy::feature_capture
         bool has_preview_rect = false;
         COLORREF border_color = RGB(255, 215, 0);
 
-        if (has_selection_)
+        if (drag_in_progress_ && has_selection_)
         {
             preview_rect = CurrentSelectionRect();
+            has_preview_rect = true;
+            border_color = RGB(255, 255, 255);
+        }
+        else if (has_committed_selection_)
+        {
+            preview_rect = OverlayToClientRect(committed_selection_rect_);
             has_preview_rect = true;
             border_color = RGB(255, 255, 255);
         }
@@ -773,8 +848,9 @@ namespace capturezy::feature_capture
         OffsetRect(&local_client_rect, -paint_rect.left, -paint_rect.top);
         SetBkMode(buffer_device_context, TRANSPARENT);
         SetTextColor(buffer_device_context, RGB(255, 255, 255));
-        DrawTextW(buffer_device_context, kOverlayInstruction, -1, &local_client_rect,
-                  DT_CENTER | DT_WORDBREAK | DT_TOP);
+        DrawTextW(buffer_device_context,
+                  has_committed_selection_ ? kSelectionAdjustmentInstruction : kOverlayInstruction, -1,
+                  &local_client_rect, DT_CENTER | DT_WORDBREAK | DT_TOP);
 
         (void)BitBlt(device_context, paint_rect.left, paint_rect.top, paint_width, paint_height, buffer_device_context,
                      0, 0, SRCCOPY);
@@ -832,6 +908,20 @@ namespace capturezy::feature_capture
 
         case WM_RBUTTONUP:
         case WM_NCRBUTTONUP:
+            if (has_committed_selection_)
+            {
+                RECT old_preview_rect{};
+                bool const had_old_preview = TryGetCurrentPreviewRect(old_preview_rect);
+                ResetCommittedSelection();
+                POINT cursor_position{};
+                GetCursorPos(&cursor_position);
+                (void)UpdateHoverWindowFromScreenPoint(cursor_position);
+                RECT new_preview_rect{};
+                bool const had_new_preview = TryGetCurrentPreviewRect(new_preview_rect);
+                InvalidatePreviewRectChange(old_preview_rect, had_old_preview, new_preview_rect, had_new_preview);
+                return 0;
+            }
+
             CAPTUREZY_LOG_DEBUG(core::LogCategory::Capture, L"Overlay cancelled by right click.");
             Finish(OverlayResult::Cancelled);
             return 0;
@@ -843,6 +933,7 @@ namespace capturezy::feature_capture
         case WM_CAPTURECHANGED:
             pointer_down_ = false;
             drag_in_progress_ = false;
+            confirm_selection_on_click_ = false;
             has_click_candidate_window_ = false;
             return 0;
 
