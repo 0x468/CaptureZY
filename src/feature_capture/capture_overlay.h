@@ -40,6 +40,7 @@ namespace capturezy::feature_capture
         {
             None,
             CreateSelection,
+            MoveSelection,
             ResizeSelection,
         };
 
@@ -63,6 +64,7 @@ namespace capturezy::feature_capture
         [[nodiscard]] static bool HasResizeHandle(ResizeHandle handle, ResizeHandle component) noexcept;
         [[nodiscard]] static bool ShouldShowResizeHandles(RECT selection_rect) noexcept;
         [[nodiscard]] static HCURSOR CursorForResizeHandle(ResizeHandle handle) noexcept;
+        [[nodiscard]] static HCURSOR MoveSelectionCursor() noexcept;
         [[nodiscard]] bool IsPointInsideCommittedSelection(POINT overlay_point) const noexcept;
         [[nodiscard]] ResizeHandle HitTestCommittedSelectionResizeHandle(POINT overlay_point) const noexcept;
         [[nodiscard]] bool TryGetCurrentPreviewRect(RECT &rect) const noexcept;
@@ -71,6 +73,8 @@ namespace capturezy::feature_capture
                                          bool had_new_preview) noexcept;
         void UpdateCursorForOverlayPoint(POINT overlay_point) noexcept;
         void ResetCommittedSelection() noexcept;
+        void BeginMoveSelection(POINT overlay_point) noexcept;
+        void UpdateMoveSelection(POINT overlay_point) noexcept;
         void BeginResizeSelection(POINT overlay_point) noexcept;
         void UpdateResizeSelection(POINT overlay_point) noexcept;
         [[nodiscard]] bool HandleKeyDown(WPARAM w_param);

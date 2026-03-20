@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <string>
 #include <utility>
 
 // clang-format off
@@ -28,6 +29,12 @@ namespace capturezy::feature_capture
         constexpr int kResizeHandleHitRadius = 7;
         constexpr int kResizeHandleDisplayExtent = 70;
         constexpr int kPreviewInvalidationPadding = 10;
+        constexpr int kSelectionMetricsPaddingX = 8;
+        constexpr int kSelectionMetricsPaddingY = 4;
+        constexpr int kSelectionMetricsMargin = 8;
+        constexpr int kSelectionMetricsHeight = 24;
+        constexpr int kSelectionMetricsMinWidth = 72;
+        constexpr int kSelectionMetricsCharWidth = 8;
 
         void AlphaFillRect(HDC destination_device_context, RECT rect, BYTE alpha) noexcept;
 
@@ -250,6 +257,101 @@ namespace capturezy::feature_capture
             SelectObject(destination_device_context, old_pen);
             DeleteObject(handle_brush);
             DeleteObject(handle_pen);
+        }
+
+        [[nodiscard]] int DecimalDigitCount(LONG value) noexcept
+        {
+            int digit_count = 1;
+            LONG remaining_value = std::max<LONG>(value, 0);
+            while (remaining_value >= 10)
+            {
+                remaining_value /= 10;
+                ++digit_count;
+            }
+
+            return digit_count;
+        }
+
+        [[nodiscard]] int SelectionMetricsLabelWidth(RECT selection_rect) noexcept
+        {
+            LONG const selection_width = std::max<LONG>(selection_rect.right - selection_rect.left, 0);
+            LONG const selection_height = std::max<LONG>(selection_rect.bottom - selection_rect.top, 0);
+            int const label_character_count = DecimalDigitCount(selection_width) + DecimalDigitCount(selection_height) +
+                                              7;
+            return std::max(kSelectionMetricsMinWidth,
+                            (label_character_count * kSelectionMetricsCharWidth) + (kSelectionMetricsPaddingX * 2));
+        }
+
+        [[nodiscard]] RECT SelectionMetricsRect(RECT selection_rect, RECT bounds_rect) noexcept
+        {
+            if (!IsRectNonEmpty(selection_rect))
+            {
+                return {};
+            }
+
+            int const label_width = SelectionMetricsLabelWidth(selection_rect);
+            RECT metrics_rect{
+                .left = selection_rect.left,
+                .top = selection_rect.top - kSelectionMetricsHeight - kSelectionMetricsMargin,
+                .right = selection_rect.left + label_width,
+                .bottom = selection_rect.top - kSelectionMetricsMargin,
+            };
+
+            if (metrics_rect.top < bounds_rect.top)
+            {
+                metrics_rect.top = selection_rect.top + kSelectionMetricsMargin;
+                metrics_rect.bottom = metrics_rect.top + kSelectionMetricsHeight;
+            }
+
+            if (metrics_rect.right > bounds_rect.right)
+            {
+                OffsetRect(&metrics_rect, bounds_rect.right - metrics_rect.right, 0);
+            }
+            if (metrics_rect.left < bounds_rect.left)
+            {
+                OffsetRect(&metrics_rect, bounds_rect.left - metrics_rect.left, 0);
+            }
+            if (metrics_rect.bottom > bounds_rect.bottom)
+            {
+                OffsetRect(&metrics_rect, 0, bounds_rect.bottom - metrics_rect.bottom);
+            }
+            if (metrics_rect.top < bounds_rect.top)
+            {
+                OffsetRect(&metrics_rect, 0, bounds_rect.top - metrics_rect.top);
+            }
+
+            return metrics_rect;
+        }
+
+        void PaintSelectionMetrics(HDC destination_device_context, RECT destination_rect, RECT selection_rect) noexcept
+        {
+            if (!IsRectNonEmpty(destination_rect))
+            {
+                return;
+            }
+
+            LONG const selection_width = std::max<LONG>(selection_rect.right - selection_rect.left, 0);
+            LONG const selection_height = std::max<LONG>(selection_rect.bottom - selection_rect.top, 0);
+            std::wstring const metrics_text = std::to_wstring(selection_width) + L" x " +
+                                              std::to_wstring(selection_height) + L" px";
+
+            HPEN frame_pen = CreatePen(PS_SOLID, 1, RGB(255, 255, 255));
+            HBRUSH background_brush = CreateSolidBrush(RGB(0, 0, 0));
+            HGDIOBJ old_pen = SelectObject(destination_device_context, frame_pen);
+            HGDIOBJ old_brush = SelectObject(destination_device_context, background_brush);
+            RoundRect(destination_device_context, destination_rect.left, destination_rect.top, destination_rect.right,
+                      destination_rect.bottom, 8, 8);
+            SelectObject(destination_device_context, old_brush);
+            SelectObject(destination_device_context, old_pen);
+            DeleteObject(background_brush);
+            DeleteObject(frame_pen);
+
+            RECT text_rect = destination_rect;
+            InflateRect(&text_rect, -kSelectionMetricsPaddingX, -kSelectionMetricsPaddingY);
+            SetBkMode(destination_device_context, TRANSPARENT);
+            SetTextColor(destination_device_context, RGB(255, 255, 255));
+            DrawTextW(destination_device_context, metrics_text.c_str(), -1, &text_rect,
+                      DT_CENTER | DT_SINGLELINE | DT_VCENTER);
         }
 
         [[nodiscard]] HWND SelectionRootWindow(HWND window) noexcept
@@ -622,6 +724,11 @@ namespace capturezy::feature_capture
         return LoadCursorW(nullptr, cursor_id);
     }
 
+    HCURSOR CaptureOverlay::MoveSelectionCursor() noexcept
+    {
+        return LoadCursorW(nullptr, IDC_SIZEALL);
+    }
+
     bool CaptureOverlay::IsPointInsideCommittedSelection(POINT overlay_point) const noexcept
     {
         if (!has_committed_selection_)
@@ -747,16 +854,28 @@ namespace capturezy::feature_capture
             return;
         }
 
+        RECT client_rect{};
+        GetClientRect(overlay_window_, &client_rect);
         RECT invalid_rect{};
+        RECT old_metrics_rect{};
+        RECT new_metrics_rect{};
+        if (had_old_preview)
+        {
+            old_metrics_rect = SelectionMetricsRect(old_preview_rect, client_rect);
+        }
+        if (had_new_preview)
+        {
+            new_metrics_rect = SelectionMetricsRect(new_preview_rect, client_rect);
+        }
         if (!TryUnionRect(had_old_preview ? ExpandedRect(old_preview_rect, kPreviewInvalidationPadding) : RECT{},
                           had_new_preview ? ExpandedRect(new_preview_rect, kPreviewInvalidationPadding) : RECT{},
                           invalid_rect))
         {
             return;
         }
+        (void)TryUnionRect(invalid_rect, old_metrics_rect, invalid_rect);
+        (void)TryUnionRect(invalid_rect, new_metrics_rect, invalid_rect);
 
-        RECT client_rect{};
-        GetClientRect(overlay_window_, &client_rect);
         RECT clipped_invalid_rect{};
         if (IntersectRect(&clipped_invalid_rect, &invalid_rect, &client_rect) != FALSE)
         {
@@ -766,22 +885,37 @@ namespace capturezy::feature_capture
 
     void CaptureOverlay::UpdateCursorForOverlayPoint(POINT overlay_point) noexcept
     {
-        ResizeHandle handle = ResizeHandle::None;
         if (pointer_drag_mode_ == PointerDragMode::ResizeSelection && pointer_down_)
         {
-            handle = active_resize_handle_;
-        }
-        else if (has_committed_selection_)
-        {
-            handle = HitTestCommittedSelectionResizeHandle(overlay_point);
-            active_resize_handle_ = handle;
-        }
-        else
-        {
-            active_resize_handle_ = ResizeHandle::None;
+            SetCursor(CursorForResizeHandle(active_resize_handle_));
+            return;
         }
 
-        SetCursor(CursorForResizeHandle(handle));
+        if (pointer_drag_mode_ == PointerDragMode::MoveSelection && pointer_down_)
+        {
+            SetCursor(MoveSelectionCursor());
+            return;
+        }
+
+        if (has_committed_selection_)
+        {
+            ResizeHandle const handle = HitTestCommittedSelectionResizeHandle(overlay_point);
+            active_resize_handle_ = handle;
+            if (handle != ResizeHandle::None)
+            {
+                SetCursor(CursorForResizeHandle(handle));
+                return;
+            }
+
+            if (IsPointInsideCommittedSelection(overlay_point))
+            {
+                SetCursor(MoveSelectionCursor());
+                return;
+            }
+        }
+
+        active_resize_handle_ = ResizeHandle::None;
+        SetCursor(CursorForResizeHandle(ResizeHandle::None));
     }
 
     void CaptureOverlay::ResetCommittedSelection() noexcept
@@ -796,6 +930,54 @@ namespace capturezy::feature_capture
         confirm_selection_on_click_ = false;
         pointer_drag_mode_ = PointerDragMode::None;
         active_resize_handle_ = ResizeHandle::None;
+    }
+
+    void CaptureOverlay::BeginMoveSelection(POINT overlay_point) noexcept
+    {
+        drag_start_ = overlay_point;
+        drag_current_ = overlay_point;
+        pointer_down_ = true;
+        drag_in_progress_ = false;
+        has_selection_ = false;
+        has_click_candidate_window_ = false;
+        confirm_selection_on_click_ = true;
+        pointer_drag_mode_ = PointerDragMode::MoveSelection;
+        resize_anchor_selection_rect_ = committed_selection_rect_;
+        resize_anchor_handle_ = ResizeHandle::None;
+        SetCapture(overlay_window_);
+    }
+
+    void CaptureOverlay::UpdateMoveSelection(POINT overlay_point) noexcept
+    {
+        drag_current_ = overlay_point;
+
+        LONG delta_x = overlay_point.x - drag_start_.x;
+        LONG delta_y = overlay_point.y - drag_start_.y;
+        if (!drag_in_progress_)
+        {
+            if (std::abs(delta_x) < kDragThreshold && std::abs(delta_y) < kDragThreshold)
+            {
+                return;
+            }
+
+            drag_in_progress_ = true;
+            confirm_selection_on_click_ = false;
+        }
+
+        RECT moved_rect = resize_anchor_selection_rect_;
+        RECT const overlay_rect = OverlayRectScreen();
+        LONG const min_delta_x = overlay_rect.left - resize_anchor_selection_rect_.left;
+        LONG const max_delta_x = overlay_rect.right - resize_anchor_selection_rect_.right;
+        LONG const min_delta_y = overlay_rect.top - resize_anchor_selection_rect_.top;
+        LONG const max_delta_y = overlay_rect.bottom - resize_anchor_selection_rect_.bottom;
+        delta_x = std::clamp(delta_x, min_delta_x, max_delta_x);
+        delta_y = std::clamp(delta_y, min_delta_y, max_delta_y);
+        OffsetRect(&moved_rect, delta_x, delta_y);
+
+        if (EqualRect(&moved_rect, &committed_selection_rect_) == FALSE)
+        {
+            committed_selection_rect_ = moved_rect;
+        }
     }
 
     void CaptureOverlay::BeginResizeSelection(POINT overlay_point) noexcept
@@ -928,6 +1110,12 @@ namespace capturezy::feature_capture
             return;
         }
 
+        if (IsPointInsideCommittedSelection(overlay_point))
+        {
+            BeginMoveSelection(overlay_point);
+            return;
+        }
+
         drag_start_ = overlay_point;
         drag_current_ = drag_start_;
         pointer_down_ = true;
@@ -956,6 +1144,10 @@ namespace capturezy::feature_capture
             if (pointer_drag_mode_ == PointerDragMode::ResizeSelection)
             {
                 UpdateResizeSelection(overlay_point);
+            }
+            else if (pointer_drag_mode_ == PointerDragMode::MoveSelection)
+            {
+                UpdateMoveSelection(overlay_point);
             }
             else
             {
@@ -1017,6 +1209,17 @@ namespace capturezy::feature_capture
         resize_anchor_selection_rect_ = {};
         resize_anchor_handle_ = ResizeHandle::None;
         if (pointer_drag_mode == PointerDragMode::ResizeSelection)
+        {
+            drag_in_progress_ = false;
+            if (has_committed_selection_)
+            {
+                UpdateCursorForOverlayPoint(drag_current_);
+                InvalidateRect(overlay_window_, nullptr, FALSE);
+            }
+            return;
+        }
+
+        if (pointer_drag_mode == PointerDragMode::MoveSelection && was_dragging)
         {
             drag_in_progress_ = false;
             if (has_committed_selection_)
@@ -1132,7 +1335,17 @@ namespace capturezy::feature_capture
             OffsetRect(&local_preview_rect, -paint_rect.left, -paint_rect.top);
             PaintOverlayPreviewRect(buffer_device_context, local_preview_rect, preview_rect, frozen_background_,
                                     border_color);
-            if (has_committed_selection_ && ShouldShowResizeHandles(preview_rect))
+            RECT metrics_rect = SelectionMetricsRect(preview_rect, client_rect);
+            if (IsRectNonEmpty(metrics_rect))
+            {
+                RECT local_metrics_rect = metrics_rect;
+                OffsetRect(&local_metrics_rect, -paint_rect.left, -paint_rect.top);
+                PaintSelectionMetrics(buffer_device_context, local_metrics_rect, preview_rect);
+            }
+            bool const should_show_resize_handles = ((drag_in_progress_ && has_selection_) ||
+                                                     has_committed_selection_) &&
+                                                    ShouldShowResizeHandles(preview_rect);
+            if (should_show_resize_handles)
             {
                 int const center_x = (local_preview_rect.left + local_preview_rect.right) / 2;
                 int const center_y = (local_preview_rect.top + local_preview_rect.bottom) / 2;
