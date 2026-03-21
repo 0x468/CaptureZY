@@ -39,12 +39,16 @@
 4. 说明简单的贴图集合重入并不是根因，最多只改变了崩溃显现位置。
 5. 将 `Application::main_window_`、`MainWindow::capture_overlay_`、`MainWindow::pin_manager_` 改为独立堆对象后，`Release` 版本恢复稳定。
 6. 2026-03-20 用户对修复后的版本连续执行 26 次截图并贴图，并穿插 `save` / `copyOnly`，未再出现崩溃。
+7. 2026-03-21 对旧版本 dump 的补充反汇编显示，`0x...B095` 直接落在 `PinManager::pin_windows_` 的 vector 尾指针写入快路径上。
+8. 同批旧 dump 中另一组崩溃地址 `0x...B714` 也落在同一个 vector 的遍历/整理逻辑上，说明不同崩溃表象指向同一受害对象。
+9. 2026-03-21 对旧 worktree 的启动期、全屏 `CopyAndPin`、overlay 自动完成、overlay 内部交互模拟探针均表明：`pin_windows_` 在进入 `CreatePin` 前保持干净，只在成功 `push_back` 后变为正常的非空 vector 状态。
 
 ### 关键证据
 
 #### Dump 证据
 
-对 `C:\Users\GWF\AppData\Local\CaptureZY\Diagnostics\crash-20260320-232100-p40788-t10356.dmp` 的现场分析显示：
+对 `C:\Users\GWF\AppData\Local\CaptureZY\Diagnostics\crash-20260320-231952-p20268-t22280.dmp` 与
+`C:\Users\GWF\AppData\Local\CaptureZY\Diagnostics\crash-20260320-232100-p40788-t10356.dmp` 的现场分析显示：
 
 - 异常指令：`CaptureZY+0x2b095`
 - 指令内容：`mov qword ptr [rdx], r14`
@@ -59,13 +63,30 @@
 
 也就是接近 `"Capt"`。
 
-同一段反汇编显示崩溃发生在向 `std::vector<std::unique_ptr<PinWindow>>` 的尾指针位置写入新元素时，等价于：
+同一段反汇编还显示：
+
+- `rdi+0x50 / rdi+0x58 / rdi+0x60` 构成一组三元指针字段
+- 先比较 `[rdi+0x58]` 与 `[rdi+0x60]`
+- 若未满，则直接执行 `mov qword ptr [rdx], r14` 再把 `[rdi+0x58] += 8`
+
+这正是 `std::vector<std::unique_ptr<PinWindow>>` 的尾插入快路径，对应 `PinManager::pin_windows_.push_back(...)` 的机器码形态。等价于：
 
 - vector 本身正在执行正常的 `push_back/emplace` 写入
 - 但 vector 的尾指针已经在此之前被破坏
 - 因而写入落到了一个明显非法、且疑似被文本内容污染过的地址
 
 这说明故障类型是“对象状态先被破坏，再在正常容器写入时崩溃”，而不是 `PinManager` 容器算法本身出错。
+
+对 `C:\Users\GWF\AppData\Local\CaptureZY\Diagnostics\crash-20260320-230009-p39212-t40656.dmp` 等 `0x...B714` 样本的补充分析还显示：
+
+- 反汇编在 `rcx+0x50 / +0x58` 上读取同一组 vector 指针
+- 随后按 `8-byte` 步长遍历元素并检查/交换指针
+
+这与同一个 `pin_windows_` vector 在后续整理、遍历或清理阶段暴露损坏完全一致。也就是说：
+
+- `0x...B095` 是“写入已损坏尾指针”时暴露
+- `0x...B714` 是“遍历已损坏向量状态”时暴露
+- 二者都不是首个写坏点，而是同一受害对象在不同时机暴露症状
 
 #### 布局/隔离证据
 
@@ -86,13 +107,29 @@
 
 这说明问题具有明显的“布局敏感”特征，符合典型未定义行为 / 相邻对象内存破坏特征。
 
+#### 探针证据
+
+2026-03-21 在旧 worktree 上增加了只用于诊断的 vector 原始三字探针。结果显示：
+
+- 启动期：`after_callback / after_tray_icon / after_hotkey` 全为 `0,0,0`
+- 全屏 `CopyAndPin` 路径：直到 `after_clipboard_copy_and_pin` 仍为 `0,0,0`
+- region overlay 自动完成路径：`before_overlay_show / after_overlay_show / handle_overlay_result` 仍为 `0,0,0`
+- region overlay 内部交互模拟路径：同样在进入 `CreatePin` 前保持 `0,0,0`
+- 仅在 `after_create_pin` 之后，vector 才变为正常的非空 begin/end/capacity 指针
+
+这说明当前能稳定自动化驱动的旧路径里，`pin_windows_` 在进入 `CreatePin` 前并没有被立即打坏。换言之：
+
+- 直接暴露崩溃的位置已经足够明确
+- 但首个写坏动作仍然没有被稳定探针直接抓住
+- 真正的写坏点仍可能依赖更具体的桌面环境、消息时序或当时的真实运行布局
+
 ### 根因结论
 
 当前结论是：
 
-- **高置信度根因**：`Release` 下存在布局敏感的内存破坏，导致 `PinManager` 内部 `pin_windows_` vector 的尾指针在 `push_back` 前就已损坏。
-- **高概率破坏来源**：与 `PinManager` 相邻的 `CaptureOverlay` 对象或其相关调度路径写坏了邻接内存，因此 `PinManager` 成为第一个稳定暴露症状的受害者。
-- **尚未完全证实的部分**：精确到“哪一行代码发生越界/悬垂写入”的写坏点，当前还没有直接证据。
+- **高置信度根因**：`Release` 下存在布局敏感的内存破坏，直接破坏了 `PinManager` 内部 `pin_windows_` vector 的 begin/end/capacity 状态；`0x...B095` 与 `0x...B714` 两组 dump 都已证明它是稳定受害点。
+- **中高概率破坏来源**：写坏发生在更早的截图/overlay/相邻对象相关路径中，随后在 `pin_windows_.push_back(...)` 或后续 vector 遍历时才暴露。
+- **尚未完全证实的部分**：精确到“哪一行代码第一次越界/悬垂写入”的首个写坏点，当前仍没有直接证据；2026-03-21 的稳定自动探针尚未把它抓出来。
 
 换言之，这次已经可以排除：
 
@@ -100,7 +137,7 @@
 - 单纯的 `PinManager` 容器重入逻辑错误
 - 单纯的 `CaptureResult` / `CapturedBitmap` 所有权转移错误
 
-但还不能把责任精确钉死到 `CaptureOverlay` 某一处具体语句。
+但还不能把责任精确钉死到某一处具体语句，也不能仅凭当前证据把责任完全锁死在 `CaptureOverlay` 单一函数上。
 
 ### 为什么当前修复有效
 
@@ -120,8 +157,9 @@
 已完成验证：
 
 - 查看 crash report 与日志，确认旧问题模式一致。
-- 使用 dump 反汇编确认崩溃点是被污染后的 vector 指针写入。
+- 使用 dump 反汇编确认 `0x...B095` 是被污染后的 `pin_windows_` 尾指针写入，`0x...B714` 是同一向量的后续遍历/整理暴露点。
 - 通过调整 `PinManager` 重入行为，确认重入不是根因，只会改变症状显现时机。
+- 通过旧 worktree 自动探针确认多条稳定路径在 `CreatePin` 前保持干净，说明直接受害点明确，但首个写坏点仍未稳定复现。
 - 通过对象堆隔离修复后，由用户在 2026-03-20 完成 26 次 `copy+pin` 截图并混合 `save` / `copyOnly` 压测，无异常。
 
 未完成验证：
