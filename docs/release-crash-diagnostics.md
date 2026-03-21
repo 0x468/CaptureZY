@@ -179,8 +179,27 @@ gflags /p /disable CaptureZY.exe
 但当前应明确：
 
 - 发布与日常主验证仍然以 `MSVC` 为准
-- `clang-cl + ASan` 目前还不是仓库默认可直接使用的标准流程
+- `clang-cl + ASan` 是实验性诊断入口，不作为默认发布配置
 - 如果专项构建没打通，不应阻塞先用日志、dump、page heap 收敛问题
+
+当前仓库内的实验性入口：
+
+```powershell
+pwsh -File .\scripts\build_clang_asan.ps1
+```
+
+说明：
+
+- 脚本会自动定位 `clang-cl.exe`、LLVM ASan runtime 和 VS Dev Shell。
+- 默认使用 `Ninja + RelWithDebInfo`，避免多配置 `Debug` CRT 与 ASan 的兼容问题。
+- 默认会把 `clang_rt.asan_dynamic-x86_64.dll` 复制到产物目录，便于后续直接启动。
+- 默认会打开 `CAPTUREZY_FORCE_DIAGNOSTIC_SELF_TEST`，便于在非 `Debug` 诊断构建中保留自测开关。
+
+如只想完成配置，不立即编译：
+
+```powershell
+pwsh -File .\scripts\build_clang_asan.ps1 -ConfigureOnly
+```
 
 ### 8. 什么情况下可以先做隔离修复
 
@@ -227,6 +246,7 @@ gflags /p /disable CaptureZY.exe
 pwsh -File .\scripts\show_latest_diagnostics.ps1
 pwsh -File .\scripts\analyze_latest_dump.ps1
 pwsh -File .\scripts\pageheap_capturezy.ps1 -Mode query
+pwsh -File .\scripts\build_clang_asan.ps1
 ```
 
 如果当前机器安装了 WinDbg / Debugging Tools for Windows，第二个脚本会优先使用 `cdb.exe`。

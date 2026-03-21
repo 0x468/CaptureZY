@@ -504,6 +504,23 @@ pwsh -File .\scripts\pageheap_capturezy.ps1 -Mode query
 - 如果返回访问被拒绝，应改为在管理员 PowerShell 中执行。
 - 如果后续需要启用或关闭 page heap，可按 [docs/release-crash-diagnostics.md](D:/Repo/C++/CaptureZY/docs/release-crash-diagnostics.md) 中的流程继续执行。
 
+### DIAG-06 clang-cl ASan 诊断构建入口可用
+
+步骤：
+
+1. 执行：
+
+```powershell
+pwsh -File .\scripts\build_clang_asan.ps1
+```
+
+预期结果：
+
+- 脚本可以完成一份实验性的 `clang-cl + ASan` 诊断构建。
+- 产物目录中会生成 `CaptureZY.exe`。
+- 产物目录中会复制 `clang_rt.asan_dynamic-x86_64.dll`，便于后续直接启动诊断构建。
+- 更完整的使用说明见 [docs/release-crash-diagnostics.md](D:/Repo/C++/CaptureZY/docs/release-crash-diagnostics.md)。
+
 ## DPI 与多显示器观察项
 
 ### DISP-01 高 DPI 基础观察

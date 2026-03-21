@@ -73,6 +73,12 @@ src/app/            进程入口与应用组装
 
 如果需要处理只在 `Release` 出现的 crash / 内存破坏类问题，可继续阅读 [docs/release-crash-diagnostics.md](docs/release-crash-diagnostics.md)。
 
+仓库也提供了一个实验性的 `clang-cl + ASan` 诊断构建入口：
+
+```powershell
+pwsh -File .\scripts\build_clang_asan.ps1
+```
+
 如果需要生成当前阶段的 Release 目录或 ZIP 包，可继续阅读 [docs/release-packaging.md](docs/release-packaging.md)。
 
 仓库也提供了一键打包脚本：

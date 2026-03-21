@@ -103,9 +103,11 @@ pwsh -ExecutionPolicy Bypass -File scripts/run_clang_tidy_changed.ps1 -BaseRef o
 pwsh -File .\scripts\show_latest_diagnostics.ps1
 pwsh -File .\scripts\analyze_latest_dump.ps1
 pwsh -File .\scripts\pageheap_capturezy.ps1 -Mode query
+pwsh -File .\scripts\build_clang_asan.ps1
 ```
 
 其中 `pageheap_capturezy.ps1` 通常需要管理员 PowerShell。
+`build_clang_asan.ps1` 会启动 VS Dev Shell 并生成一份实验性的 `clang-cl + ASan` 诊断构建。
 
 ## 当前限制
 
