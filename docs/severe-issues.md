@@ -42,6 +42,7 @@
 7. 2026-03-21 对旧版本 dump 的补充反汇编显示，`0x...B095` 直接落在 `PinManager::pin_windows_` 的 vector 尾指针写入快路径上。
 8. 同批旧 dump 中另一组崩溃地址 `0x...B714` 也落在同一个 vector 的遍历/整理逻辑上，说明不同崩溃表象指向同一受害对象。
 9. 2026-03-21 对旧 worktree 的启动期、全屏 `CopyAndPin`、overlay 自动完成、overlay 内部交互模拟探针均表明：`pin_windows_` 在进入 `CreatePin` 前保持干净，只在成功 `push_back` 后变为正常的非空 vector 状态。
+10. `0x...B095` 对应会话日志显示，崩溃发生在新进程第一次贴图链路中：日志停在 `Pin window created and shown.`，未进入 `Created pin window. open_count=1.`，说明不是前几次截图累积的旧 vector 状态残留。
 
 ### 关键证据
 
@@ -115,6 +116,8 @@
 - 全屏 `CopyAndPin` 路径：直到 `after_clipboard_copy_and_pin` 仍为 `0,0,0`
 - region overlay 自动完成路径：`before_overlay_show / after_overlay_show / handle_overlay_result` 仍为 `0,0,0`
 - region overlay 内部交互模拟路径：同样在进入 `CreatePin` 前保持 `0,0,0`
+- 把探针推进到 `PinManager::CreatePin` 内部后，`after_prune / after_make_unique / after_set_callback / after_pin_window_create` 仍为 `0,0,0`
+- overlay 工具条“确定”按钮路径与“CopyAndPin”按钮路径的内部模拟也都保持同样结果
 - 仅在 `after_create_pin` 之后，vector 才变为正常的非空 begin/end/capacity 指针
 
 这说明当前能稳定自动化驱动的旧路径里，`pin_windows_` 在进入 `CreatePin` 前并没有被立即打坏。换言之：
@@ -123,12 +126,27 @@
 - 但首个写坏动作仍然没有被稳定探针直接抓住
 - 真正的写坏点仍可能依赖更具体的桌面环境、消息时序或当时的真实运行布局
 
+#### 日志时序证据
+
+`0x...B095` 对应的 `20260320-231949891-p20268` 与 `20260320-232057279-p40788` 两个会话日志都表现为：
+
+- 新进程启动后第一次 `Begin capture request`
+- 随后出现 `Copied capture bitmap to clipboard.`
+- 接着出现 `Pin window created and shown.`
+- 但没有出现 `Created pin window. open_count=1.`
+
+这进一步说明：
+
+- 崩溃不是发生在已有多个 pin 的累积状态上
+- 也不是 `push_back` 成功后后续遍历才第一次暴露
+- 而是首个 pin 的创建链路在 `PinWindow::Create` 结束后、`pin_windows_.push_back(...)` 完成前后就已经暴露异常
+
 ### 根因结论
 
 当前结论是：
 
 - **高置信度根因**：`Release` 下存在布局敏感的内存破坏，直接破坏了 `PinManager` 内部 `pin_windows_` vector 的 begin/end/capacity 状态；`0x...B095` 与 `0x...B714` 两组 dump 都已证明它是稳定受害点。
-- **中高概率破坏来源**：写坏发生在更早的截图/overlay/相邻对象相关路径中，随后在 `pin_windows_.push_back(...)` 或后续 vector 遍历时才暴露。
+- **中高概率破坏来源**：写坏发生在更早的截图/overlay/相邻对象相关路径中，随后在首个 `pin_windows_.push_back(...)` 或后续 vector 遍历时暴露。
 - **尚未完全证实的部分**：精确到“哪一行代码第一次越界/悬垂写入”的首个写坏点，当前仍没有直接证据；2026-03-21 的稳定自动探针尚未把它抓出来。
 
 换言之，这次已经可以排除：
@@ -158,8 +176,9 @@
 
 - 查看 crash report 与日志，确认旧问题模式一致。
 - 使用 dump 反汇编确认 `0x...B095` 是被污染后的 `pin_windows_` 尾指针写入，`0x...B714` 是同一向量的后续遍历/整理暴露点。
+- 结合会话日志确认 `0x...B095` 样本发生在新进程第一次贴图链路中，日志停在 `Pin window created and shown.` 之后、`Created pin window. open_count=1.` 之前。
 - 通过调整 `PinManager` 重入行为，确认重入不是根因，只会改变症状显现时机。
-- 通过旧 worktree 自动探针确认多条稳定路径在 `CreatePin` 前保持干净，说明直接受害点明确，但首个写坏点仍未稳定复现。
+- 通过旧 worktree 自动探针确认多条稳定路径以及 `CreatePin` 内部关键节点在 `push_back` 前保持干净，说明直接受害点明确，但首个写坏点仍未稳定复现。
 - 通过对象堆隔离修复后，由用户在 2026-03-20 完成 26 次 `copy+pin` 截图并混合 `save` / `copyOnly` 压测，无异常。
 
 未完成验证：
