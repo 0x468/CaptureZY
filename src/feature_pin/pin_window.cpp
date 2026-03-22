@@ -611,7 +611,6 @@ namespace capturezy::feature_pin
 
         FillRect(paint_device_context, &client_rect, GetSysColorBrush(COLOR_WINDOW));
         (void)DrawScaledBitmap(paint_device_context, target_size);
-        FrameRect(paint_device_context, &client_rect, GetSysColorBrush(COLOR_WINDOWFRAME));
 
         if (buffer_device_context != nullptr)
         {
