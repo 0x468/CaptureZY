@@ -152,16 +152,61 @@ namespace capturezy::feature_capture
             return SUCCEEDED(DwmGetWindowAttribute(window, DWMWA_CLOAKED, &cloaked, sizeof(cloaked))) && cloaked != 0;
         }
 
+        [[nodiscard]] UINT VisibleFrameBorderThickness(HWND window) noexcept
+        {
+            UINT border_thickness = 0;
+            if (FAILED(DwmGetWindowAttribute(window, DWMWA_VISIBLE_FRAME_BORDER_THICKNESS, &border_thickness,
+                                             sizeof(border_thickness))))
+            {
+                return 0;
+            }
+
+            return border_thickness;
+        }
+
+        void TrimVisibleFrameBorder(HWND window, RECT &window_rect) noexcept
+        {
+            if (IsTaskbarShellWindow(window) || IsDesktopShellWindow(window))
+            {
+                return;
+            }
+
+            UINT const border_thickness = VisibleFrameBorderThickness(window);
+            if (border_thickness == 0)
+            {
+                return;
+            }
+
+            LONG const inset = static_cast<LONG>(border_thickness);
+            if ((window_rect.right - window_rect.left) <= inset * 2 ||
+                (window_rect.bottom - window_rect.top) <= inset * 2)
+            {
+                return;
+            }
+
+            window_rect.left += inset;
+            window_rect.top += inset;
+            window_rect.right -= inset;
+            window_rect.bottom -= inset;
+        }
+
         [[nodiscard]] bool TryGetWindowRectForSelection(HWND window, RECT &window_rect) noexcept
         {
             HRESULT const dwm_result = DwmGetWindowAttribute(window, DWMWA_EXTENDED_FRAME_BOUNDS, &window_rect,
                                                              sizeof(window_rect));
             if (SUCCEEDED(dwm_result) && IsRectNonEmpty(window_rect))
             {
+                TrimVisibleFrameBorder(window, window_rect);
                 return true;
             }
 
-            return GetWindowRect(window, &window_rect) != FALSE && IsRectNonEmpty(window_rect);
+            if (GetWindowRect(window, &window_rect) == FALSE || !IsRectNonEmpty(window_rect))
+            {
+                return false;
+            }
+
+            TrimVisibleFrameBorder(window, window_rect);
+            return IsRectNonEmpty(window_rect);
         }
 
         [[nodiscard]] bool TryGetClippedWindowRectForSelection(HWND window, RECT clip_rect, RECT &window_rect) noexcept
