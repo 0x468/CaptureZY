@@ -108,6 +108,25 @@ namespace capturezy::feature_capture
             return screen_rect;
         }
 
+        [[nodiscard]] bool TryGetDesktopWorkAreaForPoint(POINT screen_point, RECT &desktop_rect) noexcept
+        {
+            HMONITOR const monitor = MonitorFromPoint(screen_point, MONITOR_DEFAULTTONEAREST);
+            if (monitor == nullptr)
+            {
+                return false;
+            }
+
+            MONITORINFO monitor_info{};
+            monitor_info.cbSize = sizeof(monitor_info);
+            if (GetMonitorInfoW(monitor, &monitor_info) == FALSE || !IsRectNonEmpty(monitor_info.rcWork))
+            {
+                return false;
+            }
+
+            desktop_rect = monitor_info.rcWork;
+            return true;
+        }
+
         [[nodiscard]] bool WindowClassNameEquals(HWND window, wchar_t const *expected_class_name) noexcept
         {
             std::array<wchar_t, 64> class_name{};
@@ -122,7 +141,7 @@ namespace capturezy::feature_capture
                    WindowClassNameEquals(window, L"NotifyIconOverflowWindow");
         }
 
-        [[nodiscard]] bool IsExcludedShellWindow(HWND window) noexcept
+        [[nodiscard]] bool IsDesktopShellWindow(HWND window) noexcept
         {
             return WindowClassNameEquals(window, L"Progman") || WindowClassNameEquals(window, L"WorkerW");
         }
@@ -420,7 +439,8 @@ namespace capturezy::feature_capture
             return root_window;
         }
 
-        [[nodiscard]] bool ShouldSkipWindowForSelection(HWND window, HWND excluded_window) noexcept
+        [[nodiscard]] bool ShouldSkipWindowForSelection(HWND window, HWND excluded_window,
+                                                        bool allow_desktop_shell_window) noexcept
         {
             if (window == nullptr || window == excluded_window || window == GetDesktopWindow())
             {
@@ -432,22 +452,25 @@ namespace capturezy::feature_capture
                 return true;
             }
 
-            LONG_PTR const ex_style = GetWindowLongPtrW(window, GWL_EXSTYLE);
-            if ((ex_style & WS_EX_TOOLWINDOW) != 0 && !IsTaskbarShellWindow(window))
+            if (!allow_desktop_shell_window && IsDesktopShellWindow(window))
             {
                 return true;
             }
 
-            return IsExcludedShellWindow(window);
+            LONG_PTR const ex_style = GetWindowLongPtrW(window, GWL_EXSTYLE);
+            return (ex_style & WS_EX_TOOLWINDOW) != 0 && !IsTaskbarShellWindow(window) && !allow_desktop_shell_window;
         }
 
         [[nodiscard]] bool FindTopLevelWindowRectAtPoint(HWND excluded_window, POINT screen_point,
                                                          RECT &window_rect) noexcept
         {
             RECT const virtual_screen_rect = VirtualScreenRect();
+            RECT desktop_shell_fallback_rect{};
+            bool has_desktop_shell_fallback = false;
             for (HWND window = GetTopWindow(nullptr); window != nullptr; window = GetWindow(window, GW_HWNDNEXT))
             {
-                if (ShouldSkipWindowForSelection(window, excluded_window))
+                bool const is_desktop_shell_window = IsDesktopShellWindow(window);
+                if (ShouldSkipWindowForSelection(window, excluded_window, is_desktop_shell_window))
                 {
                     continue;
                 }
@@ -460,18 +483,47 @@ namespace capturezy::feature_capture
                 }
 
                 HWND const candidate_window = SelectionRootWindow(window);
-                if (candidate_window != window && !ShouldSkipWindowForSelection(candidate_window, excluded_window))
+                if (candidate_window != window)
                 {
-                    RECT candidate_rect{};
-                    if (TryGetClippedWindowRectForSelection(candidate_window, virtual_screen_rect, candidate_rect) &&
-                        PtInRect(&candidate_rect, screen_point) != FALSE)
+                    bool const candidate_is_desktop_shell_window = IsDesktopShellWindow(candidate_window);
+                    if (!ShouldSkipWindowForSelection(candidate_window, excluded_window,
+                                                      candidate_is_desktop_shell_window))
                     {
-                        window_rect = candidate_rect;
-                        return true;
+                        RECT candidate_rect{};
+                        if (TryGetClippedWindowRectForSelection(candidate_window, virtual_screen_rect,
+                                                                candidate_rect) &&
+                            PtInRect(&candidate_rect, screen_point) != FALSE)
+                        {
+                            if (!candidate_is_desktop_shell_window)
+                            {
+                                window_rect = candidate_rect;
+                                return true;
+                            }
+
+                            if (TryGetDesktopWorkAreaForPoint(screen_point, desktop_shell_fallback_rect))
+                            {
+                                has_desktop_shell_fallback = true;
+                            }
+                        }
                     }
                 }
 
+                if (is_desktop_shell_window)
+                {
+                    if (TryGetDesktopWorkAreaForPoint(screen_point, desktop_shell_fallback_rect))
+                    {
+                        has_desktop_shell_fallback = true;
+                    }
+                    continue;
+                }
+
                 window_rect = direct_rect;
+                return true;
+            }
+
+            if (has_desktop_shell_fallback)
+            {
+                window_rect = desktop_shell_fallback_rect;
                 return true;
             }
 
