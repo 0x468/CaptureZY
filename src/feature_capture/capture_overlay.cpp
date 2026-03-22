@@ -138,7 +138,8 @@ namespace capturezy::feature_capture
         {
             return WindowClassNameEquals(window, L"Shell_TrayWnd") ||
                    WindowClassNameEquals(window, L"Shell_SecondaryTrayWnd") ||
-                   WindowClassNameEquals(window, L"NotifyIconOverflowWindow");
+                   WindowClassNameEquals(window, L"NotifyIconOverflowWindow") ||
+                   WindowClassNameEquals(window, L"TopLevelWindowForOverflowXamlIsland");
         }
 
         [[nodiscard]] bool IsDesktopShellWindow(HWND window) noexcept
