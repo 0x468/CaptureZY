@@ -1,7 +1,9 @@
 #include "feature_pin/pin_window.h"
 
 #include <algorithm>
+#include <cmath>
 #include <format>
+#include <span>
 #include <string>
 #include <utility>
 #include <windowsx.h>
@@ -42,8 +44,8 @@ namespace capturezy::feature_pin
         constexpr UINT_PTR kClosePinCommandId = 2005;
         constexpr UINT_PTR kResetScaleCommandId = 2006;
         constexpr UINT_PTR kToggleShadowCommandId = 2007;
-        constexpr int kShadowMargin = 6;
-        constexpr BYTE kShadowAlpha = 56;
+        constexpr int kShadowMargin = 8;
+        constexpr BYTE kShadowAlpha = 72;
         constexpr COLORREF kShadowColor = RGB(0, 0, 0);
 
         void SetWindowUserData(HWND window, PinWindow *pin_window)
@@ -82,6 +84,46 @@ namespace capturezy::feature_pin
             {
                 core::Log::Write(core::LogLevel::Debug, core::LogCategory::Pin, L"Pin window scale updated.");
             }
+        }
+
+        [[nodiscard]] BYTE ComputeShadowPixelAlpha(POINT pixel, SIZE content_size) noexcept
+        {
+            int const left = kShadowMargin;
+            int const top = kShadowMargin;
+            int const right = kShadowMargin + content_size.cx - 1;
+            int const bottom = kShadowMargin + content_size.cy - 1;
+
+            if (pixel.x >= left && pixel.x <= right && pixel.y >= top && pixel.y <= bottom)
+            {
+                return 0;
+            }
+
+            int delta_x = 0;
+            if (pixel.x < left)
+            {
+                delta_x = left - pixel.x;
+            }
+            else if (pixel.x > right)
+            {
+                delta_x = pixel.x - right;
+            }
+
+            int delta_y = 0;
+            if (pixel.y < top)
+            {
+                delta_y = top - pixel.y;
+            }
+            else if (pixel.y > bottom)
+            {
+                delta_y = pixel.y - bottom;
+            }
+
+            double const distance = std::sqrt(static_cast<double>((delta_x * delta_x) + (delta_y * delta_y)));
+            double const normalized = std::clamp(
+                (static_cast<double>(kShadowMargin) - distance) / static_cast<double>(kShadowMargin), 0.0, 1.0);
+            double const eased = std::pow(normalized, 1.8);
+            return static_cast<BYTE>(
+                std::clamp(eased * static_cast<double>(kShadowAlpha), 0.0, static_cast<double>(kShadowAlpha)));
         }
 
     } // namespace
@@ -375,7 +417,7 @@ namespace capturezy::feature_pin
         window_class.lpfnWndProc = PinWindow::ShadowWindowProc;
         window_class.hInstance = instance_;
         window_class.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-        window_class.hbrBackground = static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH));
+        window_class.hbrBackground = nullptr;
         window_class.lpszClassName = kPinShadowWindowClassName;
 
         ATOM const result = RegisterClassExW(&window_class);
@@ -433,7 +475,7 @@ namespace capturezy::feature_pin
         SIZE const new_size = CurrentClientSize();
         SetWindowPos(window_, nullptr, window_rect.left, window_rect.top, new_size.cx, new_size.cy,
                      SWP_NOACTIVATE | SWP_NOZORDER);
-        UpdateShadowWindowRegion();
+        UpdateShadowWindowVisual();
         UpdateShadowWindowPosition();
         InvalidateRect(window_, nullptr, FALSE);
         ShowScaleOverlay();
@@ -789,11 +831,9 @@ namespace capturezy::feature_pin
                 CAPTUREZY_LOG_WARNING(core::LogCategory::Pin, L"Failed to create pin shadow window.");
                 return;
             }
-
-            SetLayeredWindowAttributes(shadow_window_, 0, kShadowAlpha, LWA_ALPHA);
         }
 
-        UpdateShadowWindowRegion();
+        UpdateShadowWindowVisual();
         UpdateShadowWindowPosition();
         ShowWindow(shadow_window_, SW_SHOWNOACTIVATE);
     }
@@ -806,7 +846,7 @@ namespace capturezy::feature_pin
         }
     }
 
-    void PinWindow::UpdateShadowWindowRegion() const noexcept
+    void PinWindow::UpdateShadowWindowVisual() const noexcept
     {
         if (shadow_window_ == nullptr || window_ == nullptr)
         {
@@ -822,24 +862,82 @@ namespace capturezy::feature_pin
             return;
         }
 
-        HRGN outer_region = CreateRectRgn(0, 0, width + (kShadowMargin * 2), height + (kShadowMargin * 2));
-        HRGN inner_region = CreateRectRgn(kShadowMargin, kShadowMargin, kShadowMargin + width, kShadowMargin + height);
-        if (outer_region == nullptr || inner_region == nullptr)
+        RECT window_rect{};
+        GetWindowRect(window_, &window_rect);
+        int const shadow_width = width + (kShadowMargin * 2);
+        int const shadow_height = height + (kShadowMargin * 2);
+
+        HDC screen_device_context = GetDC(nullptr);
+        if (screen_device_context == nullptr)
         {
-            if (outer_region != nullptr)
-            {
-                DeleteObject(outer_region);
-            }
-            if (inner_region != nullptr)
-            {
-                DeleteObject(inner_region);
-            }
             return;
         }
 
-        (void)CombineRgn(outer_region, outer_region, inner_region, RGN_DIFF);
-        DeleteObject(inner_region);
-        SetWindowRgn(shadow_window_, outer_region, TRUE);
+        HDC memory_device_context = CreateCompatibleDC(screen_device_context);
+        if (memory_device_context == nullptr)
+        {
+            ReleaseDC(nullptr, screen_device_context);
+            return;
+        }
+
+        BITMAPINFO bitmap_info{};
+        bitmap_info.bmiHeader.biSize = sizeof(bitmap_info.bmiHeader);
+        bitmap_info.bmiHeader.biWidth = shadow_width;
+        bitmap_info.bmiHeader.biHeight = -shadow_height;
+        bitmap_info.bmiHeader.biPlanes = 1;
+        bitmap_info.bmiHeader.biBitCount = 32;
+        bitmap_info.bmiHeader.biCompression = BI_RGB;
+
+        void *bitmap_bits = nullptr;
+        HBITMAP bitmap = CreateDIBSection(screen_device_context, &bitmap_info, DIB_RGB_COLORS, &bitmap_bits, nullptr,
+                                          0);
+        if (bitmap == nullptr || bitmap_bits == nullptr)
+        {
+            if (bitmap != nullptr)
+            {
+                DeleteObject(bitmap);
+            }
+            DeleteDC(memory_device_context);
+            ReleaseDC(nullptr, screen_device_context);
+            return;
+        }
+
+        HGDIOBJ previous_bitmap = SelectObject(memory_device_context, bitmap);
+        auto *pixels = static_cast<std::uint32_t *>(bitmap_bits);
+        std::span<std::uint32_t> pixel_buffer(pixels, static_cast<std::size_t>(shadow_width) *
+                                                          static_cast<std::size_t>(shadow_height));
+        std::fill(pixel_buffer.begin(), pixel_buffer.end(), 0U);
+
+        std::uint32_t const rgb = static_cast<std::uint32_t>(GetBValue(kShadowColor)) |
+                                  (static_cast<std::uint32_t>(GetGValue(kShadowColor)) << 8U) |
+                                  (static_cast<std::uint32_t>(GetRValue(kShadowColor)) << 16U);
+
+        for (int y = 0; y < shadow_height; ++y)
+        {
+            for (int x = 0; x < shadow_width; ++x)
+            {
+                BYTE const alpha = ComputeShadowPixelAlpha(POINT{.x = x, .y = y}, SIZE{.cx = width, .cy = height});
+                if (alpha == 0)
+                {
+                    continue;
+                }
+
+                pixel_buffer[(static_cast<std::size_t>(y) * static_cast<std::size_t>(shadow_width)) +
+                             static_cast<std::size_t>(x)] = rgb | (static_cast<std::uint32_t>(alpha) << 24U);
+            }
+        }
+
+        POINT destination_point{.x = window_rect.left - kShadowMargin, .y = window_rect.top - kShadowMargin};
+        SIZE shadow_size{.cx = shadow_width, .cy = shadow_height};
+        POINT source_point{};
+        BLENDFUNCTION blend_function{AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
+        (void)UpdateLayeredWindow(shadow_window_, screen_device_context, &destination_point, &shadow_size,
+                                  memory_device_context, &source_point, 0, &blend_function, ULW_ALPHA);
+
+        SelectObject(memory_device_context, previous_bitmap);
+        DeleteObject(bitmap);
+        DeleteDC(memory_device_context);
+        ReleaseDC(nullptr, screen_device_context);
     }
 
     void PinWindow::UpdateShadowWindowPosition() const noexcept
@@ -851,24 +949,12 @@ namespace capturezy::feature_pin
 
         RECT window_rect{};
         GetWindowRect(window_, &window_rect);
-        int const shadow_width = (window_rect.right - window_rect.left) + (kShadowMargin * 2);
-        int const shadow_height = (window_rect.bottom - window_rect.top) + (kShadowMargin * 2);
-        SetWindowPos(shadow_window_, window_, window_rect.left - kShadowMargin, window_rect.top - kShadowMargin,
-                     shadow_width, shadow_height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
-    }
-
-    void PinWindow::PaintShadowWindow(HWND shadow_window) noexcept
-    {
-        PAINTSTRUCT paint{};
-        HDC device_context = BeginPaint(shadow_window, &paint);
-
         RECT client_rect{};
-        GetClientRect(shadow_window, &client_rect);
-        HBRUSH background_brush = CreateSolidBrush(kShadowColor);
-        FillRect(device_context, &client_rect, background_brush);
-        DeleteObject(background_brush);
-
-        EndPaint(shadow_window, &paint);
+        GetClientRect(window_, &client_rect);
+        int const shadow_width = (client_rect.right - client_rect.left) + (kShadowMargin * 2);
+        int const shadow_height = (client_rect.bottom - client_rect.top) + (kShadowMargin * 2);
+        SetWindowPos(shadow_window_, window_, window_rect.left - kShadowMargin, window_rect.top - kShadowMargin,
+                     shadow_width, shadow_height, SWP_NOACTIVATE | SWP_NOREDRAW | SWP_SHOWWINDOW);
     }
 
     LRESULT PinWindow::HandleMessage(UINT message, WPARAM w_param, LPARAM l_param)
@@ -905,7 +991,7 @@ namespace capturezy::feature_pin
                     SIZE const size = CurrentClientSize();
                     SetWindowPos(window_, nullptr, window_rect.left, window_rect.top, size.cx, size.cy,
                                  SWP_NOACTIVATE | SWP_NOZORDER);
-                    UpdateShadowWindowRegion();
+                    UpdateShadowWindowVisual();
                     UpdateShadowWindowPosition();
                     RedrawWindow(window_, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE);
                     ShowScaleOverlay();
@@ -1090,7 +1176,7 @@ namespace capturezy::feature_pin
                 return 1;
 
             case WM_PAINT:
-                PinWindow::PaintShadowWindow(window);
+                ValidateRect(window, nullptr);
                 return 0;
 
             case WM_DESTROY:

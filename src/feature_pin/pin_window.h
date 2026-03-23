@@ -45,12 +45,11 @@ namespace capturezy::feature_pin
         void CopyToClipboard() const noexcept;
         void SaveToFile() const;
         void ShowContextMenu(POINT anchor_screen_point) noexcept;
-        static void PaintShadowWindow(HWND shadow_window) noexcept;
         void PaintWindow() noexcept;
         void PaintScaleOverlay(HWND overlay_window) const;
         void ShowShadowWindow() noexcept;
         void HideShadowWindow() noexcept;
-        void UpdateShadowWindowRegion() const noexcept;
+        void UpdateShadowWindowVisual() const noexcept;
         void UpdateShadowWindowPosition() const noexcept;
         void ShowScaleOverlay() noexcept;
         void HideScaleOverlay() noexcept;
