@@ -51,7 +51,18 @@ These rules apply to repository-local development and verification work in this 
   - product/function changes
   - tooling or script fixes
   - documentation updates
-- Commit messages must follow Conventional Commits, for example:
+- Commit titles must follow Conventional Commits, for example:
   - `feat(settings): add persisted capture defaults`
   - `fix(scripts): repair changed clang-tidy runner`
   - `docs(status): add current project status summary`
+- Prefer commit messages with both a title and a body for non-trivial changes.
+- The commit title should stay in English and remain concise so simple `git log --oneline` output stays clean.
+- Keep the title short and readable; aim for about 50 characters when practical, and treat 72 characters as a soft upper bound.
+- Add a blank line after the title, then write the commit body in Chinese.
+- The commit body should focus on the most useful context for later review:
+  - why this change was made
+  - what user-visible or architectural behavior changed
+  - important scope limits, follow-up notes, or verification highlights when relevant
+- Keep the body concise and readable; do not dump a file-by-file changelog into the commit message.
+- Wrap or split long body text near 72 characters per line when it helps readability, but treat this as a guideline rather than a hard rule.
+- Do not force fixed body sections such as feature/implementation/test headers unless they genuinely improve clarity for that specific commit.
