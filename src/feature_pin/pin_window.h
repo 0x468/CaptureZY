@@ -37,14 +37,21 @@ namespace capturezy::feature_pin
         [[nodiscard]] static RECT CalculateWindowRect(RECT anchor_rect, SIZE bitmap_size) noexcept;
         [[nodiscard]] SIZE CurrentClientSize() const noexcept;
         [[nodiscard]] ATOM RegisterWindowClass() const;
+        [[nodiscard]] ATOM RegisterShadowWindowClass() const;
         [[nodiscard]] ATOM RegisterScaleOverlayClass() const;
         bool UpdateScale(short wheel_delta) noexcept;
         void SetTopmost(bool topmost) noexcept;
+        void SetShadowEnabled(bool enabled) noexcept;
         void CopyToClipboard() const noexcept;
         void SaveToFile() const;
         void ShowContextMenu(POINT anchor_screen_point) noexcept;
+        static void PaintShadowWindow(HWND shadow_window) noexcept;
         void PaintWindow() noexcept;
         void PaintScaleOverlay(HWND overlay_window) const;
+        void ShowShadowWindow() noexcept;
+        void HideShadowWindow() noexcept;
+        void UpdateShadowWindowRegion() const noexcept;
+        void UpdateShadowWindowPosition() const noexcept;
         void ShowScaleOverlay() noexcept;
         void HideScaleOverlay() noexcept;
         void UpdateScaleOverlayPosition() const noexcept;
@@ -60,12 +67,14 @@ namespace capturezy::feature_pin
         [[nodiscard]] LRESULT HandleMessage(UINT message, WPARAM w_param, LPARAM l_param);
 
         static LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM w_param, LPARAM l_param);
+        static LRESULT CALLBACK ShadowWindowProc(HWND window, UINT message, WPARAM w_param, LPARAM l_param);
         static LRESULT CALLBACK ScaleOverlayProc(HWND window, UINT message, WPARAM w_param, LPARAM l_param);
 
         HINSTANCE instance_;
         core::AppSettings const *app_settings_;
         StateChangedCallback state_changed_callback_;
         HWND window_{};
+        HWND shadow_window_{};
         HWND scale_overlay_window_{};
         feature_capture::CaptureResult capture_result_{};
         feature_capture::CapturedBitmap scaled_bitmap_cache_;
@@ -75,6 +84,7 @@ namespace capturezy::feature_pin
         POINT drag_offset_{};
         std::int32_t scale_percent_{100};
         bool topmost_{true};
+        bool shadow_enabled_{true};
         bool dragging_{false};
         bool scale_interaction_active_{false};
     };

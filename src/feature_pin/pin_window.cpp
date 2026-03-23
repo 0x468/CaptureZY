@@ -15,10 +15,13 @@ namespace capturezy::feature_pin
     namespace
     {
         constexpr wchar_t const *kPinWindowClassName = L"CaptureZY.PinWindow";
+        constexpr wchar_t const *kPinShadowWindowClassName = L"CaptureZY.PinWindow.Shadow";
         constexpr wchar_t const *kScaleOverlayClassName = L"CaptureZY.PinWindow.ScaleOverlay";
         constexpr wchar_t const *kPinWindowTitle = L"CaptureZY 贴图";
         constexpr DWORD kPinWindowStyle = WS_POPUP;
         constexpr DWORD kPinWindowExStyle = WS_EX_TOPMOST | WS_EX_TOOLWINDOW;
+        constexpr DWORD kPinShadowWindowStyle = WS_POPUP;
+        constexpr DWORD kPinShadowWindowExStyle = WS_EX_TOOLWINDOW | WS_EX_LAYERED | WS_EX_NOACTIVATE;
         constexpr std::int32_t kDefaultScalePercent = 100;
         constexpr std::int32_t kMinScalePercent = 20;
         constexpr std::int32_t kMaxScalePercent = 400;
@@ -38,6 +41,10 @@ namespace capturezy::feature_pin
         constexpr UINT_PTR kHidePinCommandId = 2004;
         constexpr UINT_PTR kClosePinCommandId = 2005;
         constexpr UINT_PTR kResetScaleCommandId = 2006;
+        constexpr UINT_PTR kToggleShadowCommandId = 2007;
+        constexpr int kShadowMargin = 6;
+        constexpr BYTE kShadowAlpha = 56;
+        constexpr COLORREF kShadowColor = RGB(0, 0, 0);
 
         void SetWindowUserData(HWND window, PinWindow *pin_window)
         {
@@ -91,7 +98,7 @@ namespace capturezy::feature_pin
 
     bool PinWindow::Create(feature_capture::CaptureResult capture_result)
     {
-        if (!capture_result.IsValid() || RegisterWindowClass() == 0)
+        if (!capture_result.IsValid() || RegisterWindowClass() == 0 || RegisterShadowWindowClass() == 0)
         {
             CAPTUREZY_LOG_ERROR(core::LogCategory::Pin, L"Pin window setup failed before window creation.");
             return false;
@@ -103,6 +110,7 @@ namespace capturezy::feature_pin
         ResetPaintBuffer();
         scale_percent_ = kDefaultScalePercent;
         topmost_ = true;
+        shadow_enabled_ = true;
         scale_interaction_active_ = false;
 
         RECT const window_rect = CalculateWindowRect(capture_result_.ScreenRect(), CurrentClientSize());
@@ -117,6 +125,7 @@ namespace capturezy::feature_pin
             return false;
         }
 
+        ShowShadowWindow();
         ShowWindow(window_, SW_SHOWNORMAL);
         UpdateWindow(window_);
         CAPTUREZY_LOG_INFO(core::LogCategory::Pin, L"Pin window created and shown.");
@@ -125,6 +134,12 @@ namespace capturezy::feature_pin
 
     void PinWindow::Close() noexcept
     {
+        if (shadow_window_ != nullptr)
+        {
+            DestroyWindow(shadow_window_);
+            shadow_window_ = nullptr;
+        }
+
         if (window_ != nullptr)
         {
             DestroyWindow(window_);
@@ -154,6 +169,7 @@ namespace capturezy::feature_pin
 
         ShowWindow(window_, SW_SHOWNOACTIVATE);
         CAPTUREZY_LOG_DEBUG(core::LogCategory::Pin, L"Pin window shown.");
+        ShowShadowWindow();
         if (scale_overlay_window_ != nullptr && IsWindowVisible(scale_overlay_window_) != FALSE)
         {
             UpdateScaleOverlayPosition();
@@ -173,6 +189,7 @@ namespace capturezy::feature_pin
         }
 
         HideScaleOverlay();
+        HideShadowWindow();
         ShowWindow(window_, SW_HIDE);
         CAPTUREZY_LOG_DEBUG(core::LogCategory::Pin, L"Pin window hidden.");
 
@@ -198,6 +215,11 @@ namespace capturezy::feature_pin
         SetWindowPos(window_, topmost_ ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
                      SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 
+        if (shadow_window_ != nullptr)
+        {
+            SetWindowPos(shadow_window_, window_, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        }
+
         if (scale_overlay_window_ != nullptr)
         {
             SetWindowPos(scale_overlay_window_, topmost_ ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
@@ -206,6 +228,24 @@ namespace capturezy::feature_pin
 
         CAPTUREZY_LOG_INFO(core::LogCategory::Pin,
                            topmost_ ? L"Pin window topmost changed to on." : L"Pin window topmost changed to off.");
+    }
+
+    void PinWindow::SetShadowEnabled(bool enabled) noexcept
+    {
+        if (shadow_enabled_ == enabled)
+        {
+            return;
+        }
+
+        shadow_enabled_ = enabled;
+        if (shadow_enabled_)
+        {
+            ShowShadowWindow();
+        }
+        else
+        {
+            HideShadowWindow();
+        }
     }
 
     void PinWindow::CopyToClipboard() const noexcept
@@ -280,6 +320,7 @@ namespace capturezy::feature_pin
         AppendMenuW(menu, MF_STRING, kSavePinCommandId, L"另存为 PNG");
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
         AppendMenuW(menu, topmost_ ? MF_STRING | MF_CHECKED : MF_STRING, kToggleTopmostCommandId, L"始终置顶");
+        AppendMenuW(menu, shadow_enabled_ ? MF_STRING | MF_CHECKED : MF_STRING, kToggleShadowCommandId, L"显示阴影");
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
         AppendMenuW(menu, MF_STRING, kHidePinCommandId, L"隐藏此贴图");
         AppendMenuW(menu, MF_STRING, kClosePinCommandId, L"关闭此贴图");
@@ -317,6 +358,25 @@ namespace capturezy::feature_pin
         window_class.hCursor = LoadCursorW(nullptr, IDC_ARROW);
         window_class.hbrBackground = GetSysColorBrush(COLOR_WINDOW);
         window_class.lpszClassName = kPinWindowClassName;
+
+        ATOM const result = RegisterClassExW(&window_class);
+        if (result != 0 || GetLastError() == ERROR_CLASS_ALREADY_EXISTS)
+        {
+            return 1;
+        }
+
+        return 0;
+    }
+
+    ATOM PinWindow::RegisterShadowWindowClass() const
+    {
+        WNDCLASSEXW window_class{};
+        window_class.cbSize = sizeof(window_class);
+        window_class.lpfnWndProc = PinWindow::ShadowWindowProc;
+        window_class.hInstance = instance_;
+        window_class.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+        window_class.hbrBackground = static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH));
+        window_class.lpszClassName = kPinShadowWindowClassName;
 
         ATOM const result = RegisterClassExW(&window_class);
         if (result != 0 || GetLastError() == ERROR_CLASS_ALREADY_EXISTS)
@@ -373,6 +433,8 @@ namespace capturezy::feature_pin
         SIZE const new_size = CurrentClientSize();
         SetWindowPos(window_, nullptr, window_rect.left, window_rect.top, new_size.cx, new_size.cy,
                      SWP_NOACTIVATE | SWP_NOZORDER);
+        UpdateShadowWindowRegion();
+        UpdateShadowWindowPosition();
         InvalidateRect(window_, nullptr, FALSE);
         ShowScaleOverlay();
         LogScaleMessage(scale_percent_);
@@ -408,6 +470,7 @@ namespace capturezy::feature_pin
         int const new_left = cursor_screen_point.x - drag_offset_.x;
         int const new_top = cursor_screen_point.y - drag_offset_.y;
         SetWindowPos(window_, nullptr, new_left, new_top, width, height, SWP_NOACTIVATE | SWP_NOZORDER);
+        UpdateShadowWindowPosition();
     }
 
     void PinWindow::EndDrag() noexcept
@@ -710,6 +773,104 @@ namespace capturezy::feature_pin
                      kScaleOverlayWidth, kScaleOverlayHeight, SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_SHOWWINDOW);
     }
 
+    void PinWindow::ShowShadowWindow() noexcept
+    {
+        if (window_ == nullptr || !shadow_enabled_)
+        {
+            return;
+        }
+
+        if (shadow_window_ == nullptr)
+        {
+            shadow_window_ = CreateWindowExW(kPinShadowWindowExStyle, kPinShadowWindowClassName, L"",
+                                             kPinShadowWindowStyle, 0, 0, 0, 0, nullptr, nullptr, instance_, this);
+            if (shadow_window_ == nullptr)
+            {
+                CAPTUREZY_LOG_WARNING(core::LogCategory::Pin, L"Failed to create pin shadow window.");
+                return;
+            }
+
+            SetLayeredWindowAttributes(shadow_window_, 0, kShadowAlpha, LWA_ALPHA);
+        }
+
+        UpdateShadowWindowRegion();
+        UpdateShadowWindowPosition();
+        ShowWindow(shadow_window_, SW_SHOWNOACTIVATE);
+    }
+
+    void PinWindow::HideShadowWindow() noexcept
+    {
+        if (shadow_window_ != nullptr)
+        {
+            ShowWindow(shadow_window_, SW_HIDE);
+        }
+    }
+
+    void PinWindow::UpdateShadowWindowRegion() const noexcept
+    {
+        if (shadow_window_ == nullptr || window_ == nullptr)
+        {
+            return;
+        }
+
+        RECT client_rect{};
+        GetClientRect(window_, &client_rect);
+        int const width = client_rect.right - client_rect.left;
+        int const height = client_rect.bottom - client_rect.top;
+        if (width <= 0 || height <= 0)
+        {
+            return;
+        }
+
+        HRGN outer_region = CreateRectRgn(0, 0, width + (kShadowMargin * 2), height + (kShadowMargin * 2));
+        HRGN inner_region = CreateRectRgn(kShadowMargin, kShadowMargin, kShadowMargin + width, kShadowMargin + height);
+        if (outer_region == nullptr || inner_region == nullptr)
+        {
+            if (outer_region != nullptr)
+            {
+                DeleteObject(outer_region);
+            }
+            if (inner_region != nullptr)
+            {
+                DeleteObject(inner_region);
+            }
+            return;
+        }
+
+        (void)CombineRgn(outer_region, outer_region, inner_region, RGN_DIFF);
+        DeleteObject(inner_region);
+        SetWindowRgn(shadow_window_, outer_region, TRUE);
+    }
+
+    void PinWindow::UpdateShadowWindowPosition() const noexcept
+    {
+        if (shadow_window_ == nullptr || window_ == nullptr || !shadow_enabled_)
+        {
+            return;
+        }
+
+        RECT window_rect{};
+        GetWindowRect(window_, &window_rect);
+        int const shadow_width = (window_rect.right - window_rect.left) + (kShadowMargin * 2);
+        int const shadow_height = (window_rect.bottom - window_rect.top) + (kShadowMargin * 2);
+        SetWindowPos(shadow_window_, window_, window_rect.left - kShadowMargin, window_rect.top - kShadowMargin,
+                     shadow_width, shadow_height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    }
+
+    void PinWindow::PaintShadowWindow(HWND shadow_window) noexcept
+    {
+        PAINTSTRUCT paint{};
+        HDC device_context = BeginPaint(shadow_window, &paint);
+
+        RECT client_rect{};
+        GetClientRect(shadow_window, &client_rect);
+        HBRUSH background_brush = CreateSolidBrush(kShadowColor);
+        FillRect(device_context, &client_rect, background_brush);
+        DeleteObject(background_brush);
+
+        EndPaint(shadow_window, &paint);
+    }
+
     LRESULT PinWindow::HandleMessage(UINT message, WPARAM w_param, LPARAM l_param)
     {
         switch (message)
@@ -744,9 +905,15 @@ namespace capturezy::feature_pin
                     SIZE const size = CurrentClientSize();
                     SetWindowPos(window_, nullptr, window_rect.left, window_rect.top, size.cx, size.cy,
                                  SWP_NOACTIVATE | SWP_NOZORDER);
+                    UpdateShadowWindowRegion();
+                    UpdateShadowWindowPosition();
                     RedrawWindow(window_, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE);
                     ShowScaleOverlay();
                 }
+                return 0;
+
+            case kToggleShadowCommandId:
+                SetShadowEnabled(!shadow_enabled_);
                 return 0;
 
             case kHidePinCommandId:
@@ -837,6 +1004,10 @@ namespace capturezy::feature_pin
             return 0;
 
         case WM_WINDOWPOSCHANGED:
+            if (shadow_window_ != nullptr && shadow_enabled_ && IsWindowVisible(window_) != FALSE)
+            {
+                UpdateShadowWindowPosition();
+            }
             if (scale_overlay_window_ != nullptr && IsWindowVisible(scale_overlay_window_) != FALSE)
             {
                 UpdateScaleOverlayPosition();
@@ -846,7 +1017,13 @@ namespace capturezy::feature_pin
         case WM_DESTROY:
             EndDrag();
             HideScaleOverlay();
+            HideShadowWindow();
             KillTimer(window_, kScaleCommitTimerId);
+            if (shadow_window_ != nullptr)
+            {
+                DestroyWindow(shadow_window_);
+                shadow_window_ = nullptr;
+            }
             if (scale_overlay_window_ != nullptr)
             {
                 DestroyWindow(scale_overlay_window_);
@@ -884,6 +1061,48 @@ namespace capturezy::feature_pin
         if (auto *pin_window = GetWindowUserData(window); pin_window != nullptr)
         {
             return pin_window->HandleMessage(message, w_param, l_param);
+        }
+
+        return DefWindowProcW(window, message, w_param, l_param);
+    }
+
+    LRESULT CALLBACK PinWindow::ShadowWindowProc(HWND window, UINT message, WPARAM w_param, LPARAM l_param)
+    {
+        (void)w_param;
+        (void)l_param;
+
+        if (message == WM_NCCREATE)
+        {
+            // NOLINTNEXTLINE(performance-no-int-to-ptr,cppcoreguidelines-pro-type-reinterpret-cast)
+            auto *create_struct = reinterpret_cast<CREATESTRUCTW *>(l_param);
+            auto *pin_window = static_cast<PinWindow *>(create_struct->lpCreateParams);
+            SetWindowUserData(window, pin_window);
+        }
+
+        if (auto *pin_window = GetWindowUserData(window); pin_window != nullptr)
+        {
+            switch (message)
+            {
+            case WM_NCHITTEST:
+                return HTTRANSPARENT;
+
+            case WM_ERASEBKGND:
+                return 1;
+
+            case WM_PAINT:
+                PinWindow::PaintShadowWindow(window);
+                return 0;
+
+            case WM_DESTROY:
+                if (pin_window->shadow_window_ == window)
+                {
+                    pin_window->shadow_window_ = nullptr;
+                }
+                return 0;
+
+            default:
+                break;
+            }
         }
 
         return DefWindowProcW(window, message, w_param, l_param);
