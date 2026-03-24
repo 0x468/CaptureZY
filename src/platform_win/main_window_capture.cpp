@@ -153,11 +153,6 @@ namespace capturezy::platform_win
         feature_capture::CaptureResult capture_result = capture_overlay_->FrozenSelectionResult();
         switch (result)
         {
-        case feature_capture::OverlayResult::ConfirmedWithDefaultAction:
-            CAPTUREZY_LOG_INFO(core::LogCategory::Capture, L"Overlay confirmed capture with default action.");
-            ProcessCaptureResult(std::move(capture_result), pending_capture_request_.action);
-            return;
-
         case feature_capture::OverlayResult::CopyAndPin:
             CAPTUREZY_LOG_INFO(core::LogCategory::Capture, L"Overlay confirmed capture with pin action.");
             ProcessCaptureResult(std::move(capture_result), CaptureAction::CopyAndPin);

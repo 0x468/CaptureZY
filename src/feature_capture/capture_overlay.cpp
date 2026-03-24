@@ -21,7 +21,7 @@ namespace capturezy::feature_capture
         constexpr wchar_t const *kOverlayInstruction = L"窗口预选：悬停高亮，单击选择窗口；也可按住左键拖拽框选，Ctrl+"
                                                        L"A 全屏，右键或 Esc 取消";
         constexpr wchar_t const *kSelectionAdjustmentInstruction =
-            L"已选择区域：Enter 确认截图；拖动边框可调大小，左键单击区域内确认，右键重置，Esc 取消";
+            L"已选择区域：拖动边框可调大小，拖动区域内部可移动；使用下方工具条执行贴图、复制或保存，右键重置，Esc 取消";
         constexpr int kDragThreshold = 4;
         constexpr int kSelectionResizePadding = 6;
         constexpr int kMinSelectionExtent = 8;
@@ -636,7 +636,6 @@ namespace capturezy::feature_capture
         has_hover_window_ = false;
         has_click_candidate_window_ = false;
         has_committed_selection_ = false;
-        confirm_selection_on_click_ = false;
         pointer_drag_mode_ = PointerDragMode::None;
         active_resize_handle_ = ResizeHandle::None;
         pressed_toolbar_action_ = ToolbarAction::None;
@@ -876,9 +875,6 @@ namespace capturezy::feature_capture
     {
         switch (action)
         {
-        case ToolbarAction::Confirm:
-            return L"确认";
-
         case ToolbarAction::CopyAndPin:
             return L"贴图";
 
@@ -904,7 +900,7 @@ namespace capturezy::feature_capture
             return {};
         }
 
-        constexpr int kToolbarButtonCount = 5;
+        constexpr int kToolbarButtonCount = 4;
         int const toolbar_width = (kToolbarButtonWidth * kToolbarButtonCount) +
                                   (kToolbarSpacing * (kToolbarButtonCount - 1)) + (kToolbarPadding * 2);
         int const toolbar_height = kToolbarButtonHeight + (kToolbarPadding * 2);
@@ -952,24 +948,20 @@ namespace capturezy::feature_capture
         int action_index = -1;
         switch (action)
         {
-        case ToolbarAction::Confirm:
+        case ToolbarAction::CopyAndPin:
             action_index = 0;
             break;
 
-        case ToolbarAction::CopyAndPin:
+        case ToolbarAction::CopyOnly:
             action_index = 1;
             break;
 
-        case ToolbarAction::CopyOnly:
+        case ToolbarAction::SaveToFile:
             action_index = 2;
             break;
 
-        case ToolbarAction::SaveToFile:
-            action_index = 3;
-            break;
-
         case ToolbarAction::Cancel:
-            action_index = 4;
+            action_index = 3;
             break;
 
         case ToolbarAction::None:
@@ -1003,9 +995,11 @@ namespace capturezy::feature_capture
             return ToolbarAction::None;
         }
 
-        constexpr std::array<ToolbarAction, 5> kToolbarActions{
-            ToolbarAction::Confirm,    ToolbarAction::CopyAndPin, ToolbarAction::CopyOnly,
-            ToolbarAction::SaveToFile, ToolbarAction::Cancel,
+        constexpr std::array<ToolbarAction, 4> kToolbarActions{
+            ToolbarAction::CopyAndPin,
+            ToolbarAction::CopyOnly,
+            ToolbarAction::SaveToFile,
+            ToolbarAction::Cancel,
         };
         for (ToolbarAction const action : kToolbarActions)
         {
@@ -1230,7 +1224,6 @@ namespace capturezy::feature_capture
         has_selection_ = false;
         drag_in_progress_ = false;
         has_click_candidate_window_ = false;
-        confirm_selection_on_click_ = false;
         pointer_drag_mode_ = PointerDragMode::None;
         active_resize_handle_ = ResizeHandle::None;
         pressed_toolbar_action_ = ToolbarAction::None;
@@ -1244,7 +1237,6 @@ namespace capturezy::feature_capture
         drag_in_progress_ = false;
         has_selection_ = false;
         has_click_candidate_window_ = false;
-        confirm_selection_on_click_ = true;
         pointer_drag_mode_ = PointerDragMode::MoveSelection;
         resize_anchor_selection_rect_ = committed_selection_rect_;
         resize_anchor_handle_ = ResizeHandle::None;
@@ -1266,7 +1258,6 @@ namespace capturezy::feature_capture
             }
 
             drag_in_progress_ = true;
-            confirm_selection_on_click_ = false;
         }
 
         RECT moved_rect = resize_anchor_selection_rect_;
@@ -1293,7 +1284,6 @@ namespace capturezy::feature_capture
         drag_in_progress_ = false;
         has_selection_ = false;
         has_click_candidate_window_ = false;
-        confirm_selection_on_click_ = false;
         pointer_drag_mode_ = PointerDragMode::ResizeSelection;
         resize_anchor_selection_rect_ = committed_selection_rect_;
         resize_anchor_handle_ = active_resize_handle_;
@@ -1375,13 +1365,6 @@ namespace capturezy::feature_capture
             return true;
         }
 
-        if (w_param == VK_RETURN && has_committed_selection_)
-        {
-            last_selection_rect_ = committed_selection_rect_;
-            Finish(OverlayResult::ConfirmedWithDefaultAction);
-            return true;
-        }
-
         if (w_param == 'A' && (GetKeyState(VK_CONTROL) & 0x8000) != 0)
         {
             committed_selection_rect_ = OverlayRectScreen();
@@ -1389,7 +1372,6 @@ namespace capturezy::feature_capture
             has_selection_ = false;
             drag_in_progress_ = false;
             has_click_candidate_window_ = false;
-            confirm_selection_on_click_ = false;
             resize_anchor_selection_rect_ = {};
             resize_anchor_handle_ = ResizeHandle::None;
             if (has_committed_selection_)
@@ -1418,7 +1400,6 @@ namespace capturezy::feature_capture
             drag_in_progress_ = false;
             has_selection_ = false;
             has_click_candidate_window_ = false;
-            confirm_selection_on_click_ = false;
             pointer_drag_mode_ = PointerDragMode::None;
             active_resize_handle_ = ResizeHandle::None;
             resize_anchor_handle_ = ResizeHandle::None;
@@ -1446,7 +1427,6 @@ namespace capturezy::feature_capture
         drag_in_progress_ = false;
         has_selection_ = false;
         has_click_candidate_window_ = false;
-        confirm_selection_on_click_ = IsPointInsideCommittedSelection(drag_start_);
         pointer_drag_mode_ = PointerDragMode::CreateSelection;
         if (!has_committed_selection_ && has_hover_window_)
         {
@@ -1486,7 +1466,6 @@ namespace capturezy::feature_capture
                     drag_in_progress_ = true;
                     has_selection_ = true;
                     has_click_candidate_window_ = false;
-                    confirm_selection_on_click_ = false;
                 }
             }
 
@@ -1528,14 +1507,12 @@ namespace capturezy::feature_capture
         pointer_down_ = false;
         bool const was_dragging = drag_in_progress_;
         bool const had_click_candidate = has_click_candidate_window_;
-        bool const confirm_selection_on_click = confirm_selection_on_click_;
         PointerDragMode const pointer_drag_mode = pointer_drag_mode_;
         ToolbarAction const pressed_toolbar_action = pressed_toolbar_action_;
         RECT const click_candidate_rect = click_candidate_window_rect_;
         ReleaseCapture();
         drag_current_.x = GET_X_LPARAM(l_param);
         drag_current_.y = GET_Y_LPARAM(l_param);
-        confirm_selection_on_click_ = false;
         pointer_drag_mode_ = PointerDragMode::None;
         active_resize_handle_ = ResizeHandle::None;
         resize_anchor_selection_rect_ = {};
@@ -1548,11 +1525,6 @@ namespace capturezy::feature_capture
             {
                 switch (pressed_toolbar_action)
                 {
-                case ToolbarAction::Confirm:
-                    last_selection_rect_ = committed_selection_rect_;
-                    Finish(OverlayResult::ConfirmedWithDefaultAction);
-                    return;
-
                 case ToolbarAction::CopyAndPin:
                     last_selection_rect_ = committed_selection_rect_;
                     Finish(OverlayResult::CopyAndPin);
@@ -1630,13 +1602,6 @@ namespace capturezy::feature_capture
                 UpdateCursorForOverlayPoint(drag_current_);
                 InvalidateRect(overlay_window_, nullptr, FALSE);
             }
-            return;
-        }
-
-        if (confirm_selection_on_click && has_committed_selection_)
-        {
-            last_selection_rect_ = committed_selection_rect_;
-            Finish(OverlayResult::ConfirmedWithDefaultAction);
             return;
         }
     }
@@ -1749,9 +1714,11 @@ namespace capturezy::feature_capture
                     OffsetRect(&local_toolbar_rect, -paint_rect.left, -paint_rect.top);
                     PaintToolbarBackground(buffer_device_context, local_toolbar_rect);
 
-                    constexpr std::array<ToolbarAction, 5> kToolbarActions{
-                        ToolbarAction::Confirm,    ToolbarAction::CopyAndPin, ToolbarAction::CopyOnly,
-                        ToolbarAction::SaveToFile, ToolbarAction::Cancel,
+                    constexpr std::array<ToolbarAction, 4> kToolbarActions{
+                        ToolbarAction::CopyAndPin,
+                        ToolbarAction::CopyOnly,
+                        ToolbarAction::SaveToFile,
+                        ToolbarAction::Cancel,
                     };
                     for (ToolbarAction const action : kToolbarActions)
                     {
@@ -1865,7 +1832,6 @@ namespace capturezy::feature_capture
         case WM_CAPTURECHANGED:
             pointer_down_ = false;
             drag_in_progress_ = false;
-            confirm_selection_on_click_ = false;
             has_click_candidate_window_ = false;
             pointer_drag_mode_ = PointerDragMode::None;
             active_resize_handle_ = ResizeHandle::None;

@@ -16,7 +16,6 @@ namespace capturezy::feature_capture
     enum class OverlayResult : std::uint8_t
     {
         Cancelled,
-        ConfirmedWithDefaultAction,
         CopyAndPin,
         CopyOnly,
         SaveToFile,
@@ -63,7 +62,6 @@ namespace capturezy::feature_capture
         enum class ToolbarAction : std::uint8_t
         {
             None,
-            Confirm,
             CopyAndPin,
             CopyOnly,
             SaveToFile,
@@ -127,7 +125,6 @@ namespace capturezy::feature_capture
         bool has_hover_window_{false};
         bool has_click_candidate_window_{false};
         bool has_committed_selection_{false};
-        bool confirm_selection_on_click_{false};
         PointerDragMode pointer_drag_mode_{PointerDragMode::None};
         ResizeHandle active_resize_handle_{ResizeHandle::None};
         ResizeHandle resize_anchor_handle_{ResizeHandle::None};
