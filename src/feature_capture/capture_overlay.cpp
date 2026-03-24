@@ -21,7 +21,7 @@ namespace capturezy::feature_capture
         constexpr wchar_t const *kOverlayInstruction = L"窗口预选：悬停高亮，单击选择窗口；也可按住左键拖拽框选，Ctrl+"
                                                        L"A 全屏，右键或 Esc 取消";
         constexpr wchar_t const *kSelectionAdjustmentInstruction =
-            L"已选择区域：拖动边框可调大小，拖动区域内部可移动；使用下方工具条执行贴图、复制或保存，右键重置，Esc 取消";
+            L"已选择区域：拖动边框可调大小，拖动区域内部可移动；P 贴图，Ctrl+C 复制，Ctrl+S 保存，右键重置，Esc 取消";
         constexpr int kDragThreshold = 4;
         constexpr int kSelectionResizePadding = 6;
         constexpr int kMinSelectionExtent = 8;
@@ -1357,6 +1357,17 @@ namespace capturezy::feature_capture
         }
     }
 
+    void CaptureOverlay::FinishCommittedSelection(OverlayResult result) noexcept
+    {
+        if (!has_committed_selection_)
+        {
+            return;
+        }
+
+        last_selection_rect_ = committed_selection_rect_;
+        Finish(result);
+    }
+
     bool CaptureOverlay::HandleKeyDown(WPARAM w_param)
     {
         if (w_param == VK_ESCAPE)
@@ -1365,23 +1376,62 @@ namespace capturezy::feature_capture
             return true;
         }
 
-        if (w_param == 'A' && (GetKeyState(VK_CONTROL) & 0x8000) != 0)
+        if (!has_committed_selection_)
         {
-            committed_selection_rect_ = OverlayRectScreen();
-            has_committed_selection_ = IsRectNonEmpty(committed_selection_rect_);
-            has_selection_ = false;
-            drag_in_progress_ = false;
-            has_click_candidate_window_ = false;
-            resize_anchor_selection_rect_ = {};
-            resize_anchor_handle_ = ResizeHandle::None;
-            if (has_committed_selection_)
+            if (w_param == 'A' && (GetKeyState(VK_CONTROL) & 0x8000) != 0)
             {
-                POINT cursor_position{};
-                GetCursorPos(&cursor_position);
-                ScreenToClient(overlay_window_, &cursor_position);
-                UpdateCursorForOverlayPoint(cursor_position);
-                InvalidateRect(overlay_window_, nullptr, FALSE);
+                committed_selection_rect_ = OverlayRectScreen();
+                has_committed_selection_ = IsRectNonEmpty(committed_selection_rect_);
+                has_selection_ = false;
+                drag_in_progress_ = false;
+                has_click_candidate_window_ = false;
+                resize_anchor_selection_rect_ = {};
+                resize_anchor_handle_ = ResizeHandle::None;
+                if (has_committed_selection_)
+                {
+                    POINT cursor_position{};
+                    GetCursorPos(&cursor_position);
+                    ScreenToClient(overlay_window_, &cursor_position);
+                    UpdateCursorForOverlayPoint(cursor_position);
+                    InvalidateRect(overlay_window_, nullptr, FALSE);
+                }
+                return true;
             }
+
+            return false;
+        }
+
+        if (w_param == 'P')
+        {
+            FinishCommittedSelection(OverlayResult::CopyAndPin);
+            return true;
+        }
+
+        if (w_param == 'C' && (GetKeyState(VK_CONTROL) & 0x8000) != 0)
+        {
+            FinishCommittedSelection(OverlayResult::CopyOnly);
+            return true;
+        }
+
+        if (w_param == 'S' && (GetKeyState(VK_CONTROL) & 0x8000) != 0)
+        {
+            FinishCommittedSelection(OverlayResult::SaveToFile);
+            return true;
+        }
+
+        if (w_param == VK_BACK || w_param == VK_DELETE)
+        {
+            RECT old_preview_rect{};
+            bool const had_old_preview = TryGetCurrentPreviewRect(old_preview_rect);
+            ResetCommittedSelection();
+            POINT cursor_position{};
+            GetCursorPos(&cursor_position);
+            (void)UpdateHoverWindowFromScreenPoint(cursor_position);
+            ScreenToClient(overlay_window_, &cursor_position);
+            UpdateCursorForOverlayPoint(cursor_position);
+            RECT new_preview_rect{};
+            bool const had_new_preview = TryGetCurrentPreviewRect(new_preview_rect);
+            InvalidatePreviewRectChange(old_preview_rect, had_old_preview, new_preview_rect, had_new_preview);
             return true;
         }
 
@@ -1526,18 +1576,15 @@ namespace capturezy::feature_capture
                 switch (pressed_toolbar_action)
                 {
                 case ToolbarAction::CopyAndPin:
-                    last_selection_rect_ = committed_selection_rect_;
-                    Finish(OverlayResult::CopyAndPin);
+                    FinishCommittedSelection(OverlayResult::CopyAndPin);
                     return;
 
                 case ToolbarAction::CopyOnly:
-                    last_selection_rect_ = committed_selection_rect_;
-                    Finish(OverlayResult::CopyOnly);
+                    FinishCommittedSelection(OverlayResult::CopyOnly);
                     return;
 
                 case ToolbarAction::SaveToFile:
-                    last_selection_rect_ = committed_selection_rect_;
-                    Finish(OverlayResult::SaveToFile);
+                    FinishCommittedSelection(OverlayResult::SaveToFile);
                     return;
 
                 case ToolbarAction::Cancel:

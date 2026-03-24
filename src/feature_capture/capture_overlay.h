@@ -93,6 +93,7 @@ namespace capturezy::feature_capture
         void UpdateMoveSelection(POINT overlay_point) noexcept;
         void BeginResizeSelection(POINT overlay_point) noexcept;
         void UpdateResizeSelection(POINT overlay_point) noexcept;
+        void FinishCommittedSelection(OverlayResult result) noexcept;
         [[nodiscard]] bool HandleKeyDown(WPARAM w_param);
         void BeginPointerSelection(LPARAM l_param) noexcept;
         void UpdatePointerSelection(LPARAM l_param);
