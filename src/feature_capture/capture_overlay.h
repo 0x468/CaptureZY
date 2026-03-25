@@ -118,6 +118,7 @@ namespace capturezy::feature_capture
         POINT drag_start_{};
         POINT drag_current_{};
         RECT hover_window_rect_{};
+        RECT cached_overflow_tray_rect_{};
         RECT click_candidate_window_rect_{};
         RECT committed_selection_rect_{};
         RECT resize_anchor_selection_rect_{};
@@ -125,6 +126,7 @@ namespace capturezy::feature_capture
         bool drag_in_progress_{false};
         bool has_selection_{false};
         bool has_hover_window_{false};
+        bool has_cached_overflow_tray_{false};
         bool has_click_candidate_window_{false};
         bool has_committed_selection_{false};
         bool debug_overlay_enabled_{false};
@@ -133,5 +135,6 @@ namespace capturezy::feature_capture
         ResizeHandle resize_anchor_handle_{ResizeHandle::None};
         ToolbarAction pressed_toolbar_action_{ToolbarAction::None};
         std::wstring hover_debug_text_;
+        std::wstring cached_overflow_tray_debug_text_;
     };
 } // namespace capturezy::feature_capture

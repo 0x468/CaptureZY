@@ -145,6 +145,12 @@ namespace capturezy::feature_capture
                    WindowClassNameEquals(window, L"TopLevelWindowForOverflowXamlIsland");
         }
 
+        [[nodiscard]] bool IsOverflowTrayWindow(HWND window) noexcept
+        {
+            return WindowClassNameEquals(window, L"NotifyIconOverflowWindow") ||
+                   WindowClassNameEquals(window, L"TopLevelWindowForOverflowXamlIsland");
+        }
+
         [[nodiscard]] bool IsDesktopShellWindow(HWND window) noexcept
         {
             return WindowClassNameEquals(window, L"Progman") || WindowClassNameEquals(window, L"WorkerW");
@@ -861,6 +867,7 @@ namespace capturezy::feature_capture
         drag_start_ = {};
         drag_current_ = {};
         hover_window_rect_ = {};
+        cached_overflow_tray_rect_ = {};
         click_candidate_window_rect_ = {};
         committed_selection_rect_ = {};
         resize_anchor_selection_rect_ = {};
@@ -869,9 +876,11 @@ namespace capturezy::feature_capture
         drag_in_progress_ = false;
         has_selection_ = false;
         has_hover_window_ = false;
+        has_cached_overflow_tray_ = false;
         has_click_candidate_window_ = false;
         has_committed_selection_ = false;
         hover_debug_text_.clear();
+        cached_overflow_tray_debug_text_.clear();
         pointer_drag_mode_ = PointerDragMode::None;
         active_resize_handle_ = ResizeHandle::None;
         pressed_toolbar_action_ = ToolbarAction::None;
@@ -930,7 +939,10 @@ namespace capturezy::feature_capture
         overlay_window_ = nullptr;
         frozen_background_ = {};
         dimmed_background_ = {};
+        cached_overflow_tray_rect_ = {};
+        has_cached_overflow_tray_ = false;
         hover_debug_text_.clear();
+        cached_overflow_tray_debug_text_.clear();
     }
 
     bool CaptureOverlay::IsVisible() const noexcept
@@ -1362,13 +1374,29 @@ namespace capturezy::feature_capture
         RECT window_rect{};
         HWND matched_window = nullptr;
         bool const found = FindTopLevelWindowRectAtPoint(overlay_window_, screen_point, window_rect, matched_window);
+        bool resolved_found = found;
+        RECT resolved_rect = window_rect;
         std::wstring new_hover_debug_text = found ? BuildHoverDebugText(matched_window, window_rect)
                                                   : L"(no hover window)";
-        bool const changed = found != has_hover_window_ ||
-                             (found && EqualRect(&window_rect, &hover_window_rect_) == FALSE) ||
+        if (found && matched_window != nullptr && IsOverflowTrayWindow(matched_window))
+        {
+            cached_overflow_tray_rect_ = window_rect;
+            cached_overflow_tray_debug_text_ = new_hover_debug_text;
+            has_cached_overflow_tray_ = true;
+        }
+        else if (has_cached_overflow_tray_ && PtInRect(&cached_overflow_tray_rect_, screen_point) != FALSE)
+        {
+            resolved_found = true;
+            resolved_rect = cached_overflow_tray_rect_;
+            new_hover_debug_text = cached_overflow_tray_debug_text_;
+            new_hover_debug_text += L"\nSource: cached overflow tray";
+        }
+
+        bool const changed = resolved_found != has_hover_window_ ||
+                             (resolved_found && EqualRect(&resolved_rect, &hover_window_rect_) == FALSE) ||
                              new_hover_debug_text != hover_debug_text_;
-        has_hover_window_ = found;
-        hover_window_rect_ = found ? window_rect : RECT{};
+        has_hover_window_ = resolved_found;
+        hover_window_rect_ = resolved_found ? resolved_rect : RECT{};
         hover_debug_text_ = std::move(new_hover_debug_text);
         return changed;
     }
