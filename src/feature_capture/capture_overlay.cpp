@@ -524,6 +524,8 @@ namespace capturezy::feature_capture
             return (ex_style & WS_EX_TOOLWINDOW) != 0 && !IsTaskbarShellWindow(window) && !allow_desktop_shell_window;
         }
 
+        // Win32 选区命中需要串起顶层窗口、popup root 与桌面回退，主流程保留在一处更容易核对边界顺序。
+        // NOLINTNEXTLINE(readability-function-cognitive-complexity)
         [[nodiscard]] bool FindTopLevelWindowRectAtPoint(HWND excluded_window, POINT screen_point, RECT &window_rect,
                                                          HWND &matched_window) noexcept
         {
@@ -1940,6 +1942,8 @@ namespace capturezy::feature_capture
         }
     }
 
+    // 绘制流程要按背景、预览、控制点、工具条、指引文案与 HUD 固定顺序叠加，暂时保留在单入口。
+    // NOLINTNEXTLINE(readability-function-cognitive-complexity)
     void CaptureOverlay::PaintOverlay() noexcept
     {
         PAINTSTRUCT paint{};
