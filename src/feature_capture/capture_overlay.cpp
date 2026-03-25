@@ -41,6 +41,9 @@ namespace capturezy::feature_capture
         constexpr int kToolbarPadding = 8;
         constexpr int kToolbarMargin = 10;
         constexpr int kToolbarCornerRadius = 10;
+        constexpr int kDebugOverlayMargin = 16;
+        constexpr int kDebugOverlayPadding = 10;
+        constexpr int kDebugOverlayMaxWidth = 520;
 
         void AlphaFillRect(HDC destination_device_context, RECT rect, BYTE alpha) noexcept;
 
@@ -168,6 +171,14 @@ namespace capturezy::feature_capture
         void TrimVisibleFrameBorder(HWND window, RECT &window_rect) noexcept
         {
             if (IsTaskbarShellWindow(window) || IsDesktopShellWindow(window))
+            {
+                return;
+            }
+
+            // Maximized windows already map to the visible work area bounds.
+            // Trimming the DWM-reported frame border here shrinks them by 1px on
+            // each edge, which is why they end up smaller than Snipaste.
+            if (IsZoomed(window) != FALSE)
             {
                 return;
             }
@@ -507,12 +518,13 @@ namespace capturezy::feature_capture
             return (ex_style & WS_EX_TOOLWINDOW) != 0 && !IsTaskbarShellWindow(window) && !allow_desktop_shell_window;
         }
 
-        [[nodiscard]] bool FindTopLevelWindowRectAtPoint(HWND excluded_window, POINT screen_point,
-                                                         RECT &window_rect) noexcept
+        [[nodiscard]] bool FindTopLevelWindowRectAtPoint(HWND excluded_window, POINT screen_point, RECT &window_rect,
+                                                         HWND &matched_window) noexcept
         {
             RECT const virtual_screen_rect = VirtualScreenRect();
             RECT desktop_shell_fallback_rect{};
             bool has_desktop_shell_fallback = false;
+            matched_window = nullptr;
             for (HWND window = GetTopWindow(nullptr); window != nullptr; window = GetWindow(window, GW_HWNDNEXT))
             {
                 bool const is_desktop_shell_window = IsDesktopShellWindow(window);
@@ -543,6 +555,7 @@ namespace capturezy::feature_capture
                             if (!candidate_is_desktop_shell_window)
                             {
                                 window_rect = candidate_rect;
+                                matched_window = candidate_window;
                                 return true;
                             }
 
@@ -564,16 +577,238 @@ namespace capturezy::feature_capture
                 }
 
                 window_rect = direct_rect;
+                matched_window = window;
                 return true;
             }
 
             if (has_desktop_shell_fallback)
             {
                 window_rect = desktop_shell_fallback_rect;
+                matched_window = nullptr;
                 return true;
             }
 
             return false;
+        }
+
+        [[nodiscard]] std::wstring ProcessBaseName(DWORD process_id)
+        {
+            if (process_id == 0)
+            {
+                return L"(none)";
+            }
+
+            HANDLE process_handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, process_id);
+            if (process_handle == nullptr)
+            {
+                return L"(open failed)";
+            }
+
+            std::array<wchar_t, 1024> process_path{};
+            auto process_path_length = static_cast<DWORD>(process_path.size());
+            bool const queried = QueryFullProcessImageNameW(process_handle, 0, process_path.data(),
+                                                            &process_path_length) != FALSE;
+            CloseHandle(process_handle);
+            if (!queried || process_path_length == 0)
+            {
+                return L"(query failed)";
+            }
+
+            std::wstring full_path(process_path.data(), process_path_length);
+            std::size_t const separator = full_path.find_last_of(L"\\/");
+            return separator == std::wstring::npos ? full_path : full_path.substr(separator + 1);
+        }
+
+        [[nodiscard]] std::wstring WindowTextOrPlaceholder(HWND window)
+        {
+            std::array<wchar_t, 512> text{};
+            int const text_length = GetWindowTextW(window, text.data(), static_cast<int>(text.size()));
+            return text_length > 0 ? std::wstring(text.data(), text_length) : L"(empty)";
+        }
+
+        [[nodiscard]] std::wstring ClassNameOrPlaceholder(HWND window)
+        {
+            std::array<wchar_t, 256> class_name{};
+            int const class_name_length = GetClassNameW(window, class_name.data(), static_cast<int>(class_name.size()));
+            return class_name_length > 0 ? std::wstring(class_name.data(), class_name_length) : L"(unknown)";
+        }
+
+        [[nodiscard]] std::wstring HexValue(std::uintptr_t value)
+        {
+            constexpr std::array<wchar_t, 16> kHexDigits{
+                L'0', L'1', L'2', L'3', L'4', L'5', L'6', L'7', L'8', L'9', L'A', L'B', L'C', L'D', L'E', L'F',
+            };
+
+            std::wstring hex_text = L"0x";
+            bool has_non_zero_digit = false;
+            for (int shift = static_cast<int>((sizeof(std::uintptr_t) * 8U) - 4U); shift >= 0; shift -= 4)
+            {
+                std::uintptr_t const nibble = (value >> shift) & 0xFU;
+                if (!has_non_zero_digit && nibble == 0 && shift > 0)
+                {
+                    continue;
+                }
+
+                has_non_zero_digit = true;
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
+                hex_text.push_back(kHexDigits[static_cast<std::size_t>(nibble)]);
+            }
+
+            if (!has_non_zero_digit)
+            {
+                hex_text.push_back(L'0');
+            }
+
+            return hex_text;
+        }
+
+        [[nodiscard]] std::wstring BuildHoverDebugText(HWND window, RECT rect)
+        {
+            std::wstring debug_text;
+            debug_text += L"[Capture Debug]\n";
+            debug_text += L"F2: toggle HUD | Ctrl+F2: copy\n";
+            debug_text += L"Rect: ";
+            debug_text += std::to_wstring(rect.left);
+            debug_text += L",";
+            debug_text += std::to_wstring(rect.top);
+            debug_text += L" - ";
+            debug_text += std::to_wstring(rect.right);
+            debug_text += L",";
+            debug_text += std::to_wstring(rect.bottom);
+            debug_text += L"\n";
+            debug_text += L"Size: ";
+            debug_text += std::to_wstring(std::max<LONG>(0, rect.right - rect.left));
+            debug_text += L" x ";
+            debug_text += std::to_wstring(std::max<LONG>(0, rect.bottom - rect.top));
+
+            if (window == nullptr)
+            {
+                debug_text += L"\nSource: desktop fallback";
+                return debug_text;
+            }
+
+            DWORD process_id = 0;
+            GetWindowThreadProcessId(window, &process_id);
+            LONG_PTR const style = GetWindowLongPtrW(window, GWL_STYLE);
+            LONG_PTR const ex_style = GetWindowLongPtrW(window, GWL_EXSTYLE);
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+            auto const window_value = reinterpret_cast<std::uintptr_t>(window);
+            debug_text += L"\nHWND: ";
+            debug_text += HexValue(window_value);
+            debug_text += L"\nClass: ";
+            debug_text += ClassNameOrPlaceholder(window);
+            debug_text += L"\nTitle: ";
+            debug_text += WindowTextOrPlaceholder(window);
+            debug_text += L"\nPID: ";
+            debug_text += std::to_wstring(process_id);
+            debug_text += L"\nProcess: ";
+            debug_text += ProcessBaseName(process_id);
+            debug_text += L"\nStyle: ";
+            debug_text += HexValue(static_cast<std::uintptr_t>(style));
+            debug_text += L"\nExStyle: ";
+            debug_text += HexValue(static_cast<std::uintptr_t>(ex_style));
+            return debug_text;
+        }
+
+        [[nodiscard]] bool CopyTextToClipboard(HWND owner_window, std::wstring const &text) noexcept
+        {
+            if (OpenClipboard(owner_window) == FALSE)
+            {
+                CAPTUREZY_LOG_ERROR(core::LogCategory::Clipboard, L"OpenClipboard failed for debug text copy.");
+                return false;
+            }
+
+            if (EmptyClipboard() == FALSE)
+            {
+                CAPTUREZY_LOG_ERROR(core::LogCategory::Clipboard, L"EmptyClipboard failed for debug text copy.");
+                CloseClipboard();
+                return false;
+            }
+
+            std::size_t const byte_count = (text.size() + 1) * sizeof(wchar_t);
+            HGLOBAL const clipboard_memory = GlobalAlloc(GMEM_MOVEABLE, byte_count);
+            if (clipboard_memory == nullptr)
+            {
+                CAPTUREZY_LOG_ERROR(core::LogCategory::Clipboard, L"GlobalAlloc failed for debug text copy.");
+                CloseClipboard();
+                return false;
+            }
+
+            void *locked_memory = GlobalLock(clipboard_memory);
+            if (locked_memory == nullptr)
+            {
+                CAPTUREZY_LOG_ERROR(core::LogCategory::Clipboard, L"GlobalLock failed for debug text copy.");
+                GlobalFree(clipboard_memory);
+                CloseClipboard();
+                return false;
+            }
+
+            std::copy_n(text.c_str(), text.size() + 1, static_cast<wchar_t *>(locked_memory));
+            GlobalUnlock(clipboard_memory);
+
+            if (SetClipboardData(CF_UNICODETEXT, clipboard_memory) == nullptr)
+            {
+                CAPTUREZY_LOG_ERROR(core::LogCategory::Clipboard, L"SetClipboardData failed for debug text copy.");
+                GlobalFree(clipboard_memory);
+                CloseClipboard();
+                return false;
+            }
+
+            CloseClipboard();
+            CAPTUREZY_LOG_INFO(core::LogCategory::Clipboard, L"Copied capture debug text to clipboard.");
+            return true;
+        }
+
+        // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+        void PaintDebugOverlay(HDC destination_device_context, RECT client_rect, RECT paint_rect,
+                               std::wstring const &debug_text) noexcept
+        {
+            if (debug_text.empty())
+            {
+                return;
+            }
+
+            LONG const max_text_right = std::min(client_rect.right - static_cast<LONG>(kDebugOverlayMargin),
+                                                 static_cast<LONG>(kDebugOverlayMargin + kDebugOverlayMaxWidth));
+            LONG const max_text_bottom = client_rect.bottom - static_cast<LONG>(kDebugOverlayMargin);
+            if (max_text_right <= kDebugOverlayMargin || max_text_bottom <= kDebugOverlayMargin)
+            {
+                return;
+            }
+
+            RECT text_rect{
+                .left = kDebugOverlayMargin,
+                .top = kDebugOverlayMargin,
+                .right = max_text_right,
+                .bottom = max_text_bottom,
+            };
+            DrawTextW(destination_device_context, debug_text.c_str(), -1, &text_rect,
+                      DT_LEFT | DT_TOP | DT_WORDBREAK | DT_CALCRECT);
+            InflateRect(&text_rect, kDebugOverlayPadding, kDebugOverlayPadding);
+
+            RECT clipped_rect{};
+            if (IntersectRect(&clipped_rect, &text_rect, &paint_rect) == FALSE)
+            {
+                return;
+            }
+
+            HBRUSH background_brush = CreateSolidBrush(RGB(0, 0, 0));
+            HPEN frame_pen = CreatePen(PS_SOLID, 1, RGB(0, 255, 170));
+            HGDIOBJ old_brush = SelectObject(destination_device_context, background_brush);
+            HGDIOBJ old_pen = SelectObject(destination_device_context, frame_pen);
+            RoundRect(destination_device_context, text_rect.left, text_rect.top, text_rect.right, text_rect.bottom, 8,
+                      8);
+            SelectObject(destination_device_context, old_pen);
+            SelectObject(destination_device_context, old_brush);
+            DeleteObject(frame_pen);
+            DeleteObject(background_brush);
+
+            RECT content_rect = text_rect;
+            InflateRect(&content_rect, -kDebugOverlayPadding, -kDebugOverlayPadding);
+            SetBkMode(destination_device_context, TRANSPARENT);
+            SetTextColor(destination_device_context, RGB(255, 255, 255));
+            DrawTextW(destination_device_context, debug_text.c_str(), -1, &content_rect,
+                      DT_LEFT | DT_TOP | DT_WORDBREAK);
         }
 
         void AlphaFillRect(HDC destination_device_context, RECT rect, BYTE alpha) noexcept
@@ -636,6 +871,7 @@ namespace capturezy::feature_capture
         has_hover_window_ = false;
         has_click_candidate_window_ = false;
         has_committed_selection_ = false;
+        hover_debug_text_.clear();
         pointer_drag_mode_ = PointerDragMode::None;
         active_resize_handle_ = ResizeHandle::None;
         pressed_toolbar_action_ = ToolbarAction::None;
@@ -644,6 +880,7 @@ namespace capturezy::feature_capture
         {
             ShowWindow(overlay_window_, SW_SHOW);
             SetForegroundWindow(overlay_window_);
+            SetFocus(overlay_window_);
             return true;
         }
 
@@ -693,6 +930,7 @@ namespace capturezy::feature_capture
         overlay_window_ = nullptr;
         frozen_background_ = {};
         dimmed_background_ = {};
+        hover_debug_text_.clear();
     }
 
     bool CaptureOverlay::IsVisible() const noexcept
@@ -1119,14 +1357,19 @@ namespace capturezy::feature_capture
         return false;
     }
 
-    bool CaptureOverlay::UpdateHoverWindowFromScreenPoint(POINT screen_point) noexcept
+    bool CaptureOverlay::UpdateHoverWindowFromScreenPoint(POINT screen_point)
     {
         RECT window_rect{};
-        bool const found = FindTopLevelWindowRectAtPoint(overlay_window_, screen_point, window_rect);
+        HWND matched_window = nullptr;
+        bool const found = FindTopLevelWindowRectAtPoint(overlay_window_, screen_point, window_rect, matched_window);
+        std::wstring new_hover_debug_text = found ? BuildHoverDebugText(matched_window, window_rect)
+                                                  : L"(no hover window)";
         bool const changed = found != has_hover_window_ ||
-                             (found && EqualRect(&window_rect, &hover_window_rect_) == FALSE);
+                             (found && EqualRect(&window_rect, &hover_window_rect_) == FALSE) ||
+                             new_hover_debug_text != hover_debug_text_;
         has_hover_window_ = found;
         hover_window_rect_ = found ? window_rect : RECT{};
+        hover_debug_text_ = std::move(new_hover_debug_text);
         return changed;
     }
 
@@ -1376,6 +1619,18 @@ namespace capturezy::feature_capture
             return true;
         }
 
+        if (w_param == VK_F2)
+        {
+            if ((GetKeyState(VK_CONTROL) & 0x8000) != 0)
+            {
+                return CopyTextToClipboard(overlay_window_, hover_debug_text_);
+            }
+
+            debug_overlay_enabled_ = !debug_overlay_enabled_;
+            InvalidateRect(overlay_window_, nullptr, FALSE);
+            return true;
+        }
+
         if (!has_committed_selection_)
         {
             if (w_param == 'A' && (GetKeyState(VK_CONTROL) & 0x8000) != 0)
@@ -1544,6 +1799,10 @@ namespace capturezy::feature_capture
             RECT new_preview_rect{};
             bool const had_new_preview = TryGetCurrentPreviewRect(new_preview_rect);
             InvalidatePreviewRectChange(old_preview_rect, had_old_preview, new_preview_rect, had_new_preview);
+            if (debug_overlay_enabled_)
+            {
+                InvalidateRect(overlay_window_, nullptr, FALSE);
+            }
         }
     }
 
@@ -1784,6 +2043,10 @@ namespace capturezy::feature_capture
         DrawTextW(buffer_device_context,
                   has_committed_selection_ ? kSelectionAdjustmentInstruction : kOverlayInstruction, -1,
                   &local_client_rect, DT_CENTER | DT_WORDBREAK | DT_TOP);
+        if (debug_overlay_enabled_)
+        {
+            PaintDebugOverlay(buffer_device_context, client_rect, paint_rect, hover_debug_text_);
+        }
 
         (void)BitBlt(device_context, paint_rect.left, paint_rect.top, paint_width, paint_height, buffer_device_context,
                      0, 0, SRCCOPY);

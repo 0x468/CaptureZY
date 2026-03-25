@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 
 // clang-format off
 #include <windows.h>
@@ -84,7 +85,7 @@ namespace capturezy::feature_capture
         [[nodiscard]] static RECT ToolbarButtonRect(RECT toolbar_rect, ToolbarAction action) noexcept;
         [[nodiscard]] ToolbarAction HitTestToolbarAction(POINT overlay_point) const noexcept;
         [[nodiscard]] bool TryGetCurrentPreviewRect(RECT &rect) const noexcept;
-        [[nodiscard]] bool UpdateHoverWindowFromScreenPoint(POINT screen_point) noexcept;
+        [[nodiscard]] bool UpdateHoverWindowFromScreenPoint(POINT screen_point);
         void InvalidatePreviewRectChange(RECT old_preview_rect, bool had_old_preview, RECT new_preview_rect,
                                          bool had_new_preview) noexcept;
         void UpdateCursorForOverlayPoint(POINT overlay_point) noexcept;
@@ -126,9 +127,11 @@ namespace capturezy::feature_capture
         bool has_hover_window_{false};
         bool has_click_candidate_window_{false};
         bool has_committed_selection_{false};
+        bool debug_overlay_enabled_{false};
         PointerDragMode pointer_drag_mode_{PointerDragMode::None};
         ResizeHandle active_resize_handle_{ResizeHandle::None};
         ResizeHandle resize_anchor_handle_{ResizeHandle::None};
         ToolbarAction pressed_toolbar_action_{ToolbarAction::None};
+        std::wstring hover_debug_text_;
     };
 } // namespace capturezy::feature_capture
