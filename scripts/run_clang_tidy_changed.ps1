@@ -6,6 +6,8 @@ param(
     [switch]$NoQuiet
 )
 
+. (Join-Path $PSScriptRoot 'clang_tidy_header_probe.ps1')
+
 $sourcePatterns = @('src/*.cpp', 'src/*/*.cpp')
 $headerPatterns = @('src/*.h', 'src/*/*.h')
 $projectRoot = (Get-Location).Path
@@ -84,6 +86,53 @@ function Get-ImpactedSources([string[]]$changedHeaders, [string[]]$allFiles) {
     return @($impactedSources | Sort-Object)
 }
 
+function Get-ReachableHeadersFromSources([string[]]$sourceFiles, [string[]]$allFiles) {
+    $includeTargets = @{}
+    $projectFiles = $allFiles | ForEach-Object { Normalize-RepoPath($_) }
+
+    foreach ($file in $projectFiles) {
+        $includeTargets[$file] = New-Object System.Collections.Generic.HashSet[string]
+        foreach ($line in Get-Content $file) {
+            if ($line -match '^\s*#include\s+"([^"]+)"') {
+                $target = Resolve-IncludeTarget $file $Matches[1]
+                if (-not $target) {
+                    continue
+                }
+
+                $null = $includeTargets[$file].Add($target)
+            }
+        }
+    }
+
+    $pending = New-Object System.Collections.Generic.Queue[string]
+    $visited = New-Object System.Collections.Generic.HashSet[string]
+    $reachableHeaders = New-Object System.Collections.Generic.HashSet[string]
+
+    foreach ($source in $sourceFiles | ForEach-Object { Normalize-RepoPath($_) }) {
+        $pending.Enqueue($source)
+        $null = $visited.Add($source)
+    }
+
+    while ($pending.Count -gt 0) {
+        $current = $pending.Dequeue()
+        if (-not $includeTargets.ContainsKey($current)) {
+            continue
+        }
+
+        foreach ($target in $includeTargets[$current]) {
+            if ($target -like '*.h') {
+                $null = $reachableHeaders.Add($target)
+            }
+
+            if ($visited.Add($target)) {
+                $pending.Enqueue($target)
+            }
+        }
+    }
+
+    return @($reachableHeaders | Sort-Object)
+}
+
 $compileCommands = Join-Path $BuildDir "compile_commands.json"
 if (-not (Test-Path $compileCommands)) {
     Write-Error "未找到 $compileCommands，请先执行 CMake 配置。"
@@ -128,6 +177,7 @@ $changedHeaders = $changedFiles | Where-Object { $_ -like '*.h' }
 $allProjectFiles = git ls-files -- $sourcePatterns $headerPatterns |
     Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
     Sort-Object -Unique
+$sourceReachableHeaders = Get-ReachableHeadersFromSources $changedSources $allProjectFiles
 
 if ($changedHeaders) {
     $headerImpactedSources = Get-ImpactedSources $changedHeaders $allProjectFiles
@@ -168,8 +218,20 @@ $arguments += $files
 & clang-tidy @arguments
 $clangTidyExitCode = $LASTEXITCODE
 
+$headerProbeExitCode = 0
+if ($changedHeaders -or $sourceReachableHeaders) {
+    $headersToProbe = @(@($changedHeaders) + @($sourceReachableHeaders)) |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+        Sort-Object -Unique
+    $headerProbeExitCode = Invoke-ClangTidyHeaderProbes -Headers $headersToProbe -BuildDir $BuildDir -NoQuiet:$NoQuiet
+}
+
 if ($filteredCompileDir) {
     Remove-Item -Path $filteredCompileDir -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-exit $clangTidyExitCode
+if ($clangTidyExitCode -ne 0) {
+    exit $clangTidyExitCode
+}
+
+exit $headerProbeExitCode
