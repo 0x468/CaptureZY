@@ -15,3 +15,6 @@ Checks: >
 WarningsAsErrors: ''
 HeaderFilterRegex: 'src/.*'
 FormatStyle: none
+CheckOptions:
+  - key: cppcoreguidelines-macro-usage.AllowedRegexp
+    value: '^CAPTUREZY_LOG_.*$'
