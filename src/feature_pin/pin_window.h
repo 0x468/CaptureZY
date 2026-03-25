@@ -63,6 +63,11 @@ namespace capturezy::feature_pin
         void BeginDrag(POINT cursor_screen_point) noexcept;
         void UpdateDrag(POINT cursor_screen_point) noexcept;
         void EndDrag() noexcept;
+        [[nodiscard]] LRESULT HandleCommand(WORD command_id);
+        void ResetScaleToDefault() noexcept;
+        void ShowContextMenuFromClientPoint(LPARAM l_param) noexcept;
+        void HandleWindowPosChanged() noexcept;
+        void CleanupDestroyedWindow() noexcept;
         [[nodiscard]] LRESULT HandleMessage(UINT message, WPARAM w_param, LPARAM l_param);
 
         static LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM w_param, LPARAM l_param);
@@ -75,7 +80,7 @@ namespace capturezy::feature_pin
         HWND window_{};
         HWND shadow_window_{};
         HWND scale_overlay_window_{};
-        feature_capture::CaptureResult capture_result_{};
+        feature_capture::CaptureResult capture_result_;
         feature_capture::CapturedBitmap scaled_bitmap_cache_;
         SIZE scaled_bitmap_cache_size_{};
         feature_capture::CapturedBitmap paint_buffer_;

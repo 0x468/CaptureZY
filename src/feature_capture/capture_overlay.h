@@ -111,7 +111,7 @@ namespace capturezy::feature_capture
         HWND overlay_window_{};
         CapturedBitmap frozen_background_;
         CapturedBitmap dimmed_background_;
-        CaptureResult final_capture_result_{};
+        CaptureResult final_capture_result_;
         int origin_left_{0};
         int origin_top_{0};
         RECT last_selection_rect_{};

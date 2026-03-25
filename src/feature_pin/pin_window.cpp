@@ -906,7 +906,7 @@ namespace capturezy::feature_pin
         auto *pixels = static_cast<std::uint32_t *>(bitmap_bits);
         std::span<std::uint32_t> pixel_buffer(pixels, static_cast<std::size_t>(shadow_width) *
                                                           static_cast<std::size_t>(shadow_height));
-        std::fill(pixel_buffer.begin(), pixel_buffer.end(), 0U);
+        std::ranges::fill(pixel_buffer, 0U);
 
         std::uint32_t const rgb = static_cast<std::uint32_t>(GetBValue(kShadowColor)) |
                                   (static_cast<std::uint32_t>(GetGValue(kShadowColor)) << 8U) |
@@ -957,6 +957,112 @@ namespace capturezy::feature_pin
                      shadow_width, shadow_height, SWP_NOACTIVATE | SWP_NOREDRAW | SWP_SHOWWINDOW);
     }
 
+    LRESULT PinWindow::HandleCommand(WORD command_id)
+    {
+        switch (command_id)
+        {
+        case kToggleTopmostCommandId:
+            SetTopmost(!topmost_);
+            return 0;
+
+        case kCopyPinCommandId:
+            CopyToClipboard();
+            return 0;
+
+        case kSavePinCommandId:
+            SaveToFile();
+            return 0;
+
+        case kResetScaleCommandId:
+            ResetScaleToDefault();
+            return 0;
+
+        case kToggleShadowCommandId:
+            SetShadowEnabled(!shadow_enabled_);
+            return 0;
+
+        case kHidePinCommandId:
+            Hide();
+            return 0;
+
+        case kClosePinCommandId:
+            DestroyWindow(window_);
+            return 0;
+
+        default:
+            return DefWindowProcW(window_, WM_COMMAND, static_cast<WPARAM>(command_id), 0);
+        }
+    }
+
+    void PinWindow::ResetScaleToDefault() noexcept
+    {
+        if (scale_percent_ == kDefaultScalePercent)
+        {
+            return;
+        }
+
+        RECT window_rect{};
+        GetWindowRect(window_, &window_rect);
+        scale_percent_ = kDefaultScalePercent;
+        scale_interaction_active_ = false;
+        KillTimer(window_, kScaleCommitTimerId);
+        ResetScaledBitmapCache();
+        SIZE const size = CurrentClientSize();
+        SetWindowPos(window_, nullptr, window_rect.left, window_rect.top, size.cx, size.cy,
+                     SWP_NOACTIVATE | SWP_NOZORDER);
+        UpdateShadowWindowVisual();
+        UpdateShadowWindowPosition();
+        RedrawWindow(window_, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE);
+        ShowScaleOverlay();
+    }
+
+    void PinWindow::ShowContextMenuFromClientPoint(LPARAM l_param) noexcept
+    {
+        POINT anchor_screen_point{.x = GET_X_LPARAM(l_param), .y = GET_Y_LPARAM(l_param)};
+        ClientToScreen(window_, &anchor_screen_point);
+        ShowContextMenu(anchor_screen_point);
+    }
+
+    void PinWindow::HandleWindowPosChanged() noexcept
+    {
+        if (shadow_window_ != nullptr && shadow_enabled_ && IsWindowVisible(window_) != FALSE)
+        {
+            UpdateShadowWindowPosition();
+        }
+
+        if (scale_overlay_window_ != nullptr && IsWindowVisible(scale_overlay_window_) != FALSE)
+        {
+            UpdateScaleOverlayPosition();
+        }
+    }
+
+    void PinWindow::CleanupDestroyedWindow() noexcept
+    {
+        EndDrag();
+        HideScaleOverlay();
+        HideShadowWindow();
+        KillTimer(window_, kScaleCommitTimerId);
+        if (shadow_window_ != nullptr)
+        {
+            DestroyWindow(shadow_window_);
+            shadow_window_ = nullptr;
+        }
+        if (scale_overlay_window_ != nullptr)
+        {
+            DestroyWindow(scale_overlay_window_);
+            scale_overlay_window_ = nullptr;
+        }
+        capture_result_ = {};
+        ResetScaledBitmapCache();
+        ResetPaintBuffer();
+        window_ = nullptr;
+        CAPTUREZY_LOG_INFO(core::LogCategory::Pin, L"Pin window destroyed.");
+        if (state_changed_callback_)
+        {
+            state_changed_callback_();
+        }
+    }
+
     LRESULT PinWindow::HandleMessage(UINT message, WPARAM w_param, LPARAM l_param)
     {
         switch (message)
@@ -965,55 +1071,7 @@ namespace capturezy::feature_pin
             return 1;
 
         case WM_COMMAND:
-            switch (LOWORD(w_param))
-            {
-            case kToggleTopmostCommandId:
-                SetTopmost(!topmost_);
-                return 0;
-
-            case kCopyPinCommandId:
-                CopyToClipboard();
-                return 0;
-
-            case kSavePinCommandId:
-                SaveToFile();
-                return 0;
-
-            case kResetScaleCommandId:
-                if (scale_percent_ != kDefaultScalePercent)
-                {
-                    RECT window_rect{};
-                    GetWindowRect(window_, &window_rect);
-                    scale_percent_ = kDefaultScalePercent;
-                    scale_interaction_active_ = false;
-                    KillTimer(window_, kScaleCommitTimerId);
-                    ResetScaledBitmapCache();
-                    SIZE const size = CurrentClientSize();
-                    SetWindowPos(window_, nullptr, window_rect.left, window_rect.top, size.cx, size.cy,
-                                 SWP_NOACTIVATE | SWP_NOZORDER);
-                    UpdateShadowWindowVisual();
-                    UpdateShadowWindowPosition();
-                    RedrawWindow(window_, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE);
-                    ShowScaleOverlay();
-                }
-                return 0;
-
-            case kToggleShadowCommandId:
-                SetShadowEnabled(!shadow_enabled_);
-                return 0;
-
-            case kHidePinCommandId:
-                Hide();
-                return 0;
-
-            case kClosePinCommandId:
-                DestroyWindow(window_);
-                return 0;
-
-            default:
-                break;
-            }
-            break;
+            return HandleCommand(LOWORD(w_param));
 
         case WM_MOUSEACTIVATE:
             return MA_ACTIVATE;
@@ -1060,12 +1118,9 @@ namespace capturezy::feature_pin
             return 0;
         }
 
-        case WM_RBUTTONUP: {
-            POINT anchor_screen_point{.x = GET_X_LPARAM(l_param), .y = GET_Y_LPARAM(l_param)};
-            ClientToScreen(window_, &anchor_screen_point);
-            ShowContextMenu(anchor_screen_point);
+        case WM_RBUTTONUP:
+            ShowContextMenuFromClientPoint(l_param);
             return 0;
-        }
 
         case WM_MOUSEWHEEL: {
             UpdateScale(GET_WHEEL_DELTA_WPARAM(w_param));
@@ -1090,40 +1145,11 @@ namespace capturezy::feature_pin
             return 0;
 
         case WM_WINDOWPOSCHANGED:
-            if (shadow_window_ != nullptr && shadow_enabled_ && IsWindowVisible(window_) != FALSE)
-            {
-                UpdateShadowWindowPosition();
-            }
-            if (scale_overlay_window_ != nullptr && IsWindowVisible(scale_overlay_window_) != FALSE)
-            {
-                UpdateScaleOverlayPosition();
-            }
+            HandleWindowPosChanged();
             break;
 
         case WM_DESTROY:
-            EndDrag();
-            HideScaleOverlay();
-            HideShadowWindow();
-            KillTimer(window_, kScaleCommitTimerId);
-            if (shadow_window_ != nullptr)
-            {
-                DestroyWindow(shadow_window_);
-                shadow_window_ = nullptr;
-            }
-            if (scale_overlay_window_ != nullptr)
-            {
-                DestroyWindow(scale_overlay_window_);
-                scale_overlay_window_ = nullptr;
-            }
-            capture_result_ = {};
-            ResetScaledBitmapCache();
-            ResetPaintBuffer();
-            window_ = nullptr;
-            CAPTUREZY_LOG_INFO(core::LogCategory::Pin, L"Pin window destroyed.");
-            if (state_changed_callback_)
-            {
-                state_changed_callback_();
-            }
+            CleanupDestroyedWindow();
             return 0;
 
         default:

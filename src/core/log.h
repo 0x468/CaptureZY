@@ -38,7 +38,7 @@ namespace capturezy::core
         LogLevel minimum_level{LogLevel::Info};
         bool debugger_output_enabled{true};
         bool file_output_enabled{true};
-        std::size_t max_file_size_bytes{1024U * 1024U};
+        std::size_t max_file_size_bytes{static_cast<std::size_t>(1024U) * 1024U};
         std::size_t max_retained_files{3};
     };
 

@@ -37,6 +37,8 @@ namespace capturezy::feature_pin
 
             MutationScope(MutationScope const &) = delete;
             MutationScope &operator=(MutationScope const &) = delete;
+            MutationScope(MutationScope &&) = delete;
+            MutationScope &operator=(MutationScope &&) = delete;
 
           private:
             PinManager *manager_{};
@@ -47,7 +49,7 @@ namespace capturezy::feature_pin
 
         HINSTANCE instance_;
         core::AppSettings const *app_settings_;
-        InventoryChangedCallback inventory_changed_callback_{};
+        InventoryChangedCallback inventory_changed_callback_;
         std::vector<std::unique_ptr<PinWindow>> pin_windows_;
         std::size_t mutation_depth_{0};
         std::size_t cached_open_pin_count_{0};
