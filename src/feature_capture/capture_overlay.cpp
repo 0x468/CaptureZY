@@ -20,8 +20,11 @@ namespace capturezy::feature_capture
         constexpr BYTE kOverlayAlpha = 96;
         constexpr wchar_t const *kOverlayInstruction = L"窗口预选：悬停高亮，单击选择窗口；也可按住左键拖拽框选，Ctrl+"
                                                        L"A 全屏，右键或 Esc 取消";
-        constexpr wchar_t const *kSelectionAdjustmentInstruction =
+        [[maybe_unused]] constexpr wchar_t const *kUnusedSelectionAdjustmentInstruction =
             L"已选择区域：拖动边框可调大小，拖动区域内部可移动；P 贴图，Ctrl+C 复制，Ctrl+S 保存，右键重置，Esc 取消";
+        constexpr wchar_t const *kSelectionAdjustmentInstructionCommitted =
+            L"已选择区域：拖动边框可调大小，拖动区域内部可移动；双击或 Enter 复制，"
+            L"中键贴图，P 贴图，Ctrl+C 复制，Ctrl+S 保存，右键重置，Esc 取消";
         constexpr int kDragThreshold = 4;
         constexpr int kSelectionResizePadding = 6;
         constexpr int kMinSelectionExtent = 8;
@@ -44,6 +47,11 @@ namespace capturezy::feature_capture
         constexpr int kDebugOverlayMargin = 16;
         constexpr int kDebugOverlayPadding = 10;
         constexpr int kDebugOverlayMaxWidth = 520;
+        // 当前先使用硬编码的确认手势默认值，后续截图设置页需要把每个手势独立开放，
+        // 并支持持久化用户选择的动作映射。
+        constexpr OverlayResult kEnterConfirmResult = OverlayResult::CopyOnly;
+        constexpr OverlayResult kDoubleClickConfirmResult = OverlayResult::CopyOnly;
+        constexpr OverlayResult kMiddleClickConfirmResult = OverlayResult::CopyAndPin;
 
         void AlphaFillRect(HDC destination_device_context, RECT rect, BYTE alpha) noexcept;
 
@@ -1686,6 +1694,12 @@ namespace capturezy::feature_capture
             return false;
         }
 
+        if (w_param == VK_RETURN)
+        {
+            FinishCommittedSelection(kEnterConfirmResult);
+            return true;
+        }
+
         if (w_param == 'P')
         {
             FinishCommittedSelection(OverlayResult::CopyAndPin);
@@ -2073,7 +2087,7 @@ namespace capturezy::feature_capture
         SetBkMode(buffer_device_context, TRANSPARENT);
         SetTextColor(buffer_device_context, RGB(255, 255, 255));
         DrawTextW(buffer_device_context,
-                  has_committed_selection_ ? kSelectionAdjustmentInstruction : kOverlayInstruction, -1,
+                  has_committed_selection_ ? kSelectionAdjustmentInstructionCommitted : kOverlayInstruction, -1,
                   &local_client_rect, DT_CENTER | DT_WORDBREAK | DT_TOP);
         if (debug_overlay_enabled_)
         {
@@ -2093,6 +2107,7 @@ namespace capturezy::feature_capture
     {
         WNDCLASSEXW window_class{};
         window_class.cbSize = sizeof(window_class);
+        window_class.style = CS_DBLCLKS;
         window_class.lpfnWndProc = CaptureOverlay::WindowProc;
         window_class.hInstance = instance_;
         window_class.hCursor = LoadCursorW(nullptr, IDC_CROSS);
@@ -2144,6 +2159,32 @@ namespace capturezy::feature_capture
         case WM_LBUTTONUP:
             CompletePointerSelection(l_param);
             return 0;
+
+        case WM_LBUTTONDBLCLK:
+            if (has_committed_selection_)
+            {
+                POINT const overlay_point{.x = GET_X_LPARAM(l_param), .y = GET_Y_LPARAM(l_param)};
+                if (HitTestToolbarAction(overlay_point) == ToolbarAction::None &&
+                    IsPointInsideCommittedSelection(overlay_point))
+                {
+                    FinishCommittedSelection(kDoubleClickConfirmResult);
+                    return 0;
+                }
+            }
+            break;
+
+        case WM_MBUTTONUP:
+            if (has_committed_selection_)
+            {
+                POINT const overlay_point{.x = GET_X_LPARAM(l_param), .y = GET_Y_LPARAM(l_param)};
+                if (HitTestToolbarAction(overlay_point) == ToolbarAction::None &&
+                    IsPointInsideCommittedSelection(overlay_point))
+                {
+                    FinishCommittedSelection(kMiddleClickConfirmResult);
+                    return 0;
+                }
+            }
+            break;
 
         case WM_RBUTTONUP:
         case WM_NCRBUTTONUP:
