@@ -40,6 +40,8 @@ namespace capturezy::feature_pin
         [[nodiscard]] ATOM RegisterShadowWindowClass() const;
         [[nodiscard]] ATOM RegisterScaleOverlayClass() const;
         bool UpdateScale(short wheel_delta) noexcept;
+        bool UpdateOpacity(std::int32_t opacity_delta) noexcept;
+        void ApplyOpacity() noexcept;
         void SetTopmost(bool topmost) noexcept;
         void SetShadowEnabled(bool enabled) noexcept;
         void CopyToClipboard() const noexcept;
@@ -51,7 +53,7 @@ namespace capturezy::feature_pin
         void HideShadowWindow() noexcept;
         void UpdateShadowWindowVisual() const noexcept;
         void UpdateShadowWindowPosition() const noexcept;
-        void ShowScaleOverlay() noexcept;
+        void ShowScaleOverlay(std::int32_t percent) noexcept;
         void HideScaleOverlay() noexcept;
         void UpdateScaleOverlayPosition() const noexcept;
         void ResetScaledBitmapCache() noexcept;
@@ -86,7 +88,9 @@ namespace capturezy::feature_pin
         feature_capture::CapturedBitmap paint_buffer_;
         SIZE paint_buffer_size_{};
         POINT drag_offset_{};
+        std::int32_t overlay_percent_{100};
         std::int32_t scale_percent_{100};
+        std::int32_t opacity_percent_{100};
         bool topmost_{true};
         bool shadow_enabled_{true};
         bool dragging_{false};

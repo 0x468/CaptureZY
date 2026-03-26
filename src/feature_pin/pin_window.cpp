@@ -21,13 +21,17 @@ namespace capturezy::feature_pin
         constexpr wchar_t const *kScaleOverlayClassName = L"CaptureZY.PinWindow.ScaleOverlay";
         constexpr wchar_t const *kPinWindowTitle = L"CaptureZY 贴图";
         constexpr DWORD kPinWindowStyle = WS_POPUP;
-        constexpr DWORD kPinWindowExStyle = WS_EX_TOPMOST | WS_EX_TOOLWINDOW;
+        constexpr DWORD kPinWindowExStyle = WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED;
         constexpr DWORD kPinShadowWindowStyle = WS_POPUP;
         constexpr DWORD kPinShadowWindowExStyle = WS_EX_TOOLWINDOW | WS_EX_LAYERED | WS_EX_NOACTIVATE;
         constexpr std::int32_t kDefaultScalePercent = 100;
         constexpr std::int32_t kMinScalePercent = 20;
         constexpr std::int32_t kMaxScalePercent = 400;
         constexpr std::int32_t kScaleStepPercent = 5;
+        constexpr std::int32_t kDefaultOpacityPercent = 100;
+        constexpr std::int32_t kMinOpacityPercent = 10;
+        constexpr std::int32_t kMaxOpacityPercent = 100;
+        constexpr std::int32_t kOpacityStepPercent = 5;
         constexpr UINT_PTR kScaleOverlayTimerId = 1;
         constexpr UINT_PTR kScaleCommitTimerId = 2;
         constexpr UINT kScaleOverlayDurationMs = 900;
@@ -63,6 +67,11 @@ namespace capturezy::feature_pin
         [[nodiscard]] std::int32_t ClampScalePercent(std::int32_t scale_percent) noexcept
         {
             return std::clamp(scale_percent, kMinScalePercent, kMaxScalePercent);
+        }
+
+        [[nodiscard]] std::int32_t ClampOpacityPercent(std::int32_t opacity_percent) noexcept
+        {
+            return std::clamp(opacity_percent, kMinOpacityPercent, kMaxOpacityPercent);
         }
 
         [[nodiscard]] RECT CurrentMonitorWorkArea(HWND window) noexcept
@@ -150,7 +159,9 @@ namespace capturezy::feature_pin
         capture_result_ = std::move(capture_result);
         ResetScaledBitmapCache();
         ResetPaintBuffer();
+        overlay_percent_ = kDefaultScalePercent;
         scale_percent_ = kDefaultScalePercent;
+        opacity_percent_ = kDefaultOpacityPercent;
         topmost_ = true;
         shadow_enabled_ = true;
         scale_interaction_active_ = false;
@@ -167,6 +178,7 @@ namespace capturezy::feature_pin
             return false;
         }
 
+        ApplyOpacity();
         ShowShadowWindow();
         ShowWindow(window_, SW_SHOWNORMAL);
         UpdateWindow(window_);
@@ -345,27 +357,29 @@ namespace capturezy::feature_pin
         std::wstring dynamic_scale_label;
         try
         {
-            dynamic_scale_label = L"缩放：";
+            dynamic_scale_label = L"\u7f29\u653e\uff1a";
             dynamic_scale_label += std::to_wstring(scale_percent_);
             dynamic_scale_label += L"%";
             scale_label = dynamic_scale_label.c_str();
         }
         catch (...)
         {
-            scale_label = L"缩放";
+            scale_label = L"\u7f29\u653e";
         }
 
         AppendMenuW(menu, MF_STRING | MF_DISABLED, 0, scale_label);
-        AppendMenuW(menu, reset_scale_flags, kResetScaleCommandId, L"重置缩放为 100%");
+        AppendMenuW(menu, reset_scale_flags, kResetScaleCommandId, L"\u91cd\u7f6e\u7f29\u653e\u4e3a 100%");
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-        AppendMenuW(menu, MF_STRING, kCopyPinCommandId, L"复制图片");
-        AppendMenuW(menu, MF_STRING, kSavePinCommandId, L"另存为 PNG");
+        AppendMenuW(menu, MF_STRING, kCopyPinCommandId, L"\u590d\u5236\u56fe\u7247");
+        AppendMenuW(menu, MF_STRING, kSavePinCommandId, L"\u53e6\u5b58\u4e3a PNG");
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-        AppendMenuW(menu, topmost_ ? MF_STRING | MF_CHECKED : MF_STRING, kToggleTopmostCommandId, L"始终置顶");
-        AppendMenuW(menu, shadow_enabled_ ? MF_STRING | MF_CHECKED : MF_STRING, kToggleShadowCommandId, L"显示阴影");
+        AppendMenuW(menu, topmost_ ? MF_STRING | MF_CHECKED : MF_STRING, kToggleTopmostCommandId,
+                    L"\u59cb\u7ec8\u7f6e\u9876");
+        AppendMenuW(menu, shadow_enabled_ ? MF_STRING | MF_CHECKED : MF_STRING, kToggleShadowCommandId,
+                    L"\u663e\u793a\u9634\u5f71");
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-        AppendMenuW(menu, MF_STRING, kHidePinCommandId, L"隐藏此贴图");
-        AppendMenuW(menu, MF_STRING, kClosePinCommandId, L"关闭此贴图");
+        AppendMenuW(menu, MF_STRING, kHidePinCommandId, L"\u9690\u85cf\u6b64\u8d34\u56fe");
+        AppendMenuW(menu, MF_STRING, kClosePinCommandId, L"\u5173\u95ed\u6b64\u8d34\u56fe");
 
         SetForegroundWindow(window_);
         TrackPopupMenu(menu, TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RIGHTBUTTON, anchor_screen_point.x,
@@ -398,7 +412,7 @@ namespace capturezy::feature_pin
         window_class.lpfnWndProc = PinWindow::WindowProc;
         window_class.hInstance = instance_;
         window_class.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-        window_class.hbrBackground = GetSysColorBrush(COLOR_WINDOW);
+        window_class.hbrBackground = nullptr;
         window_class.lpszClassName = kPinWindowClassName;
 
         ATOM const result = RegisterClassExW(&window_class);
@@ -474,13 +488,38 @@ namespace capturezy::feature_pin
 
         SIZE const new_size = CurrentClientSize();
         SetWindowPos(window_, nullptr, window_rect.left, window_rect.top, new_size.cx, new_size.cy,
-                     SWP_NOACTIVATE | SWP_NOZORDER);
+                     SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOREDRAW);
         UpdateShadowWindowVisual();
         UpdateShadowWindowPosition();
-        InvalidateRect(window_, nullptr, FALSE);
-        ShowScaleOverlay();
+        RedrawWindow(window_, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE);
+        ShowScaleOverlay(scale_percent_);
         LogScaleMessage(scale_percent_);
         return true;
+    }
+
+    bool PinWindow::UpdateOpacity(std::int32_t opacity_delta) noexcept
+    {
+        std::int32_t const new_opacity_percent = ClampOpacityPercent(opacity_percent_ + opacity_delta);
+        if (new_opacity_percent == opacity_percent_)
+        {
+            return false;
+        }
+
+        opacity_percent_ = new_opacity_percent;
+        ApplyOpacity();
+        ShowScaleOverlay(opacity_percent_);
+        return true;
+    }
+
+    void PinWindow::ApplyOpacity() noexcept
+    {
+        if (window_ == nullptr)
+        {
+            return;
+        }
+
+        BYTE const alpha = static_cast<BYTE>((opacity_percent_ * 255) / 100);
+        SetLayeredWindowAttributes(window_, 0, alpha, LWA_ALPHA);
     }
 
     void PinWindow::BeginDrag(POINT cursor_screen_point) noexcept
@@ -582,8 +621,6 @@ namespace capturezy::feature_pin
 
         HGDIOBJ previous_source_bitmap = SelectObject(source_device_context, capture_result_.Bitmap().Get());
         HGDIOBJ previous_cache_bitmap = SelectObject(cache_device_context, scaled_bitmap);
-        RECT cache_rect{.left = 0, .top = 0, .right = target_size.cx, .bottom = target_size.cy};
-        FillRect(cache_device_context, &cache_rect, GetSysColorBrush(COLOR_WINDOW));
         SetStretchBltMode(cache_device_context, HALFTONE);
         SIZE const source_size = capture_result_.PixelSize();
         bool const stretched = StretchBlt(cache_device_context, 0, 0, target_size.cx, target_size.cy,
@@ -714,8 +751,10 @@ namespace capturezy::feature_pin
             }
         }
 
-        FillRect(paint_device_context, &client_rect, GetSysColorBrush(COLOR_WINDOW));
-        (void)DrawScaledBitmap(paint_device_context, target_size);
+        if (!DrawScaledBitmap(paint_device_context, target_size))
+        {
+            FillRect(paint_device_context, &client_rect, GetSysColorBrush(COLOR_WINDOW));
+        }
 
         if (buffer_device_context != nullptr)
         {
@@ -742,7 +781,7 @@ namespace capturezy::feature_pin
         SetBkMode(device_context, TRANSPARENT);
         SetTextColor(device_context, kScaleOverlayTextColor);
 
-        std::wstring scale_text = std::to_wstring(scale_percent_);
+        std::wstring scale_text = std::to_wstring(overlay_percent_);
         scale_text += L"%";
         DrawTextW(device_context, scale_text.data(), static_cast<int>(scale_text.size()), &client_rect,
                   DT_CENTER | DT_SINGLELINE | DT_VCENTER);
@@ -751,12 +790,14 @@ namespace capturezy::feature_pin
         EndPaint(overlay_window, &paint);
     }
 
-    void PinWindow::ShowScaleOverlay() noexcept
+    void PinWindow::ShowScaleOverlay(std::int32_t percent) noexcept
     {
         if (RegisterScaleOverlayClass() == 0)
         {
             return;
         }
+
+        overlay_percent_ = percent;
 
         if (scale_overlay_window_ == nullptr)
         {
@@ -1013,7 +1054,7 @@ namespace capturezy::feature_pin
         UpdateShadowWindowVisual();
         UpdateShadowWindowPosition();
         RedrawWindow(window_, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE);
-        ShowScaleOverlay();
+        ShowScaleOverlay(scale_percent_);
     }
 
     void PinWindow::ShowContextMenuFromClientPoint(LPARAM l_param) noexcept
@@ -1123,7 +1164,15 @@ namespace capturezy::feature_pin
             return 0;
 
         case WM_MOUSEWHEEL: {
-            UpdateScale(GET_WHEEL_DELTA_WPARAM(w_param));
+            int const wheel_steps = GET_WHEEL_DELTA_WPARAM(w_param) / WHEEL_DELTA;
+            if ((GetKeyState(VK_CONTROL) & 0x8000) != 0)
+            {
+                UpdateOpacity(wheel_steps * kOpacityStepPercent);
+            }
+            else
+            {
+                UpdateScale(GET_WHEEL_DELTA_WPARAM(w_param));
+            }
             return 0;
         }
 
