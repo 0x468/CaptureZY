@@ -38,12 +38,13 @@ namespace capturezy::feature_capture
         constexpr int kSelectionMetricsHeight = 24;
         constexpr int kSelectionMetricsMinWidth = 72;
         constexpr int kSelectionMetricsCharWidth = 8;
-        constexpr int kToolbarButtonWidth = 68;
-        constexpr int kToolbarButtonHeight = 30;
-        constexpr int kToolbarSpacing = 8;
-        constexpr int kToolbarPadding = 8;
-        constexpr int kToolbarMargin = 10;
-        constexpr int kToolbarCornerRadius = 10;
+        constexpr int kToolbarButtonWidth = 74;
+        constexpr int kToolbarButtonHeight = 34;
+        constexpr int kToolbarButtonCornerRadius = 8;
+        constexpr int kToolbarSpacing = 6;
+        constexpr int kToolbarPadding = 7;
+        constexpr int kToolbarMargin = 12;
+        constexpr int kToolbarCornerRadius = 12;
         constexpr int kDebugOverlayMargin = 16;
         constexpr int kDebugOverlayPadding = 10;
         constexpr int kDebugOverlayMaxWidth = 520;
@@ -52,6 +53,13 @@ namespace capturezy::feature_capture
         constexpr OverlayResult kEnterConfirmResult = OverlayResult::CopyOnly;
         constexpr OverlayResult kDoubleClickConfirmResult = OverlayResult::CopyOnly;
         constexpr OverlayResult kMiddleClickConfirmResult = OverlayResult::CopyAndPin;
+
+        enum class ToolbarButtonVisualState : std::uint8_t
+        {
+            Normal,
+            Hovered,
+            Pressed,
+        };
 
         void AlphaFillRect(HDC destination_device_context, RECT rect, BYTE alpha) noexcept;
 
@@ -452,8 +460,8 @@ namespace capturezy::feature_capture
 
         void PaintToolbarBackground(HDC destination_device_context, RECT destination_rect) noexcept
         {
-            HPEN frame_pen = CreatePen(PS_SOLID, 1, RGB(255, 255, 255));
-            HBRUSH background_brush = CreateSolidBrush(RGB(0, 0, 0));
+            HPEN frame_pen = CreatePen(PS_SOLID, 1, RGB(240, 240, 240));
+            HBRUSH background_brush = CreateSolidBrush(RGB(10, 10, 10));
             HGDIOBJ old_pen = SelectObject(destination_device_context, frame_pen);
             HGDIOBJ old_brush = SelectObject(destination_device_context, background_brush);
             RoundRect(destination_device_context, destination_rect.left, destination_rect.top, destination_rect.right,
@@ -462,24 +470,57 @@ namespace capturezy::feature_capture
             SelectObject(destination_device_context, old_pen);
             DeleteObject(background_brush);
             DeleteObject(frame_pen);
+
+            RECT inner_rect = destination_rect;
+            InflateRect(&inner_rect, -1, -1);
+            if (IsRectNonEmpty(inner_rect))
+            {
+                HPEN inner_pen = CreatePen(PS_SOLID, 1, RGB(46, 46, 46));
+                HBRUSH inner_brush = CreateSolidBrush(RGB(22, 22, 22));
+                HGDIOBJ old_inner_pen = SelectObject(destination_device_context, inner_pen);
+                HGDIOBJ old_inner_brush = SelectObject(destination_device_context, inner_brush);
+                RoundRect(destination_device_context, inner_rect.left, inner_rect.top, inner_rect.right,
+                          inner_rect.bottom, kToolbarCornerRadius, kToolbarCornerRadius);
+                SelectObject(destination_device_context, old_inner_brush);
+                SelectObject(destination_device_context, old_inner_pen);
+                DeleteObject(inner_brush);
+                DeleteObject(inner_pen);
+            }
         }
 
-        void PaintToolbarButton(HDC destination_device_context, RECT destination_rect, wchar_t const *label) noexcept
+        void PaintToolbarButton(HDC destination_device_context, RECT destination_rect, wchar_t const *label,
+                                ToolbarButtonVisualState visual_state) noexcept
         {
-            HPEN frame_pen = CreatePen(PS_SOLID, 1, RGB(255, 255, 255));
-            HBRUSH background_brush = CreateSolidBrush(RGB(32, 32, 32));
+            COLORREF frame_color = RGB(92, 92, 92);
+            COLORREF background_color = RGB(36, 36, 36);
+            COLORREF text_color = RGB(244, 244, 244);
+            if (visual_state == ToolbarButtonVisualState::Hovered)
+            {
+                frame_color = RGB(255, 214, 102);
+                background_color = RGB(84, 62, 18);
+            }
+            else if (visual_state == ToolbarButtonVisualState::Pressed)
+            {
+                frame_color = RGB(255, 236, 170);
+                background_color = RGB(255, 214, 102);
+                text_color = RGB(16, 16, 16);
+            }
+
+            HPEN frame_pen = CreatePen(PS_SOLID, 1, frame_color);
+            HBRUSH background_brush = CreateSolidBrush(background_color);
             HGDIOBJ old_pen = SelectObject(destination_device_context, frame_pen);
             HGDIOBJ old_brush = SelectObject(destination_device_context, background_brush);
             RoundRect(destination_device_context, destination_rect.left, destination_rect.top, destination_rect.right,
-                      destination_rect.bottom, 8, 8);
+                      destination_rect.bottom, kToolbarButtonCornerRadius, kToolbarButtonCornerRadius);
             SelectObject(destination_device_context, old_brush);
             SelectObject(destination_device_context, old_pen);
             DeleteObject(background_brush);
             DeleteObject(frame_pen);
 
             RECT text_rect = destination_rect;
+            InflateRect(&text_rect, -4, -2);
             SetBkMode(destination_device_context, TRANSPARENT);
-            SetTextColor(destination_device_context, RGB(255, 255, 255));
+            SetTextColor(destination_device_context, text_color);
             DrawTextW(destination_device_context, label, -1, &text_rect, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
         }
 
@@ -893,6 +934,7 @@ namespace capturezy::feature_capture
         cached_overflow_tray_debug_text_.clear();
         pointer_drag_mode_ = PointerDragMode::None;
         active_resize_handle_ = ResizeHandle::None;
+        hovered_toolbar_action_ = ToolbarAction::None;
         pressed_toolbar_action_ = ToolbarAction::None;
 
         if (overlay_window_ != nullptr)
@@ -1273,6 +1315,45 @@ namespace capturezy::feature_capture
         return ToolbarAction::None;
     }
 
+    RECT CaptureOverlay::CurrentToolbarRect() const noexcept
+    {
+        if (!has_committed_selection_ || overlay_window_ == nullptr)
+        {
+            return {};
+        }
+
+        RECT client_rect{};
+        GetClientRect(overlay_window_, &client_rect);
+        return ToolbarRect(OverlayToClientRect(committed_selection_rect_), client_rect);
+    }
+
+    void CaptureOverlay::InvalidateToolbarVisual() noexcept
+    {
+        if (overlay_window_ == nullptr)
+        {
+            return;
+        }
+
+        RECT const toolbar_rect = ExpandedRect(CurrentToolbarRect(), 2);
+        if (IsRectNonEmpty(toolbar_rect))
+        {
+            InvalidateRect(overlay_window_, &toolbar_rect, FALSE);
+        }
+    }
+
+    void CaptureOverlay::UpdateHoveredToolbarAction(POINT overlay_point) noexcept
+    {
+        ToolbarAction const hovered_action = has_committed_selection_ ? HitTestToolbarAction(overlay_point)
+                                                                      : ToolbarAction::None;
+        if (hovered_toolbar_action_ == hovered_action)
+        {
+            return;
+        }
+
+        hovered_toolbar_action_ = hovered_action;
+        InvalidateToolbarVisual();
+    }
+
     bool CaptureOverlay::IsPointInsideCommittedSelection(POINT overlay_point) const noexcept
     {
         if (!has_committed_selection_)
@@ -1507,6 +1588,7 @@ namespace capturezy::feature_capture
         has_click_candidate_window_ = false;
         pointer_drag_mode_ = PointerDragMode::None;
         active_resize_handle_ = ResizeHandle::None;
+        hovered_toolbar_action_ = ToolbarAction::None;
         pressed_toolbar_action_ = ToolbarAction::None;
     }
 
@@ -1521,6 +1603,7 @@ namespace capturezy::feature_capture
         pointer_drag_mode_ = PointerDragMode::MoveSelection;
         resize_anchor_selection_rect_ = committed_selection_rect_;
         resize_anchor_handle_ = ResizeHandle::None;
+        hovered_toolbar_action_ = ToolbarAction::None;
         pressed_toolbar_action_ = ToolbarAction::None;
         SetCapture(overlay_window_);
     }
@@ -1568,6 +1651,7 @@ namespace capturezy::feature_capture
         pointer_drag_mode_ = PointerDragMode::ResizeSelection;
         resize_anchor_selection_rect_ = committed_selection_rect_;
         resize_anchor_handle_ = active_resize_handle_;
+        hovered_toolbar_action_ = ToolbarAction::None;
         pressed_toolbar_action_ = ToolbarAction::None;
         SetCapture(overlay_window_);
     }
@@ -1752,8 +1836,10 @@ namespace capturezy::feature_capture
             pointer_drag_mode_ = PointerDragMode::None;
             active_resize_handle_ = ResizeHandle::None;
             resize_anchor_handle_ = ResizeHandle::None;
+            hovered_toolbar_action_ = toolbar_action;
             pressed_toolbar_action_ = toolbar_action;
             SetCapture(overlay_window_);
+            InvalidateToolbarVisual();
             return;
         }
 
@@ -1794,6 +1880,7 @@ namespace capturezy::feature_capture
         if (pointer_down_)
         {
             POINT const overlay_point{.x = GET_X_LPARAM(l_param), .y = GET_Y_LPARAM(l_param)};
+            UpdateHoveredToolbarAction(overlay_point);
             if (pressed_toolbar_action_ != ToolbarAction::None)
             {
                 SetCursor(ToolbarCursor());
@@ -1832,6 +1919,7 @@ namespace capturezy::feature_capture
         if (has_committed_selection_)
         {
             POINT const overlay_point{.x = GET_X_LPARAM(l_param), .y = GET_Y_LPARAM(l_param)};
+            UpdateHoveredToolbarAction(overlay_point);
             UpdateCursorForOverlayPoint(overlay_point);
             return;
         }
@@ -1870,9 +1958,11 @@ namespace capturezy::feature_capture
         active_resize_handle_ = ResizeHandle::None;
         resize_anchor_selection_rect_ = {};
         resize_anchor_handle_ = ResizeHandle::None;
+        hovered_toolbar_action_ = ToolbarAction::None;
         pressed_toolbar_action_ = ToolbarAction::None;
         if (pressed_toolbar_action != ToolbarAction::None)
         {
+            InvalidateToolbarVisual();
             ToolbarAction const released_toolbar_action = HitTestToolbarAction(drag_current_);
             if (pressed_toolbar_action == released_toolbar_action)
             {
@@ -1902,6 +1992,7 @@ namespace capturezy::feature_capture
                 }
             }
 
+            UpdateHoveredToolbarAction(drag_current_);
             UpdateCursorForOverlayPoint(drag_current_);
             return;
         }
@@ -2076,7 +2167,18 @@ namespace capturezy::feature_capture
                     {
                         RECT button_rect = ToolbarButtonRect(toolbar_rect, action);
                         OffsetRect(&button_rect, -paint_rect.left, -paint_rect.top);
-                        PaintToolbarButton(buffer_device_context, button_rect, ToolbarActionLabel(action));
+                        ToolbarButtonVisualState visual_state = ToolbarButtonVisualState::Normal;
+                        if (pointer_down_ && pressed_toolbar_action_ == action && hovered_toolbar_action_ == action)
+                        {
+                            visual_state = ToolbarButtonVisualState::Pressed;
+                        }
+                        else if (hovered_toolbar_action_ == action)
+                        {
+                            visual_state = ToolbarButtonVisualState::Hovered;
+                        }
+
+                        PaintToolbarButton(buffer_device_context, button_rect, ToolbarActionLabel(action),
+                                           visual_state);
                     }
                 }
             }
@@ -2220,7 +2322,9 @@ namespace capturezy::feature_capture
             active_resize_handle_ = ResizeHandle::None;
             resize_anchor_selection_rect_ = {};
             resize_anchor_handle_ = ResizeHandle::None;
+            hovered_toolbar_action_ = ToolbarAction::None;
             pressed_toolbar_action_ = ToolbarAction::None;
+            InvalidateToolbarVisual();
             return 0;
 
         case WM_DESTROY:

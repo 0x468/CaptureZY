@@ -86,6 +86,9 @@ namespace capturezy::feature_capture
         [[nodiscard]] ToolbarAction HitTestToolbarAction(POINT overlay_point) const noexcept;
         [[nodiscard]] bool TryGetCurrentPreviewRect(RECT &rect) const noexcept;
         [[nodiscard]] bool UpdateHoverWindowFromScreenPoint(POINT screen_point);
+        [[nodiscard]] RECT CurrentToolbarRect() const noexcept;
+        void InvalidateToolbarVisual() noexcept;
+        void UpdateHoveredToolbarAction(POINT overlay_point) noexcept;
         void InvalidatePreviewRectChange(RECT old_preview_rect, bool had_old_preview, RECT new_preview_rect,
                                          bool had_new_preview) noexcept;
         void UpdateCursorForOverlayPoint(POINT overlay_point) noexcept;
@@ -133,6 +136,7 @@ namespace capturezy::feature_capture
         PointerDragMode pointer_drag_mode_{PointerDragMode::None};
         ResizeHandle active_resize_handle_{ResizeHandle::None};
         ResizeHandle resize_anchor_handle_{ResizeHandle::None};
+        ToolbarAction hovered_toolbar_action_{ToolbarAction::None};
         ToolbarAction pressed_toolbar_action_{ToolbarAction::None};
         std::wstring hover_debug_text_;
         std::wstring cached_overflow_tray_debug_text_;
