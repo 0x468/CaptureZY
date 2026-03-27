@@ -9,6 +9,7 @@
 
 #include <windowsx.h>
 
+#include "feature_capture/capture_annotation.h"
 #include "feature_capture/capture_result.h"
 #include "feature_capture/screen_capture.h"
 
@@ -81,6 +82,8 @@ namespace capturezy::feature_capture
             CommitCopy,
             CommitCopyAndPin,
             CommitSaveToFile,
+            UndoAnnotation,
+            RedoAnnotation,
             ExitOverlay,
             ResetSelection,
         };
@@ -114,8 +117,10 @@ namespace capturezy::feature_capture
         [[nodiscard]] static int ToolbarButtonWidth(ToolbarAction action) noexcept;
         [[nodiscard]] static int ToolbarGroupActionCount(int group) noexcept;
         [[nodiscard]] static int ToolbarGroupWidth(int group) noexcept;
+        [[nodiscard]] static AnnotationTool ToolbarAnnotationTool(ToolbarAction action) noexcept;
         [[nodiscard]] static EditingAction ToolbarEditingAction(ToolbarAction action) noexcept;
         [[nodiscard]] static EditingAction GestureEditingAction(WPARAM w_param, bool control_down) noexcept;
+        [[nodiscard]] bool IsToolbarActionEnabled(ToolbarAction action) const noexcept;
         [[nodiscard]] bool IsPointInsideToolbar(POINT overlay_point) const noexcept;
         [[nodiscard]] bool IsPointInsideCommittedSelection(POINT overlay_point) const noexcept;
         [[nodiscard]] ResizeHandle HitTestCommittedSelectionResizeHandle(POINT overlay_point) const noexcept;
@@ -178,6 +183,7 @@ namespace capturezy::feature_capture
         ResizeHandle resize_anchor_handle_{ResizeHandle::None};
         ToolbarAction hovered_toolbar_action_{ToolbarAction::None};
         ToolbarAction pressed_toolbar_action_{ToolbarAction::None};
+        AnnotationSession annotation_session_{};
         std::wstring hover_debug_text_;
         std::wstring cached_overflow_tray_debug_text_;
     };

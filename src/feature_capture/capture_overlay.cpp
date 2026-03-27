@@ -56,6 +56,7 @@ namespace capturezy::feature_capture
             Hovered,
             Pressed,
             Placeholder,
+            PlaceholderEnabled,
         };
 
         void PaintToolbarSeparator(HDC destination_device_context, RECT toolbar_rect, int separator_x) noexcept
@@ -509,6 +510,12 @@ namespace capturezy::feature_capture
                 background_color = RGB(28, 28, 28);
                 text_color = RGB(126, 126, 126);
             }
+            else if (visual_state == ToolbarButtonVisualState::PlaceholderEnabled)
+            {
+                frame_color = RGB(82, 82, 82);
+                background_color = RGB(34, 34, 34);
+                text_color = RGB(188, 188, 188);
+            }
             else if (visual_state == ToolbarButtonVisualState::Hovered)
             {
                 frame_color = RGB(255, 214, 102);
@@ -951,6 +958,7 @@ namespace capturezy::feature_capture
         active_resize_handle_ = ResizeHandle::None;
         hovered_toolbar_action_ = ToolbarAction::None;
         pressed_toolbar_action_ = ToolbarAction::None;
+        annotation_session_.Reset();
 
         if (overlay_window_ != nullptr)
         {
@@ -1359,10 +1367,44 @@ namespace capturezy::feature_capture
         return (sample_button_width * group_action_count) + (kToolbarSpacing * (group_action_count - 1));
     }
 
+    AnnotationTool CaptureOverlay::ToolbarAnnotationTool(ToolbarAction action) noexcept
+    {
+        switch (action)
+        {
+        case ToolbarAction::PlaceholderArrow:
+            return AnnotationTool::Arrow;
+
+        case ToolbarAction::PlaceholderPen:
+            return AnnotationTool::Pen;
+
+        case ToolbarAction::PlaceholderText:
+            return AnnotationTool::Text;
+
+        case ToolbarAction::PlaceholderMosaic:
+            return AnnotationTool::Mosaic;
+
+        case ToolbarAction::None:
+        case ToolbarAction::PlaceholderUndo:
+        case ToolbarAction::PlaceholderRedo:
+        case ToolbarAction::Cancel:
+        case ToolbarAction::CopyAndPin:
+        case ToolbarAction::CopyOnly:
+        case ToolbarAction::SaveToFile:
+        default:
+            return AnnotationTool::Arrow;
+        }
+    }
+
     CaptureOverlay::EditingAction CaptureOverlay::ToolbarEditingAction(ToolbarAction action) noexcept
     {
         switch (action)
         {
+        case ToolbarAction::PlaceholderUndo:
+            return EditingAction::UndoAnnotation;
+
+        case ToolbarAction::PlaceholderRedo:
+            return EditingAction::RedoAnnotation;
+
         case ToolbarAction::CopyAndPin:
             return EditingAction::CommitCopyAndPin;
 
@@ -1380,8 +1422,6 @@ namespace capturezy::feature_capture
         case ToolbarAction::PlaceholderPen:
         case ToolbarAction::PlaceholderText:
         case ToolbarAction::PlaceholderMosaic:
-        case ToolbarAction::PlaceholderUndo:
-        case ToolbarAction::PlaceholderRedo:
         default:
             return EditingAction::None;
         }
@@ -1414,6 +1454,21 @@ namespace capturezy::feature_capture
 
         default:
             return EditingAction::None;
+        }
+    }
+
+    bool CaptureOverlay::IsToolbarActionEnabled(ToolbarAction action) const noexcept
+    {
+        switch (action)
+        {
+        case ToolbarAction::PlaceholderUndo:
+            return annotation_session_.CanUndo();
+
+        case ToolbarAction::PlaceholderRedo:
+            return annotation_session_.CanRedo();
+
+        default:
+            return IsInteractiveToolbarAction(action);
         }
     }
 
@@ -1524,15 +1579,18 @@ namespace capturezy::feature_capture
             return ToolbarAction::None;
         }
 
-        constexpr std::array<ToolbarAction, 4> kToolbarActions{
-            ToolbarAction::Cancel,
-            ToolbarAction::CopyAndPin,
-            ToolbarAction::SaveToFile,
-            ToolbarAction::CopyOnly,
+        constexpr std::array<ToolbarAction, 6> kToolbarActions{
+            ToolbarAction::PlaceholderUndo, ToolbarAction::PlaceholderRedo, ToolbarAction::Cancel,
+            ToolbarAction::CopyAndPin,      ToolbarAction::SaveToFile,      ToolbarAction::CopyOnly,
         };
         RECT const toolbar_rect = CurrentToolbarRect();
         for (ToolbarAction const action : kToolbarActions)
         {
+            if (!IsToolbarActionEnabled(action))
+            {
+                continue;
+            }
+
             RECT const button_rect = ToolbarButtonRect(toolbar_rect, action);
             if (PtInRect(&button_rect, overlay_point) != FALSE)
             {
@@ -1826,6 +1884,7 @@ namespace capturezy::feature_capture
         active_resize_handle_ = ResizeHandle::None;
         hovered_toolbar_action_ = ToolbarAction::None;
         pressed_toolbar_action_ = ToolbarAction::None;
+        annotation_session_.Reset();
     }
 
     void CaptureOverlay::BeginMoveSelection(POINT overlay_point) noexcept
@@ -1998,6 +2057,20 @@ namespace capturezy::feature_capture
 
         case EditingAction::CommitSaveToFile:
             FinishCommittedSelection(OverlayResult::SaveToFile);
+            return;
+
+        case EditingAction::UndoAnnotation:
+            if (annotation_session_.Undo())
+            {
+                InvalidateRect(overlay_window_, nullptr, FALSE);
+            }
+            return;
+
+        case EditingAction::RedoAnnotation:
+            if (annotation_session_.Redo())
+            {
+                InvalidateRect(overlay_window_, nullptr, FALSE);
+            }
             return;
 
         case EditingAction::ExitOverlay:
@@ -2439,8 +2512,23 @@ namespace capturezy::feature_capture
                     {
                         RECT button_rect = ToolbarButtonRect(toolbar_rect, action);
                         OffsetRect(&button_rect, -paint_rect.left, -paint_rect.top);
+                        ToolbarButtonVisualState visual_state = IsToolbarActionEnabled(action)
+                                                                    ? ToolbarButtonVisualState::PlaceholderEnabled
+                                                                    : ToolbarButtonVisualState::Placeholder;
+                        if (IsToolbarActionEnabled(action))
+                        {
+                            if (pointer_down_ && pressed_toolbar_action_ == action && hovered_toolbar_action_ == action)
+                            {
+                                visual_state = ToolbarButtonVisualState::Pressed;
+                            }
+                            else if (hovered_toolbar_action_ == action)
+                            {
+                                visual_state = ToolbarButtonVisualState::Hovered;
+                            }
+                        }
+
                         PaintToolbarButton(buffer_device_context, button_rect, ToolbarActionLabel(action),
-                                           ToolbarButtonVisualState::Placeholder);
+                                           visual_state);
                     }
 
                     for (ToolbarAction const action : kResultActions)
