@@ -24,7 +24,7 @@ namespace capturezy::feature_capture
             L"已选择区域：拖动边框可调大小，拖动区域内部可移动；P 贴图，Ctrl+C 复制，Ctrl+S 保存，右键重置，Esc 取消";
         constexpr wchar_t const *kSelectionAdjustmentInstructionCommitted =
             L"已选择区域：拖动边框可调大小，拖动区域内部可移动；双击或 Enter 复制，"
-            L"中键贴图，P 贴图，Ctrl+C 复制，Ctrl+S 保存，右键重置，Esc 取消";
+            L"中键或 P 贴图，Ctrl+C 复制，Ctrl+S 快存，右键返回上一级，Esc 或工具条取消退出";
         constexpr int kDragThreshold = 4;
         constexpr int kSelectionResizePadding = 6;
         constexpr int kMinSelectionExtent = 8;
@@ -50,12 +50,6 @@ namespace capturezy::feature_capture
         constexpr int kDebugOverlayMargin = 16;
         constexpr int kDebugOverlayPadding = 10;
         constexpr int kDebugOverlayMaxWidth = 520;
-        // 当前先使用硬编码的确认手势默认值，后续截图设置页需要把每个手势独立开放，
-        // 并支持持久化用户选择的动作映射。
-        constexpr OverlayResult kEnterConfirmResult = OverlayResult::CopyOnly;
-        constexpr OverlayResult kDoubleClickConfirmResult = OverlayResult::CopyOnly;
-        constexpr OverlayResult kMiddleClickConfirmResult = OverlayResult::CopyAndPin;
-
         enum class ToolbarButtonVisualState : std::uint8_t
         {
             Normal,
@@ -1365,6 +1359,64 @@ namespace capturezy::feature_capture
         return (sample_button_width * group_action_count) + (kToolbarSpacing * (group_action_count - 1));
     }
 
+    CaptureOverlay::EditingAction CaptureOverlay::ToolbarEditingAction(ToolbarAction action) noexcept
+    {
+        switch (action)
+        {
+        case ToolbarAction::CopyAndPin:
+            return EditingAction::CommitCopyAndPin;
+
+        case ToolbarAction::CopyOnly:
+            return EditingAction::CommitCopy;
+
+        case ToolbarAction::SaveToFile:
+            return EditingAction::CommitSaveToFile;
+
+        case ToolbarAction::Cancel:
+            return EditingAction::ExitOverlay;
+
+        case ToolbarAction::None:
+        case ToolbarAction::PlaceholderArrow:
+        case ToolbarAction::PlaceholderPen:
+        case ToolbarAction::PlaceholderText:
+        case ToolbarAction::PlaceholderMosaic:
+        case ToolbarAction::PlaceholderUndo:
+        case ToolbarAction::PlaceholderRedo:
+        default:
+            return EditingAction::None;
+        }
+    }
+
+    CaptureOverlay::EditingAction CaptureOverlay::GestureEditingAction(WPARAM w_param, bool control_down) noexcept
+    {
+        switch (w_param)
+        {
+        case VK_ESCAPE:
+            return EditingAction::ExitOverlay;
+
+        case VK_RETURN:
+            // 当前先使用硬编码的确认手势默认值，后续截图设置页需要把每个手势独立开放，
+            // 并支持持久化用户选择的动作映射。
+            return EditingAction::CommitCopy;
+
+        case VK_BACK:
+        case VK_DELETE:
+            return EditingAction::ResetSelection;
+
+        case 'P':
+            return EditingAction::CommitCopyAndPin;
+
+        case 'C':
+            return control_down ? EditingAction::CommitCopy : EditingAction::None;
+
+        case 'S':
+            return control_down ? EditingAction::CommitSaveToFile : EditingAction::None;
+
+        default:
+            return EditingAction::None;
+        }
+    }
+
     RECT CaptureOverlay::ToolbarRect(RECT selection_rect, RECT bounds_rect) const noexcept
     {
         if (!has_committed_selection_ || !IsRectNonEmpty(selection_rect))
@@ -1917,17 +1969,67 @@ namespace capturezy::feature_capture
         Finish(result);
     }
 
+    void CaptureOverlay::ResetCommittedSelectionAndRefresh()
+    {
+        RECT old_preview_rect{};
+        bool const had_old_preview = TryGetCurrentPreviewRect(old_preview_rect);
+        ResetCommittedSelection();
+        POINT cursor_position{};
+        GetCursorPos(&cursor_position);
+        (void)UpdateHoverWindowFromScreenPoint(cursor_position);
+        ScreenToClient(overlay_window_, &cursor_position);
+        UpdateCursorForOverlayPoint(cursor_position);
+        RECT new_preview_rect{};
+        bool const had_new_preview = TryGetCurrentPreviewRect(new_preview_rect);
+        InvalidatePreviewRectChange(old_preview_rect, had_old_preview, new_preview_rect, had_new_preview);
+    }
+
+    void CaptureOverlay::ExecuteEditingAction(EditingAction action)
+    {
+        switch (action)
+        {
+        case EditingAction::CommitCopy:
+            FinishCommittedSelection(OverlayResult::CopyOnly);
+            return;
+
+        case EditingAction::CommitCopyAndPin:
+            FinishCommittedSelection(OverlayResult::CopyAndPin);
+            return;
+
+        case EditingAction::CommitSaveToFile:
+            FinishCommittedSelection(OverlayResult::SaveToFile);
+            return;
+
+        case EditingAction::ExitOverlay:
+            Finish(OverlayResult::Cancelled);
+            return;
+
+        case EditingAction::ResetSelection:
+            if (has_committed_selection_)
+            {
+                ResetCommittedSelectionAndRefresh();
+            }
+            return;
+
+        case EditingAction::None:
+        default:
+            return;
+        }
+    }
+
     bool CaptureOverlay::HandleKeyDown(WPARAM w_param)
     {
-        if (w_param == VK_ESCAPE)
+        bool const control_down = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+        EditingAction const gesture_action = GestureEditingAction(w_param, control_down);
+        if (gesture_action == EditingAction::ExitOverlay)
         {
-            Finish(OverlayResult::Cancelled);
+            ExecuteEditingAction(gesture_action);
             return true;
         }
 
         if (w_param == VK_F2)
         {
-            if ((GetKeyState(VK_CONTROL) & 0x8000) != 0)
+            if (control_down)
             {
                 return CopyTextToClipboard(overlay_window_, hover_debug_text_);
             }
@@ -1939,7 +2041,7 @@ namespace capturezy::feature_capture
 
         if (!has_committed_selection_)
         {
-            if (w_param == 'A' && (GetKeyState(VK_CONTROL) & 0x8000) != 0)
+            if (w_param == 'A' && control_down)
             {
                 committed_selection_rect_ = OverlayRectScreen();
                 has_committed_selection_ = IsRectNonEmpty(committed_selection_rect_);
@@ -1962,43 +2064,9 @@ namespace capturezy::feature_capture
             return false;
         }
 
-        if (w_param == VK_RETURN)
+        if (gesture_action != EditingAction::None)
         {
-            FinishCommittedSelection(kEnterConfirmResult);
-            return true;
-        }
-
-        if (w_param == 'P')
-        {
-            FinishCommittedSelection(OverlayResult::CopyAndPin);
-            return true;
-        }
-
-        if (w_param == 'C' && (GetKeyState(VK_CONTROL) & 0x8000) != 0)
-        {
-            FinishCommittedSelection(OverlayResult::CopyOnly);
-            return true;
-        }
-
-        if (w_param == 'S' && (GetKeyState(VK_CONTROL) & 0x8000) != 0)
-        {
-            FinishCommittedSelection(OverlayResult::SaveToFile);
-            return true;
-        }
-
-        if (w_param == VK_BACK || w_param == VK_DELETE)
-        {
-            RECT old_preview_rect{};
-            bool const had_old_preview = TryGetCurrentPreviewRect(old_preview_rect);
-            ResetCommittedSelection();
-            POINT cursor_position{};
-            GetCursorPos(&cursor_position);
-            (void)UpdateHoverWindowFromScreenPoint(cursor_position);
-            ScreenToClient(overlay_window_, &cursor_position);
-            UpdateCursorForOverlayPoint(cursor_position);
-            RECT new_preview_rect{};
-            bool const had_new_preview = TryGetCurrentPreviewRect(new_preview_rect);
-            InvalidatePreviewRectChange(old_preview_rect, had_old_preview, new_preview_rect, had_new_preview);
+            ExecuteEditingAction(gesture_action);
             return true;
         }
 
@@ -2127,7 +2195,7 @@ namespace capturezy::feature_capture
         }
     }
 
-    void CaptureOverlay::CompletePointerSelection(LPARAM l_param) noexcept
+    void CaptureOverlay::CompletePointerSelection(LPARAM l_param)
     {
         if (!pointer_down_)
         {
@@ -2155,28 +2223,8 @@ namespace capturezy::feature_capture
             ToolbarAction const released_toolbar_action = HitTestToolbarAction(drag_current_);
             if (pressed_toolbar_action == released_toolbar_action)
             {
-                switch (pressed_toolbar_action)
-                {
-                case ToolbarAction::CopyAndPin:
-                    FinishCommittedSelection(OverlayResult::CopyAndPin);
-                    return;
-
-                case ToolbarAction::CopyOnly:
-                    FinishCommittedSelection(OverlayResult::CopyOnly);
-                    return;
-
-                case ToolbarAction::SaveToFile:
-                    FinishCommittedSelection(OverlayResult::SaveToFile);
-                    return;
-
-                case ToolbarAction::Cancel:
-                    Finish(OverlayResult::Cancelled);
-                    return;
-
-                case ToolbarAction::None:
-                default:
-                    break;
-                }
+                ExecuteEditingAction(ToolbarEditingAction(pressed_toolbar_action));
+                return;
             }
 
             UpdateHoveredToolbarAction(drag_current_);
@@ -2501,7 +2549,7 @@ namespace capturezy::feature_capture
                 if (HitTestToolbarAction(overlay_point) == ToolbarAction::None &&
                     IsPointInsideCommittedSelection(overlay_point))
                 {
-                    FinishCommittedSelection(kDoubleClickConfirmResult);
+                    ExecuteEditingAction(EditingAction::CommitCopy);
                     return 0;
                 }
             }
@@ -2514,7 +2562,7 @@ namespace capturezy::feature_capture
                 if (HitTestToolbarAction(overlay_point) == ToolbarAction::None &&
                     IsPointInsideCommittedSelection(overlay_point))
                 {
-                    FinishCommittedSelection(kMiddleClickConfirmResult);
+                    ExecuteEditingAction(EditingAction::CommitCopyAndPin);
                     return 0;
                 }
             }
@@ -2524,22 +2572,12 @@ namespace capturezy::feature_capture
         case WM_NCRBUTTONUP:
             if (has_committed_selection_)
             {
-                RECT old_preview_rect{};
-                bool const had_old_preview = TryGetCurrentPreviewRect(old_preview_rect);
-                ResetCommittedSelection();
-                POINT cursor_position{};
-                GetCursorPos(&cursor_position);
-                (void)UpdateHoverWindowFromScreenPoint(cursor_position);
-                ScreenToClient(overlay_window_, &cursor_position);
-                UpdateCursorForOverlayPoint(cursor_position);
-                RECT new_preview_rect{};
-                bool const had_new_preview = TryGetCurrentPreviewRect(new_preview_rect);
-                InvalidatePreviewRectChange(old_preview_rect, had_old_preview, new_preview_rect, had_new_preview);
+                ExecuteEditingAction(EditingAction::ResetSelection);
                 return 0;
             }
 
             CAPTUREZY_LOG_DEBUG(core::LogCategory::Capture, L"Overlay cancelled by right click.");
-            Finish(OverlayResult::Cancelled);
+            ExecuteEditingAction(EditingAction::ExitOverlay);
             return 0;
 
         case WM_PAINT:

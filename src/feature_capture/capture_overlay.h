@@ -75,6 +75,16 @@ namespace capturezy::feature_capture
             SaveToFile,
         };
 
+        enum class EditingAction : std::uint8_t
+        {
+            None,
+            CommitCopy,
+            CommitCopyAndPin,
+            CommitSaveToFile,
+            ExitOverlay,
+            ResetSelection,
+        };
+
         struct ToolbarActionSpec
         {
             ToolbarAction action;
@@ -104,6 +114,8 @@ namespace capturezy::feature_capture
         [[nodiscard]] static int ToolbarButtonWidth(ToolbarAction action) noexcept;
         [[nodiscard]] static int ToolbarGroupActionCount(int group) noexcept;
         [[nodiscard]] static int ToolbarGroupWidth(int group) noexcept;
+        [[nodiscard]] static EditingAction ToolbarEditingAction(ToolbarAction action) noexcept;
+        [[nodiscard]] static EditingAction GestureEditingAction(WPARAM w_param, bool control_down) noexcept;
         [[nodiscard]] bool IsPointInsideToolbar(POINT overlay_point) const noexcept;
         [[nodiscard]] bool IsPointInsideCommittedSelection(POINT overlay_point) const noexcept;
         [[nodiscard]] ResizeHandle HitTestCommittedSelectionResizeHandle(POINT overlay_point) const noexcept;
@@ -123,11 +135,13 @@ namespace capturezy::feature_capture
         void UpdateMoveSelection(POINT overlay_point) noexcept;
         void BeginResizeSelection(POINT overlay_point) noexcept;
         void UpdateResizeSelection(POINT overlay_point) noexcept;
+        void ResetCommittedSelectionAndRefresh();
+        void ExecuteEditingAction(EditingAction action);
         void FinishCommittedSelection(OverlayResult result) noexcept;
         [[nodiscard]] bool HandleKeyDown(WPARAM w_param);
         void BeginPointerSelection(LPARAM l_param) noexcept;
         void UpdatePointerSelection(LPARAM l_param);
-        void CompletePointerSelection(LPARAM l_param) noexcept;
+        void CompletePointerSelection(LPARAM l_param);
         void PaintOverlay() noexcept;
         [[nodiscard]] ATOM RegisterWindowClass() const;
         [[nodiscard]] LRESULT HandleMessage(UINT message, WPARAM w_param, LPARAM l_param);
