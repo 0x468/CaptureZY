@@ -127,13 +127,17 @@ namespace capturezy::app
                                L", double=" +
                                std::to_wstring(static_cast<int>(app_settings_.tray_double_click_action)) + L".");
 
+        CAPTUREZY_LOG_DEBUG(core::LogCategory::App, L"Constructing main window controller.");
         main_window_ = std::make_unique<platform_win::MainWindow>(instance_, app_state_, app_settings_);
+        CAPTUREZY_LOG_DEBUG(core::LogCategory::App, L"Main window controller constructed.");
+        CAPTUREZY_LOG_DEBUG(core::LogCategory::App, L"Creating main window.");
         if (!main_window_->Create(show_command))
         {
             CAPTUREZY_LOG_ERROR(core::LogCategory::App, L"Main window creation failed.");
             main_window_.reset();
             return -1;
         }
+        CAPTUREZY_LOG_INFO(core::LogCategory::App, L"Main window created successfully.");
 
         return platform_win::MainWindow::RunMessageLoop();
     }

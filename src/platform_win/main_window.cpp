@@ -30,15 +30,18 @@ namespace capturezy::platform_win
           capture_overlay_(std::make_unique<feature_capture::CaptureOverlay>(instance)),
           pin_manager_(std::make_unique<feature_pin::PinManager>(instance, app_settings))
     {
+        CAPTUREZY_LOG_DEBUG(core::LogCategory::Platform, L"MainWindow constructed.");
     }
 
     bool MainWindow::Create(int show_command)
     {
+        CAPTUREZY_LOG_DEBUG(core::LogCategory::Platform, L"MainWindow::Create entered.");
         if (RegisterWindowClass() == 0)
         {
             CAPTUREZY_LOG_ERROR(core::LogCategory::Platform, L"Main window class registration failed.");
             return false;
         }
+        CAPTUREZY_LOG_DEBUG(core::LogCategory::Platform, L"Main window class registered.");
 
         window_ = CreateWindowExW(0, core::AppMetadata::MainWindowClassName(), core::AppMetadata::ProductName(),
                                   WS_OVERLAPPED, 0, 0, 0, 0, nullptr, nullptr, instance_, this);
@@ -48,6 +51,7 @@ namespace capturezy::platform_win
             CAPTUREZY_LOG_ERROR(core::LogCategory::Platform, L"Main window creation failed.");
             return false;
         }
+        CAPTUREZY_LOG_DEBUG(core::LogCategory::Platform, L"Main window HWND created.");
 
         pin_manager_->SetInventoryChangedCallback([this]() {
             if (window_ != nullptr)
@@ -55,23 +59,31 @@ namespace capturezy::platform_win
                 UpdateWindowPresentation();
             }
         });
+        CAPTUREZY_LOG_DEBUG(core::LogCategory::Platform, L"Pin manager callback installed.");
 
+        CAPTUREZY_LOG_DEBUG(core::LogCategory::Tray, L"Creating tray icon.");
         if (!CreateTrayIcon())
         {
             CAPTUREZY_LOG_ERROR(core::LogCategory::Tray, L"Tray icon creation failed.");
             DestroyWindow(window_);
             return false;
         }
+        CAPTUREZY_LOG_INFO(core::LogCategory::Tray, L"Tray icon created.");
 
         hotkeys_registered_ = RegisterHotkeys();
+        CAPTUREZY_LOG_INFO(core::LogCategory::Platform, hotkeys_registered_ ? L"Capture hotkey registered."
+                                                                            : L"Capture hotkey registration failed.");
 
         UpdateWindowPresentation();
+        CAPTUREZY_LOG_DEBUG(core::LogCategory::Platform, L"Window presentation updated.");
         HideToTray();
+        CAPTUREZY_LOG_DEBUG(core::LogCategory::Tray, L"Main window hidden to tray.");
 
         if (show_command == SW_SHOWNORMAL || show_command == SW_SHOWDEFAULT)
         {
             ShowWindow(window_, SW_HIDE);
         }
+        CAPTUREZY_LOG_DEBUG(core::LogCategory::Platform, L"MainWindow::Create completed.");
         return true;
     }
 
