@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <string>
 #include <utility>
 
@@ -50,6 +51,14 @@ namespace capturezy::feature_capture
         constexpr int kDebugOverlayMargin = 16;
         constexpr int kDebugOverlayPadding = 10;
         constexpr int kDebugOverlayMaxWidth = 520;
+        constexpr COLORREF kAnnotationFrameColor = RGB(255, 214, 102);
+        constexpr COLORREF kAnnotationFillColor = RGB(255, 214, 102);
+        constexpr BYTE kAnnotationFillAlpha = 28;
+        struct AlphaFillStyle
+        {
+            COLORREF color;
+            BYTE alpha;
+        };
         enum class ToolbarButtonVisualState : std::uint8_t
         {
             Normal,
@@ -57,6 +66,7 @@ namespace capturezy::feature_capture
             Pressed,
             Placeholder,
             PlaceholderEnabled,
+            Selected,
         };
 
         void PaintToolbarSeparator(HDC destination_device_context, RECT toolbar_rect, int separator_x) noexcept
@@ -71,7 +81,78 @@ namespace capturezy::feature_capture
             DeleteObject(separator_pen);
         }
 
-        void AlphaFillRect(HDC destination_device_context, RECT rect, BYTE alpha) noexcept;
+        [[nodiscard]] bool IsRectNonEmpty(RECT rect) noexcept;
+        void AlphaFillRect(HDC destination_device_context, RECT rect, AlphaFillStyle style) noexcept;
+
+        [[nodiscard]] RECT NormalizedRectToClientRect(NormalizedRectF const &normalized_rect,
+                                                      RECT selection_rect) noexcept
+        {
+            if (!IsRectNonEmpty(selection_rect))
+            {
+                return {};
+            }
+
+            auto const selection_width = static_cast<double>(selection_rect.right - selection_rect.left);
+            auto const selection_height = static_cast<double>(selection_rect.bottom - selection_rect.top);
+            RECT client_rect{
+                .left = selection_rect.left +
+                        static_cast<LONG>(std::lround(static_cast<double>(normalized_rect.left) * selection_width)),
+                .top = selection_rect.top +
+                       static_cast<LONG>(std::lround(static_cast<double>(normalized_rect.top) * selection_height)),
+                .right = selection_rect.left +
+                         static_cast<LONG>(std::lround(static_cast<double>(normalized_rect.right) * selection_width)),
+                .bottom = selection_rect.top + static_cast<LONG>(std::lround(
+                                                   static_cast<double>(normalized_rect.bottom) * selection_height)),
+            };
+            return client_rect;
+        }
+
+        [[nodiscard]] NormalizedRectF BuildNormalizedRectForSelection(POINT start_point, POINT current_point,
+                                                                      RECT selection_rect) noexcept
+        {
+            if (!IsRectNonEmpty(selection_rect))
+            {
+                return {};
+            }
+
+            LONG const clamped_start_x = std::clamp(start_point.x, selection_rect.left, selection_rect.right);
+            LONG const clamped_start_y = std::clamp(start_point.y, selection_rect.top, selection_rect.bottom);
+            LONG const clamped_current_x = std::clamp(current_point.x, selection_rect.left, selection_rect.right);
+            LONG const clamped_current_y = std::clamp(current_point.y, selection_rect.top, selection_rect.bottom);
+            LONG const left = std::min(clamped_start_x, clamped_current_x);
+            LONG const top = std::min(clamped_start_y, clamped_current_y);
+            LONG const right = std::max(clamped_start_x, clamped_current_x);
+            LONG const bottom = std::max(clamped_start_y, clamped_current_y);
+            auto const selection_width = static_cast<float>(selection_rect.right - selection_rect.left);
+            auto const selection_height = static_cast<float>(selection_rect.bottom - selection_rect.top);
+            return NormalizedRectF{
+                .left = static_cast<float>(left - selection_rect.left) / selection_width,
+                .top = static_cast<float>(top - selection_rect.top) / selection_height,
+                .right = static_cast<float>(right - selection_rect.left) / selection_width,
+                .bottom = static_cast<float>(bottom - selection_rect.top) / selection_height,
+            };
+        }
+
+        void PaintAnnotationRect(HDC destination_device_context, RECT annotation_rect) noexcept
+        {
+            if (!IsRectNonEmpty(annotation_rect))
+            {
+                return;
+            }
+
+            RECT fill_rect = annotation_rect;
+            AlphaFillRect(destination_device_context, fill_rect,
+                          AlphaFillStyle{.color = kAnnotationFillColor, .alpha = kAnnotationFillAlpha});
+
+            HPEN frame_pen = CreatePen(PS_SOLID, 2, kAnnotationFrameColor);
+            HGDIOBJ old_pen = SelectObject(destination_device_context, frame_pen);
+            HGDIOBJ old_brush = SelectObject(destination_device_context, GetStockObject(HOLLOW_BRUSH));
+            Rectangle(destination_device_context, annotation_rect.left, annotation_rect.top, annotation_rect.right,
+                      annotation_rect.bottom);
+            SelectObject(destination_device_context, old_brush);
+            SelectObject(destination_device_context, old_pen);
+            DeleteObject(frame_pen);
+        }
 
         void SetWindowUserData(HWND window, CaptureOverlay *overlay)
         {
@@ -287,7 +368,7 @@ namespace capturezy::feature_capture
 
             HGDIOBJ previous_bitmap = SelectObject(bitmap_device_context, dimmed_bitmap.Get());
             RECT bitmap_rect{.left = 0, .top = 0, .right = dimmed_bitmap.Size().cx, .bottom = dimmed_bitmap.Size().cy};
-            AlphaFillRect(bitmap_device_context, bitmap_rect, alpha);
+            AlphaFillRect(bitmap_device_context, bitmap_rect, AlphaFillStyle{.color = RGB(0, 0, 0), .alpha = alpha});
             SelectObject(bitmap_device_context, previous_bitmap);
             DeleteDC(bitmap_device_context);
             ReleaseDC(nullptr, screen_device_context);
@@ -335,7 +416,8 @@ namespace capturezy::feature_capture
                 FillRect(destination_device_context, &destination_rect, GetSysColorBrush(COLOR_WINDOWTEXT));
             }
 
-            AlphaFillRect(destination_device_context, destination_rect, kOverlayAlpha);
+            AlphaFillRect(destination_device_context, destination_rect,
+                          AlphaFillStyle{.color = RGB(0, 0, 0), .alpha = kOverlayAlpha});
         }
 
         void PaintOverlayPreviewRect(HDC destination_device_context, RECT destination_preview_rect,
@@ -515,6 +597,12 @@ namespace capturezy::feature_capture
                 frame_color = RGB(82, 82, 82);
                 background_color = RGB(34, 34, 34);
                 text_color = RGB(188, 188, 188);
+            }
+            else if (visual_state == ToolbarButtonVisualState::Selected)
+            {
+                frame_color = RGB(255, 214, 102);
+                background_color = RGB(74, 58, 18);
+                text_color = RGB(255, 245, 214);
             }
             else if (visual_state == ToolbarButtonVisualState::Hovered)
             {
@@ -890,7 +978,7 @@ namespace capturezy::feature_capture
                       DT_LEFT | DT_TOP | DT_WORDBREAK);
         }
 
-        void AlphaFillRect(HDC destination_device_context, RECT rect, BYTE alpha) noexcept
+        void AlphaFillRect(HDC destination_device_context, RECT rect, AlphaFillStyle style) noexcept
         {
             if (!IsRectNonEmpty(rect))
             {
@@ -911,11 +999,11 @@ namespace capturezy::feature_capture
             }
 
             HGDIOBJ previous_bitmap = SelectObject(source_device_context, bitmap);
-            SetPixelV(source_device_context, 0, 0, RGB(0, 0, 0));
+            SetPixelV(source_device_context, 0, 0, style.color);
             BLENDFUNCTION const blend_function{
                 .BlendOp = AC_SRC_OVER,
                 .BlendFlags = 0,
-                .SourceConstantAlpha = alpha,
+                .SourceConstantAlpha = style.alpha,
                 .AlphaFormat = 0,
             };
             (void)AlphaBlend(destination_device_context, rect.left, rect.top, rect.right - rect.left,
@@ -1199,16 +1287,16 @@ namespace capturezy::feature_capture
     CaptureOverlay::ToolbarActionSpec const &CaptureOverlay::ToolbarActionMetadata(ToolbarAction action) noexcept
     {
         static constexpr std::array<ToolbarActionSpec, 10> kToolbarActionSpecs{{
-            ToolbarActionSpec{.action = ToolbarAction::PlaceholderArrow,
-                              .label = L"箭",
-                              .hint = L"箭头工具（暂未开放）",
+            ToolbarActionSpec{.action = ToolbarAction::ToolShape,
+                              .label = L"形",
+                              .hint = L"形状工具（默认矩形）",
                               .group = 0,
                               .index_in_group = 0,
                               .width = kToolbarToolButtonWidth,
-                              .interactive = false},
-            ToolbarActionSpec{.action = ToolbarAction::PlaceholderPen,
-                              .label = L"笔",
-                              .hint = L"画笔工具（暂未开放）",
+                              .interactive = true},
+            ToolbarActionSpec{.action = ToolbarAction::PlaceholderArrow,
+                              .label = L"箭",
+                              .hint = L"箭头工具（暂未开放）",
                               .group = 0,
                               .index_in_group = 1,
                               .width = kToolbarToolButtonWidth,
@@ -1229,18 +1317,18 @@ namespace capturezy::feature_capture
                               .interactive = false},
             ToolbarActionSpec{.action = ToolbarAction::PlaceholderUndo,
                               .label = L"撤",
-                              .hint = L"撤销（暂未开放）",
+                              .hint = L"撤销",
                               .group = 1,
                               .index_in_group = 0,
                               .width = kToolbarToolButtonWidth,
-                              .interactive = false},
+                              .interactive = true},
             ToolbarActionSpec{.action = ToolbarAction::PlaceholderRedo,
                               .label = L"重",
-                              .hint = L"重做（暂未开放）",
+                              .hint = L"重做",
                               .group = 1,
                               .index_in_group = 1,
                               .width = kToolbarToolButtonWidth,
-                              .interactive = false},
+                              .interactive = true},
             ToolbarActionSpec{.action = ToolbarAction::Cancel,
                               .label = L"取消",
                               .hint = L"退出截图",
@@ -1367,21 +1455,21 @@ namespace capturezy::feature_capture
         return (sample_button_width * group_action_count) + (kToolbarSpacing * (group_action_count - 1));
     }
 
-    AnnotationTool CaptureOverlay::ToolbarAnnotationTool(ToolbarAction action) noexcept
+    AnnotationToolFamily CaptureOverlay::ToolbarToolFamily(ToolbarAction action) noexcept
     {
         switch (action)
         {
-        case ToolbarAction::PlaceholderArrow:
-            return AnnotationTool::Arrow;
+        case ToolbarAction::ToolShape:
+            return AnnotationToolFamily::Shape;
 
-        case ToolbarAction::PlaceholderPen:
-            return AnnotationTool::Pen;
+        case ToolbarAction::PlaceholderArrow:
+            return AnnotationToolFamily::Arrow;
 
         case ToolbarAction::PlaceholderText:
-            return AnnotationTool::Text;
+            return AnnotationToolFamily::Text;
 
         case ToolbarAction::PlaceholderMosaic:
-            return AnnotationTool::Mosaic;
+            return AnnotationToolFamily::Mosaic;
 
         case ToolbarAction::None:
         case ToolbarAction::PlaceholderUndo:
@@ -1391,7 +1479,7 @@ namespace capturezy::feature_capture
         case ToolbarAction::CopyOnly:
         case ToolbarAction::SaveToFile:
         default:
-            return AnnotationTool::Arrow;
+            return AnnotationToolFamily::None;
         }
     }
 
@@ -1418,8 +1506,8 @@ namespace capturezy::feature_capture
             return EditingAction::ExitOverlay;
 
         case ToolbarAction::None:
+        case ToolbarAction::ToolShape:
         case ToolbarAction::PlaceholderArrow:
-        case ToolbarAction::PlaceholderPen:
         case ToolbarAction::PlaceholderText:
         case ToolbarAction::PlaceholderMosaic:
         default:
@@ -1461,6 +1549,9 @@ namespace capturezy::feature_capture
     {
         switch (action)
         {
+        case ToolbarAction::ToolShape:
+            return true;
+
         case ToolbarAction::PlaceholderUndo:
             return annotation_session_.CanUndo();
 
@@ -1470,6 +1561,32 @@ namespace capturezy::feature_capture
         default:
             return IsInteractiveToolbarAction(action);
         }
+    }
+
+    bool CaptureOverlay::IsAnnotationToolActive() const noexcept
+    {
+        return annotation_session_.ActiveToolFamily() != AnnotationToolFamily::None;
+    }
+
+    RECT CaptureOverlay::AnnotationCanvasRect() const noexcept
+    {
+        if (!has_committed_selection_)
+        {
+            return {};
+        }
+
+        return OverlayToClientRect(committed_selection_rect_);
+    }
+
+    bool CaptureOverlay::IsPointInsideAnnotationCanvas(POINT overlay_point) const noexcept
+    {
+        if (!IsAnnotationToolActive())
+        {
+            return false;
+        }
+
+        RECT annotation_canvas = AnnotationCanvasRect();
+        return IsRectNonEmpty(annotation_canvas) && PtInRect(&annotation_canvas, overlay_point) != FALSE;
     }
 
     RECT CaptureOverlay::ToolbarRect(RECT selection_rect, RECT bounds_rect) const noexcept
@@ -1579,9 +1696,10 @@ namespace capturezy::feature_capture
             return ToolbarAction::None;
         }
 
-        constexpr std::array<ToolbarAction, 6> kToolbarActions{
-            ToolbarAction::PlaceholderUndo, ToolbarAction::PlaceholderRedo, ToolbarAction::Cancel,
-            ToolbarAction::CopyAndPin,      ToolbarAction::SaveToFile,      ToolbarAction::CopyOnly,
+        constexpr std::array<ToolbarAction, 7> kToolbarActions{
+            ToolbarAction::ToolShape, ToolbarAction::PlaceholderUndo, ToolbarAction::PlaceholderRedo,
+            ToolbarAction::Cancel,    ToolbarAction::CopyAndPin,      ToolbarAction::SaveToFile,
+            ToolbarAction::CopyOnly,
         };
         RECT const toolbar_rect = CurrentToolbarRect();
         for (ToolbarAction const action : kToolbarActions)
@@ -1821,6 +1939,20 @@ namespace capturezy::feature_capture
         }
     }
 
+    void CaptureOverlay::InvalidateAnnotationCanvas() noexcept
+    {
+        if (overlay_window_ == nullptr)
+        {
+            return;
+        }
+
+        RECT annotation_canvas = ExpandedRect(AnnotationCanvasRect(), kPreviewInvalidationPadding);
+        if (IsRectNonEmpty(annotation_canvas))
+        {
+            InvalidateRect(overlay_window_, &annotation_canvas, FALSE);
+        }
+    }
+
     void CaptureOverlay::UpdateCursorForOverlayPoint(POINT overlay_point) noexcept
     {
         if (pointer_drag_mode_ == PointerDragMode::ResizeSelection && pointer_down_)
@@ -1860,6 +1992,12 @@ namespace capturezy::feature_capture
                 return;
             }
 
+            if (IsPointInsideAnnotationCanvas(overlay_point))
+            {
+                SetCursor(LoadCursorW(nullptr, IDC_CROSS));
+                return;
+            }
+
             if (IsPointInsideCommittedSelection(overlay_point))
             {
                 SetCursor(MoveSelectionCursor());
@@ -1884,7 +2022,44 @@ namespace capturezy::feature_capture
         active_resize_handle_ = ResizeHandle::None;
         hovered_toolbar_action_ = ToolbarAction::None;
         pressed_toolbar_action_ = ToolbarAction::None;
+        has_draft_annotation_ = false;
+        draft_annotation_bounds_ = {};
         annotation_session_.Reset();
+    }
+
+    void CaptureOverlay::BeginCreateAnnotation(POINT overlay_point) noexcept
+    {
+        drag_start_ = overlay_point;
+        drag_current_ = overlay_point;
+        pointer_down_ = true;
+        drag_in_progress_ = false;
+        has_selection_ = false;
+        has_click_candidate_window_ = false;
+        pointer_drag_mode_ = PointerDragMode::CreateAnnotation;
+        active_resize_handle_ = ResizeHandle::None;
+        resize_anchor_handle_ = ResizeHandle::None;
+        has_draft_annotation_ = true;
+        draft_annotation_bounds_ = {};
+        SetCapture(overlay_window_);
+    }
+
+    void CaptureOverlay::UpdateCreateAnnotation(POINT overlay_point) noexcept
+    {
+        drag_current_ = overlay_point;
+        RECT annotation_canvas = AnnotationCanvasRect();
+        if (!IsRectNonEmpty(annotation_canvas))
+        {
+            return;
+        }
+
+        if (!drag_in_progress_ && (std::abs(drag_current_.x - drag_start_.x) >= kDragThreshold ||
+                                   std::abs(drag_current_.y - drag_start_.y) >= kDragThreshold))
+        {
+            drag_in_progress_ = true;
+        }
+
+        draft_annotation_bounds_ = BuildNormalizedRectForSelection(drag_start_, drag_current_, annotation_canvas);
+        InvalidateAnnotationCanvas();
     }
 
     void CaptureOverlay::BeginMoveSelection(POINT overlay_point) noexcept
@@ -2043,6 +2218,20 @@ namespace capturezy::feature_capture
         InvalidatePreviewRectChange(old_preview_rect, had_old_preview, new_preview_rect, had_new_preview);
     }
 
+    void CaptureOverlay::ExecuteToolbarAction(ToolbarAction action)
+    {
+        if (action == ToolbarAction::ToolShape)
+        {
+            annotation_session_.SetShapeVariant(ShapeToolVariant::Rectangle);
+            annotation_session_.ToggleToolFamily(AnnotationToolFamily::Shape);
+            InvalidateToolbarVisual();
+            InvalidateAnnotationCanvas();
+            return;
+        }
+
+        ExecuteEditingAction(ToolbarEditingAction(action));
+    }
+
     void CaptureOverlay::ExecuteEditingAction(EditingAction action)
     {
         switch (action)
@@ -2182,6 +2371,12 @@ namespace capturezy::feature_capture
 
         if (IsPointInsideCommittedSelection(overlay_point))
         {
+            if (IsAnnotationToolActive())
+            {
+                BeginCreateAnnotation(overlay_point);
+                return;
+            }
+
             BeginMoveSelection(overlay_point);
             return;
         }
@@ -2222,6 +2417,10 @@ namespace capturezy::feature_capture
             else if (pointer_drag_mode_ == PointerDragMode::MoveSelection)
             {
                 UpdateMoveSelection(overlay_point);
+            }
+            else if (pointer_drag_mode_ == PointerDragMode::CreateAnnotation)
+            {
+                UpdateCreateAnnotation(overlay_point);
             }
             else
             {
@@ -2296,7 +2495,7 @@ namespace capturezy::feature_capture
             ToolbarAction const released_toolbar_action = HitTestToolbarAction(drag_current_);
             if (pressed_toolbar_action == released_toolbar_action)
             {
-                ExecuteEditingAction(ToolbarEditingAction(pressed_toolbar_action));
+                ExecuteToolbarAction(pressed_toolbar_action);
                 return;
             }
 
@@ -2324,6 +2523,26 @@ namespace capturezy::feature_capture
                 UpdateCursorForOverlayPoint(drag_current_);
                 InvalidateRect(overlay_window_, nullptr, FALSE);
             }
+            return;
+        }
+
+        if (pointer_drag_mode == PointerDragMode::CreateAnnotation)
+        {
+            bool const has_meaningful_annotation = has_draft_annotation_ &&
+                                                   (std::abs(drag_current_.x - drag_start_.x) >= kDragThreshold ||
+                                                    std::abs(drag_current_.y - drag_start_.y) >= kDragThreshold);
+            if (has_meaningful_annotation)
+            {
+                annotation_session_.AddObject(
+                    AnnotationObject{.kind = AnnotationKind::Rectangle, .bounds = draft_annotation_bounds_});
+                InvalidateToolbarVisual();
+                InvalidateAnnotationCanvas();
+            }
+            has_draft_annotation_ = false;
+            draft_annotation_bounds_ = {};
+            drag_in_progress_ = false;
+            InvalidateAnnotationCanvas();
+            UpdateCursorForOverlayPoint(drag_current_);
             return;
         }
 
@@ -2434,6 +2653,21 @@ namespace capturezy::feature_capture
                 OffsetRect(&local_metrics_rect, -paint_rect.left, -paint_rect.top);
                 PaintSelectionMetrics(buffer_device_context, local_metrics_rect, preview_rect);
             }
+            if (has_committed_selection_)
+            {
+                for (AnnotationObject const &annotation_object : annotation_session_.Objects())
+                {
+                    RECT annotation_rect = NormalizedRectToClientRect(annotation_object.bounds, preview_rect);
+                    OffsetRect(&annotation_rect, -paint_rect.left, -paint_rect.top);
+                    PaintAnnotationRect(buffer_device_context, annotation_rect);
+                }
+                if (has_draft_annotation_)
+                {
+                    RECT annotation_rect = NormalizedRectToClientRect(draft_annotation_bounds_, preview_rect);
+                    OffsetRect(&annotation_rect, -paint_rect.left, -paint_rect.top);
+                    PaintAnnotationRect(buffer_device_context, annotation_rect);
+                }
+            }
             bool const should_show_resize_handles = ((drag_in_progress_ && has_selection_) ||
                                                      has_committed_selection_) &&
                                                     ShouldShowResizeHandles(preview_rect);
@@ -2466,8 +2700,8 @@ namespace capturezy::feature_capture
                     PaintToolbarBackground(buffer_device_context, local_toolbar_rect);
 
                     constexpr std::array<ToolbarAction, 4> kPlaceholderActions{
+                        ToolbarAction::ToolShape,
                         ToolbarAction::PlaceholderArrow,
-                        ToolbarAction::PlaceholderPen,
                         ToolbarAction::PlaceholderText,
                         ToolbarAction::PlaceholderMosaic,
                     };
@@ -2504,8 +2738,27 @@ namespace capturezy::feature_capture
                     {
                         RECT button_rect = ToolbarButtonRect(toolbar_rect, action);
                         OffsetRect(&button_rect, -paint_rect.left, -paint_rect.top);
+                        ToolbarButtonVisualState visual_state = action == ToolbarAction::ToolShape
+                                                                    ? ToolbarButtonVisualState::PlaceholderEnabled
+                                                                    : ToolbarButtonVisualState::Placeholder;
+                        if (action == ToolbarAction::ToolShape)
+                        {
+                            if (pointer_down_ && pressed_toolbar_action_ == action && hovered_toolbar_action_ == action)
+                            {
+                                visual_state = ToolbarButtonVisualState::Pressed;
+                            }
+                            else if (hovered_toolbar_action_ == action)
+                            {
+                                visual_state = ToolbarButtonVisualState::Hovered;
+                            }
+                            else if (annotation_session_.IsToolFamilyActive(AnnotationToolFamily::Shape))
+                            {
+                                visual_state = ToolbarButtonVisualState::Selected;
+                            }
+                        }
+
                         PaintToolbarButton(buffer_device_context, button_rect, ToolbarActionLabel(action),
-                                           ToolbarButtonVisualState::Placeholder);
+                                           visual_state);
                     }
 
                     for (ToolbarAction const action : kHistoryActions)

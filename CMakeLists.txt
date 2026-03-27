@@ -7,6 +7,8 @@ project(
   LANGUAGES CXX
 )
 
+include(CTest)
+
 option(CAPTUREZY_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 option(CAPTUREZY_ENABLE_LTO "Enable link time optimization when supported" OFF)
 option(CAPTUREZY_ENABLE_CLANG_TIDY "Run clang-tidy during the build when available" OFF)
@@ -32,6 +34,10 @@ if(WIN32)
   add_subdirectory(src)
 else()
   message(STATUS "CaptureZY 仅支持在 Windows 上生成可执行程序；当前仅执行工程配置校验。")
+endif()
+
+if(WIN32 AND BUILD_TESTING)
+  add_subdirectory(tests)
 endif()
 
 if(WIN32)

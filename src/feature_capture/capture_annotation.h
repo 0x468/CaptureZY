@@ -4,49 +4,63 @@
 #include <cstdint>
 #include <vector>
 
-// clang-format off
-#include <windows.h>
-// clang-format on
-
 namespace capturezy::feature_capture
 {
-    enum class AnnotationTool : std::uint8_t
+    enum class AnnotationToolFamily : std::uint8_t
     {
+        None,
+        Shape,
         Arrow,
-        Pen,
         Text,
         Mosaic,
     };
 
+    enum class ShapeToolVariant : std::uint8_t
+    {
+        Rectangle,
+    };
+
     enum class AnnotationKind : std::uint8_t
     {
-        Placeholder,
+        Rectangle,
+    };
+
+    struct NormalizedRectF
+    {
+        float left{0.0F};
+        float top{0.0F};
+        float right{0.0F};
+        float bottom{0.0F};
     };
 
     struct AnnotationObject
     {
-        AnnotationKind kind{AnnotationKind::Placeholder};
-        RECT bounds{};
+        AnnotationKind kind{AnnotationKind::Rectangle};
+        NormalizedRectF bounds{};
     };
 
-    // 当前先只提供工具、对象列表与历史状态来源，具体标注绘制与快照回放后续再接入。
+    // 当前先建立工具族、默认变体和历史栈结构，二级下拉与更多样式后续再补。
     class AnnotationSession final
     {
       public:
         void Reset() noexcept;
-        void SetActiveTool(AnnotationTool tool) noexcept;
-        [[nodiscard]] AnnotationTool ActiveTool() const noexcept;
+        void ToggleToolFamily(AnnotationToolFamily family) noexcept;
+        void SetShapeVariant(ShapeToolVariant variant) noexcept;
+        [[nodiscard]] AnnotationToolFamily ActiveToolFamily() const noexcept;
+        [[nodiscard]] ShapeToolVariant ActiveShapeVariant() const noexcept;
+        [[nodiscard]] bool IsToolFamilyActive(AnnotationToolFamily family) const noexcept;
         [[nodiscard]] std::vector<AnnotationObject> const &Objects() const noexcept;
         [[nodiscard]] bool CanUndo() const noexcept;
         [[nodiscard]] bool CanRedo() const noexcept;
-        bool Undo() noexcept;
-        bool Redo() noexcept;
-        void MarkEdited() noexcept;
+        void AddObject(AnnotationObject object);
+        bool Undo();
+        bool Redo();
 
       private:
-        AnnotationTool active_tool_{AnnotationTool::Arrow};
+        AnnotationToolFamily active_tool_family_{AnnotationToolFamily::None};
+        ShapeToolVariant active_shape_variant_{ShapeToolVariant::Rectangle};
         std::vector<AnnotationObject> objects_;
-        std::size_t undo_depth_{0};
-        std::size_t redo_depth_{0};
+        std::vector<std::vector<AnnotationObject>> undo_stack_;
+        std::vector<std::vector<AnnotationObject>> redo_stack_;
     };
 } // namespace capturezy::feature_capture

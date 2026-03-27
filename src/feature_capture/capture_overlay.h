@@ -44,6 +44,7 @@ namespace capturezy::feature_capture
         {
             None,
             CreateSelection,
+            CreateAnnotation,
             MoveSelection,
             ResizeSelection,
         };
@@ -64,8 +65,8 @@ namespace capturezy::feature_capture
         enum class ToolbarAction : std::uint8_t
         {
             None,
+            ToolShape,
             PlaceholderArrow,
-            PlaceholderPen,
             PlaceholderText,
             PlaceholderMosaic,
             PlaceholderUndo,
@@ -117,10 +118,13 @@ namespace capturezy::feature_capture
         [[nodiscard]] static int ToolbarButtonWidth(ToolbarAction action) noexcept;
         [[nodiscard]] static int ToolbarGroupActionCount(int group) noexcept;
         [[nodiscard]] static int ToolbarGroupWidth(int group) noexcept;
-        [[nodiscard]] static AnnotationTool ToolbarAnnotationTool(ToolbarAction action) noexcept;
+        [[nodiscard]] static AnnotationToolFamily ToolbarToolFamily(ToolbarAction action) noexcept;
         [[nodiscard]] static EditingAction ToolbarEditingAction(ToolbarAction action) noexcept;
         [[nodiscard]] static EditingAction GestureEditingAction(WPARAM w_param, bool control_down) noexcept;
         [[nodiscard]] bool IsToolbarActionEnabled(ToolbarAction action) const noexcept;
+        [[nodiscard]] bool IsPointInsideAnnotationCanvas(POINT overlay_point) const noexcept;
+        [[nodiscard]] bool IsAnnotationToolActive() const noexcept;
+        [[nodiscard]] RECT AnnotationCanvasRect() const noexcept;
         [[nodiscard]] bool IsPointInsideToolbar(POINT overlay_point) const noexcept;
         [[nodiscard]] bool IsPointInsideCommittedSelection(POINT overlay_point) const noexcept;
         [[nodiscard]] ResizeHandle HitTestCommittedSelectionResizeHandle(POINT overlay_point) const noexcept;
@@ -134,13 +138,17 @@ namespace capturezy::feature_capture
         void UpdateHoveredToolbarAction(POINT overlay_point) noexcept;
         void InvalidatePreviewRectChange(RECT old_preview_rect, bool had_old_preview, RECT new_preview_rect,
                                          bool had_new_preview) noexcept;
+        void InvalidateAnnotationCanvas() noexcept;
         void UpdateCursorForOverlayPoint(POINT overlay_point) noexcept;
         void ResetCommittedSelection() noexcept;
+        void BeginCreateAnnotation(POINT overlay_point) noexcept;
+        void UpdateCreateAnnotation(POINT overlay_point) noexcept;
         void BeginMoveSelection(POINT overlay_point) noexcept;
         void UpdateMoveSelection(POINT overlay_point) noexcept;
         void BeginResizeSelection(POINT overlay_point) noexcept;
         void UpdateResizeSelection(POINT overlay_point) noexcept;
         void ResetCommittedSelectionAndRefresh();
+        void ExecuteToolbarAction(ToolbarAction action);
         void ExecuteEditingAction(EditingAction action);
         void FinishCommittedSelection(OverlayResult result) noexcept;
         [[nodiscard]] bool HandleKeyDown(WPARAM w_param);
@@ -170,6 +178,7 @@ namespace capturezy::feature_capture
         RECT click_candidate_window_rect_{};
         RECT committed_selection_rect_{};
         RECT resize_anchor_selection_rect_{};
+        NormalizedRectF draft_annotation_bounds_{};
         bool pointer_down_{false};
         bool drag_in_progress_{false};
         bool has_selection_{false};
@@ -177,6 +186,7 @@ namespace capturezy::feature_capture
         bool has_cached_overflow_tray_{false};
         bool has_click_candidate_window_{false};
         bool has_committed_selection_{false};
+        bool has_draft_annotation_{false};
         bool debug_overlay_enabled_{false};
         PointerDragMode pointer_drag_mode_{PointerDragMode::None};
         ResizeHandle active_resize_handle_{ResizeHandle::None};
