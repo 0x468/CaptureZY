@@ -38,10 +38,12 @@ namespace capturezy::feature_capture
         constexpr int kSelectionMetricsHeight = 24;
         constexpr int kSelectionMetricsMinWidth = 72;
         constexpr int kSelectionMetricsCharWidth = 8;
-        constexpr int kToolbarButtonWidth = 74;
+        constexpr int kToolbarToolButtonWidth = 34;
+        constexpr int kToolbarResultButtonWidth = 62;
         constexpr int kToolbarButtonHeight = 34;
         constexpr int kToolbarButtonCornerRadius = 8;
         constexpr int kToolbarSpacing = 6;
+        constexpr int kToolbarSectionSpacing = 14;
         constexpr int kToolbarPadding = 7;
         constexpr int kToolbarMargin = 12;
         constexpr int kToolbarCornerRadius = 12;
@@ -59,7 +61,20 @@ namespace capturezy::feature_capture
             Normal,
             Hovered,
             Pressed,
+            Placeholder,
         };
+
+        void PaintToolbarSeparator(HDC destination_device_context, RECT toolbar_rect, int separator_x) noexcept
+        {
+            HPEN separator_pen = CreatePen(PS_SOLID, 1, RGB(78, 78, 78));
+            HGDIOBJ old_pen = SelectObject(destination_device_context, separator_pen);
+            int const top = toolbar_rect.top + kToolbarPadding + 2;
+            int const bottom = toolbar_rect.bottom - kToolbarPadding - 2;
+            MoveToEx(destination_device_context, separator_x, top, nullptr);
+            LineTo(destination_device_context, separator_x, bottom);
+            SelectObject(destination_device_context, old_pen);
+            DeleteObject(separator_pen);
+        }
 
         void AlphaFillRect(HDC destination_device_context, RECT rect, BYTE alpha) noexcept;
 
@@ -494,7 +509,13 @@ namespace capturezy::feature_capture
             COLORREF frame_color = RGB(92, 92, 92);
             COLORREF background_color = RGB(36, 36, 36);
             COLORREF text_color = RGB(244, 244, 244);
-            if (visual_state == ToolbarButtonVisualState::Hovered)
+            if (visual_state == ToolbarButtonVisualState::Placeholder)
+            {
+                frame_color = RGB(58, 58, 58);
+                background_color = RGB(28, 28, 28);
+                text_color = RGB(126, 126, 126);
+            }
+            else if (visual_state == ToolbarButtonVisualState::Hovered)
             {
                 frame_color = RGB(255, 214, 102);
                 background_color = RGB(84, 62, 18);
@@ -1177,6 +1198,27 @@ namespace capturezy::feature_capture
     {
         switch (action)
         {
+        case ToolbarAction::PlaceholderArrow:
+            return L"箭";
+
+        case ToolbarAction::PlaceholderPen:
+            return L"笔";
+
+        case ToolbarAction::PlaceholderText:
+            return L"文";
+
+        case ToolbarAction::PlaceholderMosaic:
+            return L"码";
+
+        case ToolbarAction::PlaceholderUndo:
+            return L"撤";
+
+        case ToolbarAction::PlaceholderRedo:
+            return L"重";
+
+        case ToolbarAction::Cancel:
+            return L"取消";
+
         case ToolbarAction::CopyAndPin:
             return L"贴图";
 
@@ -1184,14 +1226,115 @@ namespace capturezy::feature_capture
             return L"复制";
 
         case ToolbarAction::SaveToFile:
-            return L"保存";
-
-        case ToolbarAction::Cancel:
-            return L"取消";
+            return L"快存";
 
         case ToolbarAction::None:
         default:
             return L"";
+        }
+    }
+
+    bool CaptureOverlay::IsInteractiveToolbarAction(ToolbarAction action) noexcept
+    {
+        switch (action)
+        {
+        case ToolbarAction::Cancel:
+        case ToolbarAction::CopyAndPin:
+        case ToolbarAction::CopyOnly:
+        case ToolbarAction::SaveToFile:
+            return true;
+
+        case ToolbarAction::None:
+        case ToolbarAction::PlaceholderArrow:
+        case ToolbarAction::PlaceholderPen:
+        case ToolbarAction::PlaceholderText:
+        case ToolbarAction::PlaceholderMosaic:
+        case ToolbarAction::PlaceholderUndo:
+        case ToolbarAction::PlaceholderRedo:
+        default:
+            return false;
+        }
+    }
+
+    int CaptureOverlay::ToolbarActionGroup(ToolbarAction action) noexcept
+    {
+        switch (action)
+        {
+        case ToolbarAction::PlaceholderArrow:
+        case ToolbarAction::PlaceholderPen:
+        case ToolbarAction::PlaceholderText:
+        case ToolbarAction::PlaceholderMosaic:
+            return 0;
+
+        case ToolbarAction::PlaceholderUndo:
+        case ToolbarAction::PlaceholderRedo:
+            return 1;
+
+        case ToolbarAction::Cancel:
+        case ToolbarAction::CopyAndPin:
+        case ToolbarAction::SaveToFile:
+        case ToolbarAction::CopyOnly:
+            return 2;
+
+        case ToolbarAction::None:
+        default:
+            return -1;
+        }
+    }
+
+    int CaptureOverlay::ToolbarActionIndexInGroup(ToolbarAction action) noexcept
+    {
+        switch (action)
+        {
+        case ToolbarAction::PlaceholderArrow:
+            return 0;
+
+        case ToolbarAction::PlaceholderPen:
+            return 1;
+
+        case ToolbarAction::PlaceholderText:
+            return 2;
+
+        case ToolbarAction::PlaceholderMosaic:
+            return 3;
+
+        case ToolbarAction::PlaceholderUndo:
+            return 0;
+
+        case ToolbarAction::PlaceholderRedo:
+            return 1;
+
+        case ToolbarAction::Cancel:
+            return 0;
+
+        case ToolbarAction::CopyAndPin:
+            return 1;
+
+        case ToolbarAction::SaveToFile:
+            return 2;
+
+        case ToolbarAction::CopyOnly:
+            return 3;
+
+        case ToolbarAction::None:
+        default:
+            return -1;
+        }
+    }
+
+    int CaptureOverlay::ToolbarButtonWidth(ToolbarAction action) noexcept
+    {
+        switch (ToolbarActionGroup(action))
+        {
+        case 0:
+        case 1:
+            return kToolbarToolButtonWidth;
+
+        case 2:
+            return kToolbarResultButtonWidth;
+
+        default:
+            return 0;
         }
     }
 
@@ -1202,9 +1345,17 @@ namespace capturezy::feature_capture
             return {};
         }
 
-        constexpr int kToolbarButtonCount = 4;
-        int const toolbar_width = (kToolbarButtonWidth * kToolbarButtonCount) +
-                                  (kToolbarSpacing * (kToolbarButtonCount - 1)) + (kToolbarPadding * 2);
+        constexpr int kPlaceholderGroupButtonCount = 4;
+        constexpr int kHistoryGroupButtonCount = 2;
+        constexpr int kResultGroupButtonCount = 4;
+        int const placeholder_group_width = (kToolbarToolButtonWidth * kPlaceholderGroupButtonCount) +
+                                            (kToolbarSpacing * (kPlaceholderGroupButtonCount - 1));
+        int const history_group_width = (kToolbarToolButtonWidth * kHistoryGroupButtonCount) +
+                                        (kToolbarSpacing * (kHistoryGroupButtonCount - 1));
+        int const result_group_width = (kToolbarResultButtonWidth * kResultGroupButtonCount) +
+                                       (kToolbarSpacing * (kResultGroupButtonCount - 1));
+        int const toolbar_width = placeholder_group_width + history_group_width + result_group_width +
+                                  (kToolbarSectionSpacing * 2) + (kToolbarPadding * 2);
         int const toolbar_height = kToolbarButtonHeight + (kToolbarPadding * 2);
         int const selection_center_x = (selection_rect.left + selection_rect.right) / 2;
         RECT toolbar_rect{
@@ -1247,62 +1398,68 @@ namespace capturezy::feature_capture
             return {};
         }
 
-        int action_index = -1;
-        switch (action)
+        constexpr int kPlaceholderGroupWidth = (kToolbarToolButtonWidth * 4) + (kToolbarSpacing * 3);
+        constexpr int kHistoryGroupWidth = (kToolbarToolButtonWidth * 2) + kToolbarSpacing;
+        int const action_group = ToolbarActionGroup(action);
+        int const action_index = ToolbarActionIndexInGroup(action);
+        int const button_width = ToolbarButtonWidth(action);
+        if (action_group < 0 || action_index < 0 || button_width <= 0)
         {
-        case ToolbarAction::CopyAndPin:
-            action_index = 0;
-            break;
-
-        case ToolbarAction::CopyOnly:
-            action_index = 1;
-            break;
-
-        case ToolbarAction::SaveToFile:
-            action_index = 2;
-            break;
-
-        case ToolbarAction::Cancel:
-            action_index = 3;
-            break;
-
-        case ToolbarAction::None:
-        default:
             return {};
         }
 
+        int const group_left = [&]() noexcept {
+            switch (action_group)
+            {
+            case 0:
+                return toolbar_rect.left + kToolbarPadding;
+
+            case 1:
+                return toolbar_rect.left + kToolbarPadding + kPlaceholderGroupWidth + kToolbarSectionSpacing;
+
+            case 2:
+                return toolbar_rect.left + kToolbarPadding + kPlaceholderGroupWidth + kToolbarSectionSpacing +
+                       kHistoryGroupWidth + kToolbarSectionSpacing;
+
+            default:
+                return toolbar_rect.left;
+            }
+        }();
+
         RECT button_rect{
-            .left = toolbar_rect.left + kToolbarPadding + (action_index * (kToolbarButtonWidth + kToolbarSpacing)),
+            .left = group_left + (action_index * (button_width + kToolbarSpacing)),
             .top = toolbar_rect.top + kToolbarPadding,
-            .right = toolbar_rect.left + kToolbarPadding + (action_index * (kToolbarButtonWidth + kToolbarSpacing)) +
-                     kToolbarButtonWidth,
+            .right = group_left + (action_index * (button_width + kToolbarSpacing)) + button_width,
             .bottom = toolbar_rect.top + kToolbarPadding + kToolbarButtonHeight,
         };
         return button_rect;
     }
 
-    CaptureOverlay::ToolbarAction CaptureOverlay::HitTestToolbarAction(POINT overlay_point) const noexcept
+    bool CaptureOverlay::IsPointInsideToolbar(POINT overlay_point) const noexcept
     {
         if (!has_committed_selection_)
         {
-            return ToolbarAction::None;
+            return false;
         }
 
-        RECT client_rect{};
-        GetClientRect(overlay_window_, &client_rect);
-        RECT const selection_rect = OverlayToClientRect(committed_selection_rect_);
-        RECT const toolbar_rect = ToolbarRect(selection_rect, client_rect);
-        if (!IsRectNonEmpty(toolbar_rect) || PtInRect(&toolbar_rect, overlay_point) == FALSE)
+        RECT const toolbar_rect = CurrentToolbarRect();
+        return IsRectNonEmpty(toolbar_rect) && PtInRect(&toolbar_rect, overlay_point) != FALSE;
+    }
+
+    CaptureOverlay::ToolbarAction CaptureOverlay::HitTestToolbarAction(POINT overlay_point) const noexcept
+    {
+        if (!IsPointInsideToolbar(overlay_point))
         {
             return ToolbarAction::None;
         }
 
         constexpr std::array<ToolbarAction, 4> kToolbarActions{
-            ToolbarAction::CopyAndPin,
-            ToolbarAction::CopyOnly,
-            ToolbarAction::SaveToFile,
             ToolbarAction::Cancel,
+            ToolbarAction::CopyAndPin,
+            ToolbarAction::SaveToFile,
+            ToolbarAction::CopyOnly,
         };
+        RECT const toolbar_rect = CurrentToolbarRect();
         for (ToolbarAction const action : kToolbarActions)
         {
             RECT const button_rect = ToolbarButtonRect(toolbar_rect, action);
@@ -1551,10 +1708,18 @@ namespace capturezy::feature_capture
 
         if (has_committed_selection_)
         {
-            if (HitTestToolbarAction(overlay_point) != ToolbarAction::None)
+            ToolbarAction const toolbar_action = HitTestToolbarAction(overlay_point);
+            if (toolbar_action != ToolbarAction::None)
             {
                 active_resize_handle_ = ResizeHandle::None;
                 SetCursor(ToolbarCursor());
+                return;
+            }
+
+            if (IsPointInsideToolbar(overlay_point))
+            {
+                active_resize_handle_ = ResizeHandle::None;
+                SetCursor(CursorForResizeHandle(ResizeHandle::None));
                 return;
             }
 
@@ -1842,6 +2007,11 @@ namespace capturezy::feature_capture
             InvalidateToolbarVisual();
             return;
         }
+        if (IsPointInsideToolbar(overlay_point))
+        {
+            active_resize_handle_ = ResizeHandle::None;
+            return;
+        }
 
         active_resize_handle_ = HitTestCommittedSelectionResizeHandle(overlay_point);
         if (active_resize_handle_ != ResizeHandle::None)
@@ -1981,9 +2151,7 @@ namespace capturezy::feature_capture
                     return;
 
                 case ToolbarAction::Cancel:
-                    ResetCommittedSelection();
-                    UpdateCursorForOverlayPoint(drag_current_);
-                    InvalidateRect(overlay_window_, nullptr, FALSE);
+                    Finish(OverlayResult::Cancelled);
                     return;
 
                 case ToolbarAction::None:
@@ -2157,13 +2325,58 @@ namespace capturezy::feature_capture
                     OffsetRect(&local_toolbar_rect, -paint_rect.left, -paint_rect.top);
                     PaintToolbarBackground(buffer_device_context, local_toolbar_rect);
 
-                    constexpr std::array<ToolbarAction, 4> kToolbarActions{
-                        ToolbarAction::CopyAndPin,
-                        ToolbarAction::CopyOnly,
-                        ToolbarAction::SaveToFile,
-                        ToolbarAction::Cancel,
+                    constexpr std::array<ToolbarAction, 4> kPlaceholderActions{
+                        ToolbarAction::PlaceholderArrow,
+                        ToolbarAction::PlaceholderPen,
+                        ToolbarAction::PlaceholderText,
+                        ToolbarAction::PlaceholderMosaic,
                     };
-                    for (ToolbarAction const action : kToolbarActions)
+                    constexpr std::array<ToolbarAction, 2> kHistoryActions{
+                        ToolbarAction::PlaceholderUndo,
+                        ToolbarAction::PlaceholderRedo,
+                    };
+                    constexpr std::array<ToolbarAction, 4> kResultActions{
+                        ToolbarAction::Cancel,
+                        ToolbarAction::CopyAndPin,
+                        ToolbarAction::SaveToFile,
+                        ToolbarAction::CopyOnly,
+                    };
+
+                    RECT const left_group_last_button = ToolbarButtonRect(toolbar_rect,
+                                                                          ToolbarAction::PlaceholderMosaic);
+                    RECT const middle_group_first_button = ToolbarButtonRect(toolbar_rect,
+                                                                             ToolbarAction::PlaceholderUndo);
+                    RECT const middle_group_last_button = ToolbarButtonRect(toolbar_rect,
+                                                                            ToolbarAction::PlaceholderRedo);
+                    RECT const right_group_first_button = ToolbarButtonRect(toolbar_rect, ToolbarAction::Cancel);
+                    if (IsRectNonEmpty(left_group_last_button) && IsRectNonEmpty(middle_group_first_button))
+                    {
+                        int const separator_x = (left_group_last_button.right + middle_group_first_button.left) / 2;
+                        PaintToolbarSeparator(buffer_device_context, local_toolbar_rect, separator_x - paint_rect.left);
+                    }
+                    if (IsRectNonEmpty(middle_group_last_button) && IsRectNonEmpty(right_group_first_button))
+                    {
+                        int const separator_x = (middle_group_last_button.right + right_group_first_button.left) / 2;
+                        PaintToolbarSeparator(buffer_device_context, local_toolbar_rect, separator_x - paint_rect.left);
+                    }
+
+                    for (ToolbarAction const action : kPlaceholderActions)
+                    {
+                        RECT button_rect = ToolbarButtonRect(toolbar_rect, action);
+                        OffsetRect(&button_rect, -paint_rect.left, -paint_rect.top);
+                        PaintToolbarButton(buffer_device_context, button_rect, ToolbarActionLabel(action),
+                                           ToolbarButtonVisualState::Placeholder);
+                    }
+
+                    for (ToolbarAction const action : kHistoryActions)
+                    {
+                        RECT button_rect = ToolbarButtonRect(toolbar_rect, action);
+                        OffsetRect(&button_rect, -paint_rect.left, -paint_rect.top);
+                        PaintToolbarButton(buffer_device_context, button_rect, ToolbarActionLabel(action),
+                                           ToolbarButtonVisualState::Placeholder);
+                    }
+
+                    for (ToolbarAction const action : kResultActions)
                     {
                         RECT button_rect = ToolbarButtonRect(toolbar_rect, action);
                         OffsetRect(&button_rect, -paint_rect.left, -paint_rect.top);

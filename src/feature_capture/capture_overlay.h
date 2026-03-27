@@ -63,10 +63,16 @@ namespace capturezy::feature_capture
         enum class ToolbarAction : std::uint8_t
         {
             None,
+            PlaceholderArrow,
+            PlaceholderPen,
+            PlaceholderText,
+            PlaceholderMosaic,
+            PlaceholderUndo,
+            PlaceholderRedo,
+            Cancel,
             CopyAndPin,
             CopyOnly,
             SaveToFile,
-            Cancel,
         };
 
         [[nodiscard]] RECT CurrentSelectionRect() const noexcept;
@@ -79,6 +85,11 @@ namespace capturezy::feature_capture
         [[nodiscard]] static HCURSOR MoveSelectionCursor() noexcept;
         [[nodiscard]] static HCURSOR ToolbarCursor() noexcept;
         [[nodiscard]] static wchar_t const *ToolbarActionLabel(ToolbarAction action) noexcept;
+        [[nodiscard]] static bool IsInteractiveToolbarAction(ToolbarAction action) noexcept;
+        [[nodiscard]] static int ToolbarActionGroup(ToolbarAction action) noexcept;
+        [[nodiscard]] static int ToolbarActionIndexInGroup(ToolbarAction action) noexcept;
+        [[nodiscard]] static int ToolbarButtonWidth(ToolbarAction action) noexcept;
+        [[nodiscard]] bool IsPointInsideToolbar(POINT overlay_point) const noexcept;
         [[nodiscard]] bool IsPointInsideCommittedSelection(POINT overlay_point) const noexcept;
         [[nodiscard]] ResizeHandle HitTestCommittedSelectionResizeHandle(POINT overlay_point) const noexcept;
         [[nodiscard]] RECT ToolbarRect(RECT selection_rect, RECT bounds_rect) const noexcept;
