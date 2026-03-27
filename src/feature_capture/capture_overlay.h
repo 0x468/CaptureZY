@@ -75,6 +75,17 @@ namespace capturezy::feature_capture
             SaveToFile,
         };
 
+        struct ToolbarActionSpec
+        {
+            ToolbarAction action;
+            wchar_t const *label;
+            wchar_t const *hint;
+            int group;
+            int index_in_group;
+            int width;
+            bool interactive;
+        };
+
         [[nodiscard]] RECT CurrentSelectionRect() const noexcept;
         [[nodiscard]] RECT CurrentSelectionRectScreen() const noexcept;
         [[nodiscard]] RECT OverlayRectScreen() const noexcept;
@@ -84,11 +95,15 @@ namespace capturezy::feature_capture
         [[nodiscard]] static HCURSOR CursorForResizeHandle(ResizeHandle handle) noexcept;
         [[nodiscard]] static HCURSOR MoveSelectionCursor() noexcept;
         [[nodiscard]] static HCURSOR ToolbarCursor() noexcept;
+        [[nodiscard]] static ToolbarActionSpec const &ToolbarActionMetadata(ToolbarAction action) noexcept;
         [[nodiscard]] static wchar_t const *ToolbarActionLabel(ToolbarAction action) noexcept;
+        [[nodiscard]] static wchar_t const *ToolbarActionHint(ToolbarAction action) noexcept;
         [[nodiscard]] static bool IsInteractiveToolbarAction(ToolbarAction action) noexcept;
         [[nodiscard]] static int ToolbarActionGroup(ToolbarAction action) noexcept;
         [[nodiscard]] static int ToolbarActionIndexInGroup(ToolbarAction action) noexcept;
         [[nodiscard]] static int ToolbarButtonWidth(ToolbarAction action) noexcept;
+        [[nodiscard]] static int ToolbarGroupActionCount(int group) noexcept;
+        [[nodiscard]] static int ToolbarGroupWidth(int group) noexcept;
         [[nodiscard]] bool IsPointInsideToolbar(POINT overlay_point) const noexcept;
         [[nodiscard]] bool IsPointInsideCommittedSelection(POINT overlay_point) const noexcept;
         [[nodiscard]] ResizeHandle HitTestCommittedSelectionResizeHandle(POINT overlay_point) const noexcept;

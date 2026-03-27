@@ -1194,148 +1194,175 @@ namespace capturezy::feature_capture
         return LoadCursorW(nullptr, IDC_HAND);
     }
 
+    CaptureOverlay::ToolbarActionSpec const &CaptureOverlay::ToolbarActionMetadata(ToolbarAction action) noexcept
+    {
+        static constexpr std::array<ToolbarActionSpec, 10> kToolbarActionSpecs{{
+            ToolbarActionSpec{.action = ToolbarAction::PlaceholderArrow,
+                              .label = L"箭",
+                              .hint = L"箭头工具（暂未开放）",
+                              .group = 0,
+                              .index_in_group = 0,
+                              .width = kToolbarToolButtonWidth,
+                              .interactive = false},
+            ToolbarActionSpec{.action = ToolbarAction::PlaceholderPen,
+                              .label = L"笔",
+                              .hint = L"画笔工具（暂未开放）",
+                              .group = 0,
+                              .index_in_group = 1,
+                              .width = kToolbarToolButtonWidth,
+                              .interactive = false},
+            ToolbarActionSpec{.action = ToolbarAction::PlaceholderText,
+                              .label = L"文",
+                              .hint = L"文字工具（暂未开放）",
+                              .group = 0,
+                              .index_in_group = 2,
+                              .width = kToolbarToolButtonWidth,
+                              .interactive = false},
+            ToolbarActionSpec{.action = ToolbarAction::PlaceholderMosaic,
+                              .label = L"码",
+                              .hint = L"马赛克工具（暂未开放）",
+                              .group = 0,
+                              .index_in_group = 3,
+                              .width = kToolbarToolButtonWidth,
+                              .interactive = false},
+            ToolbarActionSpec{.action = ToolbarAction::PlaceholderUndo,
+                              .label = L"撤",
+                              .hint = L"撤销（暂未开放）",
+                              .group = 1,
+                              .index_in_group = 0,
+                              .width = kToolbarToolButtonWidth,
+                              .interactive = false},
+            ToolbarActionSpec{.action = ToolbarAction::PlaceholderRedo,
+                              .label = L"重",
+                              .hint = L"重做（暂未开放）",
+                              .group = 1,
+                              .index_in_group = 1,
+                              .width = kToolbarToolButtonWidth,
+                              .interactive = false},
+            ToolbarActionSpec{.action = ToolbarAction::Cancel,
+                              .label = L"取消",
+                              .hint = L"退出截图",
+                              .group = 2,
+                              .index_in_group = 0,
+                              .width = kToolbarResultButtonWidth,
+                              .interactive = true},
+            ToolbarActionSpec{.action = ToolbarAction::CopyAndPin,
+                              .label = L"贴图",
+                              .hint = L"复制并贴图",
+                              .group = 2,
+                              .index_in_group = 1,
+                              .width = kToolbarResultButtonWidth,
+                              .interactive = true},
+            ToolbarActionSpec{.action = ToolbarAction::SaveToFile,
+                              .label = L"快存",
+                              .hint = L"保存到默认位置",
+                              .group = 2,
+                              .index_in_group = 2,
+                              .width = kToolbarResultButtonWidth,
+                              .interactive = true},
+            ToolbarActionSpec{.action = ToolbarAction::CopyOnly,
+                              .label = L"复制",
+                              .hint = L"复制到剪贴板",
+                              .group = 2,
+                              .index_in_group = 3,
+                              .width = kToolbarResultButtonWidth,
+                              .interactive = true},
+        }};
+
+        for (ToolbarActionSpec const &spec : kToolbarActionSpecs)
+        {
+            if (spec.action == action)
+            {
+                return spec;
+            }
+        }
+
+        static constexpr ToolbarActionSpec kFallbackSpec{.action = ToolbarAction::None,
+                                                         .label = L"",
+                                                         .hint = L"",
+                                                         .group = -1,
+                                                         .index_in_group = -1,
+                                                         .width = 0,
+                                                         .interactive = false};
+        return kFallbackSpec;
+    }
+
     wchar_t const *CaptureOverlay::ToolbarActionLabel(ToolbarAction action) noexcept
     {
-        switch (action)
-        {
-        case ToolbarAction::PlaceholderArrow:
-            return L"箭";
+        return ToolbarActionMetadata(action).label;
+    }
 
-        case ToolbarAction::PlaceholderPen:
-            return L"笔";
-
-        case ToolbarAction::PlaceholderText:
-            return L"文";
-
-        case ToolbarAction::PlaceholderMosaic:
-            return L"码";
-
-        case ToolbarAction::PlaceholderUndo:
-            return L"撤";
-
-        case ToolbarAction::PlaceholderRedo:
-            return L"重";
-
-        case ToolbarAction::Cancel:
-            return L"取消";
-
-        case ToolbarAction::CopyAndPin:
-            return L"贴图";
-
-        case ToolbarAction::CopyOnly:
-            return L"复制";
-
-        case ToolbarAction::SaveToFile:
-            return L"快存";
-
-        case ToolbarAction::None:
-        default:
-            return L"";
-        }
+    wchar_t const *CaptureOverlay::ToolbarActionHint(ToolbarAction action) noexcept
+    {
+        return ToolbarActionMetadata(action).hint;
     }
 
     bool CaptureOverlay::IsInteractiveToolbarAction(ToolbarAction action) noexcept
     {
-        switch (action)
-        {
-        case ToolbarAction::Cancel:
-        case ToolbarAction::CopyAndPin:
-        case ToolbarAction::CopyOnly:
-        case ToolbarAction::SaveToFile:
-            return true;
-
-        case ToolbarAction::None:
-        case ToolbarAction::PlaceholderArrow:
-        case ToolbarAction::PlaceholderPen:
-        case ToolbarAction::PlaceholderText:
-        case ToolbarAction::PlaceholderMosaic:
-        case ToolbarAction::PlaceholderUndo:
-        case ToolbarAction::PlaceholderRedo:
-        default:
-            return false;
-        }
+        return ToolbarActionMetadata(action).interactive;
     }
 
     int CaptureOverlay::ToolbarActionGroup(ToolbarAction action) noexcept
     {
-        switch (action)
-        {
-        case ToolbarAction::PlaceholderArrow:
-        case ToolbarAction::PlaceholderPen:
-        case ToolbarAction::PlaceholderText:
-        case ToolbarAction::PlaceholderMosaic:
-            return 0;
-
-        case ToolbarAction::PlaceholderUndo:
-        case ToolbarAction::PlaceholderRedo:
-            return 1;
-
-        case ToolbarAction::Cancel:
-        case ToolbarAction::CopyAndPin:
-        case ToolbarAction::SaveToFile:
-        case ToolbarAction::CopyOnly:
-            return 2;
-
-        case ToolbarAction::None:
-        default:
-            return -1;
-        }
+        return ToolbarActionMetadata(action).group;
     }
 
     int CaptureOverlay::ToolbarActionIndexInGroup(ToolbarAction action) noexcept
     {
-        switch (action)
-        {
-        case ToolbarAction::PlaceholderArrow:
-            return 0;
-
-        case ToolbarAction::PlaceholderPen:
-            return 1;
-
-        case ToolbarAction::PlaceholderText:
-            return 2;
-
-        case ToolbarAction::PlaceholderMosaic:
-            return 3;
-
-        case ToolbarAction::PlaceholderUndo:
-            return 0;
-
-        case ToolbarAction::PlaceholderRedo:
-            return 1;
-
-        case ToolbarAction::Cancel:
-            return 0;
-
-        case ToolbarAction::CopyAndPin:
-            return 1;
-
-        case ToolbarAction::SaveToFile:
-            return 2;
-
-        case ToolbarAction::CopyOnly:
-            return 3;
-
-        case ToolbarAction::None:
-        default:
-            return -1;
-        }
+        return ToolbarActionMetadata(action).index_in_group;
     }
 
     int CaptureOverlay::ToolbarButtonWidth(ToolbarAction action) noexcept
     {
-        switch (ToolbarActionGroup(action))
+        return ToolbarActionMetadata(action).width;
+    }
+
+    int CaptureOverlay::ToolbarGroupActionCount(int group) noexcept
+    {
+        switch (group)
         {
         case 0:
+            return 4;
+
         case 1:
-            return kToolbarToolButtonWidth;
+            return 2;
 
         case 2:
-            return kToolbarResultButtonWidth;
+            return 4;
 
         default:
             return 0;
         }
+    }
+
+    int CaptureOverlay::ToolbarGroupWidth(int group) noexcept
+    {
+        int const group_action_count = ToolbarGroupActionCount(group);
+        if (group_action_count <= 0)
+        {
+            return 0;
+        }
+
+        int const sample_button_width = [&]() noexcept {
+            switch (group)
+            {
+            case 0:
+            case 1:
+                return kToolbarToolButtonWidth;
+
+            case 2:
+                return kToolbarResultButtonWidth;
+
+            default:
+                return 0;
+            }
+        }();
+        if (sample_button_width <= 0)
+        {
+            return 0;
+        }
+
+        return (sample_button_width * group_action_count) + (kToolbarSpacing * (group_action_count - 1));
     }
 
     RECT CaptureOverlay::ToolbarRect(RECT selection_rect, RECT bounds_rect) const noexcept
@@ -1345,15 +1372,9 @@ namespace capturezy::feature_capture
             return {};
         }
 
-        constexpr int kPlaceholderGroupButtonCount = 4;
-        constexpr int kHistoryGroupButtonCount = 2;
-        constexpr int kResultGroupButtonCount = 4;
-        int const placeholder_group_width = (kToolbarToolButtonWidth * kPlaceholderGroupButtonCount) +
-                                            (kToolbarSpacing * (kPlaceholderGroupButtonCount - 1));
-        int const history_group_width = (kToolbarToolButtonWidth * kHistoryGroupButtonCount) +
-                                        (kToolbarSpacing * (kHistoryGroupButtonCount - 1));
-        int const result_group_width = (kToolbarResultButtonWidth * kResultGroupButtonCount) +
-                                       (kToolbarSpacing * (kResultGroupButtonCount - 1));
+        int const placeholder_group_width = ToolbarGroupWidth(0);
+        int const history_group_width = ToolbarGroupWidth(1);
+        int const result_group_width = ToolbarGroupWidth(2);
         int const toolbar_width = placeholder_group_width + history_group_width + result_group_width +
                                   (kToolbarSectionSpacing * 2) + (kToolbarPadding * 2);
         int const toolbar_height = kToolbarButtonHeight + (kToolbarPadding * 2);
@@ -1398,8 +1419,6 @@ namespace capturezy::feature_capture
             return {};
         }
 
-        constexpr int kPlaceholderGroupWidth = (kToolbarToolButtonWidth * 4) + (kToolbarSpacing * 3);
-        constexpr int kHistoryGroupWidth = (kToolbarToolButtonWidth * 2) + kToolbarSpacing;
         int const action_group = ToolbarActionGroup(action);
         int const action_index = ToolbarActionIndexInGroup(action);
         int const button_width = ToolbarButtonWidth(action);
@@ -1415,11 +1434,11 @@ namespace capturezy::feature_capture
                 return toolbar_rect.left + kToolbarPadding;
 
             case 1:
-                return toolbar_rect.left + kToolbarPadding + kPlaceholderGroupWidth + kToolbarSectionSpacing;
+                return toolbar_rect.left + kToolbarPadding + ToolbarGroupWidth(0) + kToolbarSectionSpacing;
 
             case 2:
-                return toolbar_rect.left + kToolbarPadding + kPlaceholderGroupWidth + kToolbarSectionSpacing +
-                       kHistoryGroupWidth + kToolbarSectionSpacing;
+                return toolbar_rect.left + kToolbarPadding + ToolbarGroupWidth(0) + kToolbarSectionSpacing +
+                       ToolbarGroupWidth(1) + kToolbarSectionSpacing;
 
             default:
                 return toolbar_rect.left;
