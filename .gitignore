@@ -2,6 +2,8 @@
 .vscode/
 .idea/
 .zed/
+.codex-npm-cache/
+.worktrees/
 
 build/
 build-*/
