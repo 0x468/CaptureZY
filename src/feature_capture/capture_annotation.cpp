@@ -1,5 +1,7 @@
 #include "feature_capture/capture_annotation.h"
 
+#include <utility>
+
 namespace capturezy::feature_capture
 {
     void AnnotationSession::Reset() noexcept
@@ -54,8 +56,21 @@ namespace capturezy::feature_capture
     void AnnotationSession::AddObject(AnnotationObject object)
     {
         undo_stack_.push_back(objects_);
-        objects_.push_back(object);
+        objects_.push_back(std::move(object));
         redo_stack_.clear();
+    }
+
+    bool AnnotationSession::ReplaceObject(std::size_t index, AnnotationObject object)
+    {
+        if (index >= objects_.size())
+        {
+            return false;
+        }
+
+        undo_stack_.push_back(objects_);
+        objects_[index] = std::move(object);
+        redo_stack_.clear();
+        return true;
     }
 
     bool AnnotationSession::Undo()

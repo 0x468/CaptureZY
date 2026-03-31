@@ -4,6 +4,10 @@
 #include <cstdint>
 #include <vector>
 
+// clang-format off
+#include <windows.h>
+// clang-format on
+
 namespace capturezy::feature_capture
 {
     enum class AnnotationToolFamily : std::uint8_t
@@ -33,10 +37,20 @@ namespace capturezy::feature_capture
         float bottom{0.0F};
     };
 
+    struct AnnotationStyle
+    {
+        COLORREF stroke_color{RGB(255, 214, 102)};
+        float stroke_width{2.0F};
+        COLORREF fill_color{RGB(255, 214, 102)};
+        BYTE fill_alpha{28};
+        bool has_fill{true};
+    };
+
     struct AnnotationObject
     {
         AnnotationKind kind{AnnotationKind::Rectangle};
         NormalizedRectF bounds{};
+        AnnotationStyle style{};
     };
 
     // 当前先建立工具族、默认变体和历史栈结构，二级下拉与更多样式后续再补。
@@ -53,6 +67,7 @@ namespace capturezy::feature_capture
         [[nodiscard]] bool CanUndo() const noexcept;
         [[nodiscard]] bool CanRedo() const noexcept;
         void AddObject(AnnotationObject object);
+        bool ReplaceObject(std::size_t index, AnnotationObject object);
         bool Undo();
         bool Redo();
 

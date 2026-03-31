@@ -1,3 +1,4 @@
+#include <cmath>
 #include <iostream>
 
 #include "feature_capture/capture_annotation.h"
@@ -6,6 +7,8 @@ namespace capturezy::feature_capture
 {
     namespace
     {
+        constexpr float kFloatTolerance = 0.0001F;
+
         bool Expect(bool condition, char const *message)
         {
             if (condition)
@@ -15,6 +18,24 @@ namespace capturezy::feature_capture
 
             std::cerr << message << '\n';
             return false;
+        }
+
+        bool AreClose(float left, float right)
+        {
+            return std::fabs(left - right) <= kFloatTolerance;
+        }
+
+        bool RectEquals(NormalizedRectF const &left, NormalizedRectF const &right)
+        {
+            return AreClose(left.left, right.left) && AreClose(left.top, right.top) &&
+                   AreClose(left.right, right.right) && AreClose(left.bottom, right.bottom);
+        }
+
+        bool StyleEquals(AnnotationStyle const &left, AnnotationStyle const &right)
+        {
+            return left.stroke_color == right.stroke_color && AreClose(left.stroke_width, right.stroke_width) &&
+                   left.fill_color == right.fill_color && left.fill_alpha == right.fill_alpha &&
+                   left.has_fill == right.has_fill;
         }
 
         bool TestToggleToolFamily()
@@ -102,6 +123,289 @@ namespace capturezy::feature_capture
             });
             return Expect(!session.CanRedo(), "adding a new object should clear redo history");
         }
+
+        bool TestAnnotationStyleDefaults()
+        {
+            AnnotationStyle const style{};
+            if (!Expect(style.stroke_color == RGB(255, 214, 102), "default stroke color should match overlay frame"))
+            {
+                return false;
+            }
+            if (!Expect(AreClose(style.stroke_width, 2.0F), "default stroke width should match rectangle frame width"))
+            {
+                return false;
+            }
+            if (!Expect(style.fill_color == RGB(255, 214, 102), "default fill color should match overlay fill color"))
+            {
+                return false;
+            }
+            if (!Expect(style.fill_alpha == 28, "default fill alpha should match overlay fill alpha"))
+            {
+                return false;
+            }
+            return Expect(style.has_fill, "default annotations should keep fill enabled");
+        }
+
+        bool TestAddObjectKeepsStyleData()
+        {
+            AnnotationSession session;
+            session.Reset();
+
+            AnnotationStyle const expected_style{
+                .stroke_color = RGB(10, 20, 30),
+                .stroke_width = 3.5F,
+                .fill_color = RGB(40, 50, 60),
+                .fill_alpha = static_cast<BYTE>(96),
+                .has_fill = false,
+            };
+            AnnotationObject const object{
+                .kind = AnnotationKind::Rectangle,
+                .bounds =
+                    NormalizedRectF{
+                        .left = 0.2F,
+                        .top = 0.2F,
+                        .right = 0.6F,
+                        .bottom = 0.7F,
+                    },
+                .style = expected_style,
+            };
+
+            session.AddObject(object);
+            if (!Expect(session.Objects().size() == 1U, "adding style object should append once"))
+            {
+                return false;
+            }
+            if (!Expect(StyleEquals(session.Objects()[0].style, expected_style),
+                        "style should survive object insertion"))
+            {
+                return false;
+            }
+
+            if (!Expect(session.Undo(), "undo should still succeed for styled add"))
+            {
+                return false;
+            }
+            if (!Expect(session.Redo(), "redo should restore styled object"))
+            {
+                return false;
+            }
+            return Expect(StyleEquals(session.Objects()[0].style, expected_style),
+                          "style should survive undo/redo snapshots");
+        }
+
+        bool TestReplaceObjectPreservesHistoryAndScope()
+        {
+            AnnotationSession session;
+            session.Reset();
+
+            AnnotationObject const first{
+                .kind = AnnotationKind::Rectangle,
+                .bounds =
+                    NormalizedRectF{
+                        .left = 0.0F,
+                        .top = 0.0F,
+                        .right = 0.3F,
+                        .bottom = 0.3F,
+                    },
+                .style =
+                    AnnotationStyle{
+                        .stroke_color = RGB(70, 80, 90),
+                        .stroke_width = 1.0F,
+                        .fill_color = RGB(70, 80, 90),
+                        .fill_alpha = static_cast<BYTE>(10),
+                        .has_fill = false,
+                    },
+            };
+            AnnotationObject const second{
+                .kind = AnnotationKind::Rectangle,
+                .bounds =
+                    NormalizedRectF{
+                        .left = 0.4F,
+                        .top = 0.4F,
+                        .right = 0.8F,
+                        .bottom = 0.8F,
+                    },
+                .style =
+                    AnnotationStyle{
+                        .stroke_color = RGB(100, 110, 120),
+                        .stroke_width = 2.0F,
+                        .fill_color = RGB(100, 110, 120),
+                        .fill_alpha = static_cast<BYTE>(20),
+                        .has_fill = false,
+                    },
+            };
+            AnnotationObject const replacement{
+                .kind = AnnotationKind::Rectangle,
+                .bounds =
+                    NormalizedRectF{
+                        .left = 0.45F,
+                        .top = 0.45F,
+                        .right = 0.9F,
+                        .bottom = 0.95F,
+                    },
+                .style =
+                    AnnotationStyle{
+                        .stroke_color = RGB(200, 40, 20),
+                        .stroke_width = 5.0F,
+                        .fill_color = RGB(20, 40, 200),
+                        .fill_alpha = static_cast<BYTE>(88),
+                        .has_fill = true,
+                    },
+            };
+
+            session.AddObject(first);
+            session.AddObject(second);
+            if (!Expect(session.ReplaceObject(1U, replacement), "replace should succeed for valid index"))
+            {
+                return false;
+            }
+            if (!Expect(session.Objects().size() == 2U, "replace should keep object count"))
+            {
+                return false;
+            }
+            if (!Expect(RectEquals(session.Objects()[0].bounds, first.bounds),
+                        "replace should not mutate other objects"))
+            {
+                return false;
+            }
+            if (!Expect(StyleEquals(session.Objects()[0].style, first.style),
+                        "replace should keep non-target styles intact"))
+            {
+                return false;
+            }
+            if (!Expect(RectEquals(session.Objects()[1].bounds, replacement.bounds),
+                        "replace should update target bounds"))
+            {
+                return false;
+            }
+            if (!Expect(StyleEquals(session.Objects()[1].style, replacement.style),
+                        "replace should update target style"))
+            {
+                return false;
+            }
+
+            if (!Expect(session.Undo(), "replace should participate in undo history"))
+            {
+                return false;
+            }
+            if (!Expect(RectEquals(session.Objects()[1].bounds, second.bounds),
+                        "undo should restore previous object bounds"))
+            {
+                return false;
+            }
+            if (!Expect(StyleEquals(session.Objects()[1].style, second.style),
+                        "undo should restore previous object style"))
+            {
+                return false;
+            }
+
+            if (!Expect(session.Redo(), "replace should participate in redo history"))
+            {
+                return false;
+            }
+            return Expect(StyleEquals(session.Objects()[1].style, replacement.style),
+                          "redo should restore replacement style");
+        }
+
+        bool TestReplaceObjectClearsRedoAfterUndo()
+        {
+            AnnotationSession session;
+            session.Reset();
+
+            AnnotationObject const original{
+                .kind = AnnotationKind::Rectangle,
+                .bounds =
+                    NormalizedRectF{
+                        .left = 0.1F,
+                        .top = 0.1F,
+                        .right = 0.3F,
+                        .bottom = 0.3F,
+                    },
+                .style = AnnotationStyle{},
+            };
+            AnnotationObject const first_replacement{
+                .kind = AnnotationKind::Rectangle,
+                .bounds =
+                    NormalizedRectF{
+                        .left = 0.4F,
+                        .top = 0.4F,
+                        .right = 0.6F,
+                        .bottom = 0.6F,
+                    },
+                .style =
+                    AnnotationStyle{
+                        .stroke_color = RGB(10, 120, 210),
+                        .stroke_width = 4.0F,
+                        .fill_color = RGB(210, 120, 10),
+                        .fill_alpha = static_cast<BYTE>(70),
+                        .has_fill = true,
+                    },
+            };
+            AnnotationObject const second_replacement{
+                .kind = AnnotationKind::Rectangle,
+                .bounds =
+                    NormalizedRectF{
+                        .left = 0.5F,
+                        .top = 0.5F,
+                        .right = 0.9F,
+                        .bottom = 0.9F,
+                    },
+                .style =
+                    AnnotationStyle{
+                        .stroke_color = RGB(220, 30, 30),
+                        .stroke_width = 3.0F,
+                        .fill_color = RGB(30, 220, 30),
+                        .fill_alpha = static_cast<BYTE>(40),
+                        .has_fill = false,
+                    },
+            };
+
+            session.AddObject(original);
+            if (!Expect(session.ReplaceObject(0U, first_replacement), "first replace should succeed"))
+            {
+                return false;
+            }
+            if (!Expect(session.Undo(), "undo should succeed after first replace"))
+            {
+                return false;
+            }
+            if (!Expect(session.CanRedo(), "undo should make redo available"))
+            {
+                return false;
+            }
+
+            if (!Expect(session.ReplaceObject(0U, second_replacement), "second replace should succeed"))
+            {
+                return false;
+            }
+            return Expect(!session.CanRedo(), "successful replace should clear redo history");
+        }
+        bool TestReplaceObjectRejectsInvalidIndex()
+        {
+            AnnotationSession session;
+            session.Reset();
+
+            AnnotationObject const replacement{
+                .kind = AnnotationKind::Rectangle,
+                .bounds =
+                    NormalizedRectF{
+                        .left = 0.0F,
+                        .top = 0.0F,
+                        .right = 1.0F,
+                        .bottom = 1.0F,
+                    },
+                .style = AnnotationStyle{},
+            };
+            if (!Expect(!session.ReplaceObject(0U, replacement), "replace should fail when index is invalid"))
+            {
+                return false;
+            }
+            if (!Expect(session.Objects().empty(), "invalid replace should keep objects unchanged"))
+            {
+                return false;
+            }
+            return Expect(!session.CanUndo(), "invalid replace should not create history");
+        }
     } // namespace
 } // namespace capturezy::feature_capture
 
@@ -118,6 +422,26 @@ int main()
         return 1;
     }
     if (!TestAddUndoRedo())
+    {
+        return 1;
+    }
+    if (!TestAnnotationStyleDefaults())
+    {
+        return 1;
+    }
+    if (!TestAddObjectKeepsStyleData())
+    {
+        return 1;
+    }
+    if (!TestReplaceObjectPreservesHistoryAndScope())
+    {
+        return 1;
+    }
+    if (!TestReplaceObjectClearsRedoAfterUndo())
+    {
+        return 1;
+    }
+    if (!TestReplaceObjectRejectsInvalidIndex())
     {
         return 1;
     }
