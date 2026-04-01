@@ -11,6 +11,7 @@
 // clang-format on
 
 #include "core/log.h"
+#include "feature_capture/capture_annotation_geometry.h"
 #include "feature_capture/capture_result.h"
 
 namespace capturezy::feature_capture
@@ -51,9 +52,6 @@ namespace capturezy::feature_capture
         constexpr int kDebugOverlayMargin = 16;
         constexpr int kDebugOverlayPadding = 10;
         constexpr int kDebugOverlayMaxWidth = 520;
-        constexpr COLORREF kAnnotationFrameColor = RGB(255, 214, 102);
-        constexpr COLORREF kAnnotationFillColor = RGB(255, 214, 102);
-        constexpr BYTE kAnnotationFillAlpha = 28;
         struct AlphaFillStyle
         {
             COLORREF color;
@@ -84,67 +82,68 @@ namespace capturezy::feature_capture
         [[nodiscard]] bool IsRectNonEmpty(RECT rect) noexcept;
         void AlphaFillRect(HDC destination_device_context, RECT rect, AlphaFillStyle style) noexcept;
 
-        [[nodiscard]] RECT NormalizedRectToClientRect(NormalizedRectF const &normalized_rect,
-                                                      RECT selection_rect) noexcept
+        [[nodiscard]] RECT BuildCanvasRectFromPoints(POINT start_point, POINT current_point, RECT canvas_rect) noexcept
         {
-            if (!IsRectNonEmpty(selection_rect))
+            if (!IsRectNonEmpty(canvas_rect))
             {
                 return {};
             }
 
-            auto const selection_width = static_cast<double>(selection_rect.right - selection_rect.left);
-            auto const selection_height = static_cast<double>(selection_rect.bottom - selection_rect.top);
-            RECT client_rect{
-                .left = selection_rect.left +
-                        static_cast<LONG>(std::lround(static_cast<double>(normalized_rect.left) * selection_width)),
-                .top = selection_rect.top +
-                       static_cast<LONG>(std::lround(static_cast<double>(normalized_rect.top) * selection_height)),
-                .right = selection_rect.left +
-                         static_cast<LONG>(std::lround(static_cast<double>(normalized_rect.right) * selection_width)),
-                .bottom = selection_rect.top + static_cast<LONG>(std::lround(
-                                                   static_cast<double>(normalized_rect.bottom) * selection_height)),
-            };
-            return client_rect;
-        }
-
-        [[nodiscard]] NormalizedRectF BuildNormalizedRectForSelection(POINT start_point, POINT current_point,
-                                                                      RECT selection_rect) noexcept
-        {
-            if (!IsRectNonEmpty(selection_rect))
-            {
-                return {};
-            }
-
-            LONG const clamped_start_x = std::clamp(start_point.x, selection_rect.left, selection_rect.right);
-            LONG const clamped_start_y = std::clamp(start_point.y, selection_rect.top, selection_rect.bottom);
-            LONG const clamped_current_x = std::clamp(current_point.x, selection_rect.left, selection_rect.right);
-            LONG const clamped_current_y = std::clamp(current_point.y, selection_rect.top, selection_rect.bottom);
+            LONG const clamped_start_x = std::clamp(start_point.x, canvas_rect.left, canvas_rect.right);
+            LONG const clamped_start_y = std::clamp(start_point.y, canvas_rect.top, canvas_rect.bottom);
+            LONG const clamped_current_x = std::clamp(current_point.x, canvas_rect.left, canvas_rect.right);
+            LONG const clamped_current_y = std::clamp(current_point.y, canvas_rect.top, canvas_rect.bottom);
             LONG const left = std::min(clamped_start_x, clamped_current_x);
             LONG const top = std::min(clamped_start_y, clamped_current_y);
             LONG const right = std::max(clamped_start_x, clamped_current_x);
             LONG const bottom = std::max(clamped_start_y, clamped_current_y);
-            auto const selection_width = static_cast<float>(selection_rect.right - selection_rect.left);
-            auto const selection_height = static_cast<float>(selection_rect.bottom - selection_rect.top);
-            return NormalizedRectF{
-                .left = static_cast<float>(left - selection_rect.left) / selection_width,
-                .top = static_cast<float>(top - selection_rect.top) / selection_height,
-                .right = static_cast<float>(right - selection_rect.left) / selection_width,
-                .bottom = static_cast<float>(bottom - selection_rect.top) / selection_height,
-            };
+            return RECT{.left = left, .top = top, .right = right, .bottom = bottom};
         }
 
-        void PaintAnnotationRect(HDC destination_device_context, RECT annotation_rect) noexcept
+        [[nodiscard]] bool CanvasRectEquals(RECT left, RECT right) noexcept
+        {
+            return EqualRect(&left, &right) != FALSE;
+        }
+
+        [[nodiscard]] std::array<POINT, 8> AnnotationHandleCenters(RECT annotation_rect) noexcept
+        {
+            if (!IsRectNonEmpty(annotation_rect))
+            {
+                return {};
+            }
+
+            int const center_x = (annotation_rect.left + annotation_rect.right) / 2;
+            int const center_y = (annotation_rect.top + annotation_rect.bottom) / 2;
+            return {{
+                POINT{.x = annotation_rect.left, .y = annotation_rect.top},
+                POINT{.x = center_x, .y = annotation_rect.top},
+                POINT{.x = annotation_rect.right, .y = annotation_rect.top},
+                POINT{.x = annotation_rect.right, .y = center_y},
+                POINT{.x = annotation_rect.right, .y = annotation_rect.bottom},
+                POINT{.x = center_x, .y = annotation_rect.bottom},
+                POINT{.x = annotation_rect.left, .y = annotation_rect.bottom},
+                POINT{.x = annotation_rect.left, .y = center_y},
+            }};
+        }
+
+        void PaintAnnotationRect(HDC destination_device_context, AnnotationObject const &annotation_object,
+                                 RECT annotation_rect) noexcept
         {
             if (!IsRectNonEmpty(annotation_rect))
             {
                 return;
             }
 
-            RECT fill_rect = annotation_rect;
-            AlphaFillRect(destination_device_context, fill_rect,
-                          AlphaFillStyle{.color = kAnnotationFillColor, .alpha = kAnnotationFillAlpha});
+            if (annotation_object.style.has_fill)
+            {
+                RECT fill_rect = annotation_rect;
+                AlphaFillRect(destination_device_context, fill_rect,
+                              AlphaFillStyle{.color = annotation_object.style.fill_color,
+                                             .alpha = annotation_object.style.fill_alpha});
+            }
 
-            HPEN frame_pen = CreatePen(PS_SOLID, 2, kAnnotationFrameColor);
+            int const frame_width = std::max(1, static_cast<int>(std::lround(annotation_object.style.stroke_width)));
+            HPEN frame_pen = CreatePen(PS_SOLID, frame_width, annotation_object.style.stroke_color);
             HGDIOBJ old_pen = SelectObject(destination_device_context, frame_pen);
             HGDIOBJ old_brush = SelectObject(destination_device_context, GetStockObject(HOLLOW_BRUSH));
             Rectangle(destination_device_context, annotation_rect.left, annotation_rect.top, annotation_rect.right,
@@ -1284,6 +1283,36 @@ namespace capturezy::feature_capture
         return LoadCursorW(nullptr, IDC_HAND);
     }
 
+    HCURSOR CaptureOverlay::CursorForAnnotationHitRegion(AnnotationHitRegion region) noexcept
+    {
+        switch (region)
+        {
+        case AnnotationHitRegion::HandleTopLeft:
+        case AnnotationHitRegion::HandleBottomRight:
+            return CursorForResizeHandle(ResizeHandle::LeftTop);
+
+        case AnnotationHitRegion::HandleTop:
+        case AnnotationHitRegion::HandleBottom:
+            return CursorForResizeHandle(ResizeHandle::Top);
+
+        case AnnotationHitRegion::HandleTopRight:
+        case AnnotationHitRegion::HandleBottomLeft:
+            return CursorForResizeHandle(ResizeHandle::RightTop);
+
+        case AnnotationHitRegion::HandleRight:
+        case AnnotationHitRegion::HandleLeft:
+            return CursorForResizeHandle(ResizeHandle::Right);
+
+        case AnnotationHitRegion::Border:
+        case AnnotationHitRegion::Fill:
+            return MoveSelectionCursor();
+
+        case AnnotationHitRegion::None:
+        default:
+            return LoadCursorW(nullptr, IDC_CROSS);
+        }
+    }
+
     CaptureOverlay::ToolbarActionSpec const &CaptureOverlay::ToolbarActionMetadata(ToolbarAction action) noexcept
     {
         static constexpr std::array<ToolbarActionSpec, 10> kToolbarActionSpecs{{
@@ -1568,25 +1597,31 @@ namespace capturezy::feature_capture
         return annotation_session_.ActiveToolFamily() != AnnotationToolFamily::None;
     }
 
+    bool CaptureOverlay::IsPointInsideAnnotationInteractionRegion(POINT overlay_point) const noexcept
+    {
+        return has_committed_selection_ && IsPointInsideCommittedSelection(overlay_point);
+    }
+
     RECT CaptureOverlay::AnnotationCanvasRect() const noexcept
     {
-        if (!has_committed_selection_)
+        if (!has_committed_selection_ || overlay_window_ == nullptr)
         {
             return {};
         }
 
-        return OverlayToClientRect(committed_selection_rect_);
+        RECT client_rect{};
+        GetClientRect(overlay_window_, &client_rect);
+        return client_rect;
     }
 
-    bool CaptureOverlay::IsPointInsideAnnotationCanvas(POINT overlay_point) const noexcept
+    bool CaptureOverlay::IsPointInsideAnnotationCreationRegion(POINT overlay_point) const noexcept
     {
         if (!IsAnnotationToolActive())
         {
             return false;
         }
 
-        RECT annotation_canvas = AnnotationCanvasRect();
-        return IsRectNonEmpty(annotation_canvas) && PtInRect(&annotation_canvas, overlay_point) != FALSE;
+        return IsPointInsideAnnotationInteractionRegion(overlay_point);
     }
 
     RECT CaptureOverlay::ToolbarRect(RECT selection_rect, RECT bounds_rect) const noexcept
@@ -1840,6 +1875,176 @@ namespace capturezy::feature_capture
         return handle;
     }
 
+    bool CaptureOverlay::TryGetAnnotationRect(std::size_t annotation_index, RECT &rect) const noexcept
+    {
+        rect = {};
+        if (!has_committed_selection_)
+        {
+            return false;
+        }
+
+        auto const &objects = annotation_session_.Objects();
+        if (annotation_index >= objects.size())
+        {
+            return false;
+        }
+
+        rect = objects[annotation_index].bounds;
+        return IsRectNonEmpty(rect);
+    }
+
+    CaptureOverlay::AnnotationHitResult CaptureOverlay::HitTestAnnotation(POINT overlay_point, RECT annotation_rect,
+                                                                          AnnotationStyle const &style,
+                                                                          bool include_handles, RECT interaction_rect,
+                                                                          std::size_t annotation_index) noexcept
+    {
+        if (!IsRectNonEmpty(annotation_rect))
+        {
+            return {};
+        }
+
+        int const border_padding = std::max(kSelectionResizePadding,
+                                            static_cast<int>(std::ceil(style.stroke_width)) + 2);
+        RECT const border_rect = ExpandedRect(annotation_rect, border_padding);
+        if (PtInRect(&border_rect, overlay_point) == FALSE)
+        {
+            return {};
+        }
+
+        if (include_handles)
+        {
+            std::array<POINT, 8> const handle_points = AnnotationHandleCenters(annotation_rect);
+            std::array<std::pair<POINT, AnnotationHitRegion>, 8> const handle_regions{{
+                {handle_points[0], AnnotationHitRegion::HandleTopLeft},
+                {handle_points[1], AnnotationHitRegion::HandleTop},
+                {handle_points[2], AnnotationHitRegion::HandleTopRight},
+                {handle_points[3], AnnotationHitRegion::HandleRight},
+                {handle_points[4], AnnotationHitRegion::HandleBottomRight},
+                {handle_points[5], AnnotationHitRegion::HandleBottom},
+                {handle_points[6], AnnotationHitRegion::HandleBottomLeft},
+                {handle_points[7], AnnotationHitRegion::HandleLeft},
+            }};
+            for (auto const &[handle_point, handle_region] : handle_regions)
+            {
+                if (PtInRect(&interaction_rect, handle_point) == FALSE)
+                {
+                    continue;
+                }
+
+                int const delta_x = overlay_point.x - handle_point.x;
+                int const delta_y = overlay_point.y - handle_point.y;
+                if ((delta_x * delta_x) + (delta_y * delta_y) <= (kResizeHandleHitRadius * kResizeHandleHitRadius))
+                {
+                    return AnnotationHitResult{.annotation_index = annotation_index, .region = handle_region};
+                }
+            }
+        }
+
+        RECT inner_rect = annotation_rect;
+        InflateRect(&inner_rect, -border_padding, -border_padding);
+        if (!IsRectNonEmpty(inner_rect) || PtInRect(&inner_rect, overlay_point) == FALSE)
+        {
+            return AnnotationHitResult{.annotation_index = annotation_index, .region = AnnotationHitRegion::Border};
+        }
+
+        if (style.has_fill)
+        {
+            return AnnotationHitResult{.annotation_index = annotation_index, .region = AnnotationHitRegion::Fill};
+        }
+
+        return {};
+    }
+
+    CaptureOverlay::AnnotationHitResult CaptureOverlay::HitTestAnnotations(POINT overlay_point) const noexcept
+    {
+        if (!has_committed_selection_ || !IsAnnotationToolActive() ||
+            !IsPointInsideAnnotationInteractionRegion(overlay_point))
+        {
+            return {};
+        }
+
+        RECT const interaction_rect = OverlayToClientRect(committed_selection_rect_);
+        if (!IsRectNonEmpty(interaction_rect))
+        {
+            return {};
+        }
+
+        auto const &objects = annotation_session_.Objects();
+        if (objects.empty())
+        {
+            return {};
+        }
+
+        std::optional<std::size_t> selected_annotation_index = selected_annotation_index_;
+        if (selected_annotation_index.has_value() && *selected_annotation_index >= objects.size())
+        {
+            selected_annotation_index.reset();
+        }
+
+        for (std::size_t reverse_index = objects.size(); reverse_index > 0; --reverse_index)
+        {
+            std::size_t const annotation_index = reverse_index - 1;
+            RECT annotation_rect{};
+            if (!TryGetAnnotationRect(annotation_index, annotation_rect))
+            {
+                continue;
+            }
+
+            RECT intersection_rect{};
+            if (IntersectRect(&intersection_rect, &annotation_rect, &interaction_rect) == FALSE)
+            {
+                continue;
+            }
+
+            AnnotationHitResult const hit_result = HitTestAnnotation(
+                overlay_point, annotation_rect, objects[annotation_index].style,
+                selected_annotation_index == annotation_index, interaction_rect, annotation_index);
+            if (hit_result.HasHit())
+            {
+                return hit_result;
+            }
+        }
+
+        return {};
+    }
+
+    void CaptureOverlay::UpdateAnnotationHoverState(AnnotationHitResult const &hit_result) noexcept
+    {
+        if (hit_result.HasHit())
+        {
+            hovered_annotation_index_ = hit_result.annotation_index;
+            active_annotation_hit_region_ = hit_result.region;
+            return;
+        }
+
+        hovered_annotation_index_.reset();
+        active_annotation_hit_region_ = AnnotationHitRegion::None;
+    }
+
+    void CaptureOverlay::ReconcileAnnotationInteractionState() noexcept
+    {
+        std::size_t const object_count = annotation_session_.Objects().size();
+        if (selected_annotation_index_.has_value() && *selected_annotation_index_ >= object_count)
+        {
+            selected_annotation_index_.reset();
+        }
+        if (hovered_annotation_index_.has_value() && *hovered_annotation_index_ >= object_count)
+        {
+            hovered_annotation_index_.reset();
+        }
+        if (!hovered_annotation_index_.has_value())
+        {
+            active_annotation_hit_region_ = AnnotationHitRegion::None;
+        }
+    }
+
+    void CaptureOverlay::ResetAnnotationDragState() noexcept
+    {
+        drag_annotation_index_.reset();
+        drag_annotation_origin_bounds_ = {};
+        drag_annotation_preview_bounds_ = {};
+    }
+
     bool CaptureOverlay::TryGetCurrentPreviewRect(RECT &rect) const noexcept
     {
         if (drag_in_progress_ && has_selection_)
@@ -1955,14 +2160,23 @@ namespace capturezy::feature_capture
 
     void CaptureOverlay::UpdateCursorForOverlayPoint(POINT overlay_point) noexcept
     {
+        if (pointer_drag_mode_ == PointerDragMode::MoveAnnotation && pointer_down_)
+        {
+            SetCursor(MoveSelectionCursor());
+            return;
+        }
+
+        ReconcileAnnotationInteractionState();
         if (pointer_drag_mode_ == PointerDragMode::ResizeSelection && pointer_down_)
         {
+            UpdateAnnotationHoverState({});
             SetCursor(CursorForResizeHandle(active_resize_handle_));
             return;
         }
 
         if (pointer_drag_mode_ == PointerDragMode::MoveSelection && pointer_down_)
         {
+            UpdateAnnotationHoverState({});
             SetCursor(MoveSelectionCursor());
             return;
         }
@@ -1972,6 +2186,7 @@ namespace capturezy::feature_capture
             ToolbarAction const toolbar_action = HitTestToolbarAction(overlay_point);
             if (toolbar_action != ToolbarAction::None)
             {
+                UpdateAnnotationHoverState({});
                 active_resize_handle_ = ResizeHandle::None;
                 SetCursor(ToolbarCursor());
                 return;
@@ -1979,6 +2194,7 @@ namespace capturezy::feature_capture
 
             if (IsPointInsideToolbar(overlay_point))
             {
+                UpdateAnnotationHoverState({});
                 active_resize_handle_ = ResizeHandle::None;
                 SetCursor(CursorForResizeHandle(ResizeHandle::None));
                 return;
@@ -1988,11 +2204,20 @@ namespace capturezy::feature_capture
             active_resize_handle_ = handle;
             if (handle != ResizeHandle::None)
             {
+                UpdateAnnotationHoverState({});
                 SetCursor(CursorForResizeHandle(handle));
                 return;
             }
 
-            if (IsPointInsideAnnotationCanvas(overlay_point))
+            AnnotationHitResult const annotation_hit = HitTestAnnotations(overlay_point);
+            UpdateAnnotationHoverState(annotation_hit);
+            if (annotation_hit.HasHit())
+            {
+                SetCursor(CursorForAnnotationHitRegion(annotation_hit.region));
+                return;
+            }
+
+            if (IsPointInsideAnnotationCreationRegion(overlay_point))
             {
                 SetCursor(LoadCursorW(nullptr, IDC_CROSS));
                 return;
@@ -2003,6 +2228,10 @@ namespace capturezy::feature_capture
                 SetCursor(MoveSelectionCursor());
                 return;
             }
+        }
+        else
+        {
+            UpdateAnnotationHoverState({});
         }
 
         active_resize_handle_ = ResizeHandle::None;
@@ -2020,8 +2249,12 @@ namespace capturezy::feature_capture
         has_click_candidate_window_ = false;
         pointer_drag_mode_ = PointerDragMode::None;
         active_resize_handle_ = ResizeHandle::None;
+        selected_annotation_index_.reset();
+        hovered_annotation_index_.reset();
+        active_annotation_hit_region_ = AnnotationHitRegion::None;
         hovered_toolbar_action_ = ToolbarAction::None;
         pressed_toolbar_action_ = ToolbarAction::None;
+        ResetAnnotationDragState();
         has_draft_annotation_ = false;
         draft_annotation_bounds_ = {};
         annotation_session_.Reset();
@@ -2040,6 +2273,7 @@ namespace capturezy::feature_capture
         resize_anchor_handle_ = ResizeHandle::None;
         has_draft_annotation_ = true;
         draft_annotation_bounds_ = {};
+        ResetAnnotationDragState();
         SetCapture(overlay_window_);
     }
 
@@ -2058,8 +2292,63 @@ namespace capturezy::feature_capture
             drag_in_progress_ = true;
         }
 
-        draft_annotation_bounds_ = BuildNormalizedRectForSelection(drag_start_, drag_current_, annotation_canvas);
+        draft_annotation_bounds_ = BuildCanvasRectFromPoints(drag_start_, drag_current_, annotation_canvas);
         InvalidateAnnotationCanvas();
+    }
+
+    void CaptureOverlay::BeginMoveAnnotation(POINT overlay_point, std::size_t annotation_index) noexcept
+    {
+        auto const &objects = annotation_session_.Objects();
+        if (annotation_index >= objects.size())
+        {
+            return;
+        }
+
+        drag_start_ = overlay_point;
+        drag_current_ = overlay_point;
+        pointer_down_ = true;
+        drag_in_progress_ = false;
+        has_selection_ = false;
+        has_click_candidate_window_ = false;
+        pointer_drag_mode_ = PointerDragMode::MoveAnnotation;
+        active_resize_handle_ = ResizeHandle::None;
+        resize_anchor_handle_ = ResizeHandle::None;
+        hovered_toolbar_action_ = ToolbarAction::None;
+        pressed_toolbar_action_ = ToolbarAction::None;
+        drag_annotation_index_ = annotation_index;
+        drag_annotation_origin_bounds_ = objects[annotation_index].bounds;
+        drag_annotation_preview_bounds_ = drag_annotation_origin_bounds_;
+        SetCapture(overlay_window_);
+    }
+
+    void CaptureOverlay::UpdateMoveAnnotation(POINT overlay_point) noexcept
+    {
+        if (!drag_annotation_index_.has_value())
+        {
+            return;
+        }
+
+        drag_current_ = overlay_point;
+        LONG const delta_x = overlay_point.x - drag_start_.x;
+        LONG const delta_y = overlay_point.y - drag_start_.y;
+        if (!drag_in_progress_)
+        {
+            if (std::abs(delta_x) < kDragThreshold && std::abs(delta_y) < kDragThreshold)
+            {
+                return;
+            }
+
+            drag_in_progress_ = true;
+        }
+
+        RECT const annotation_canvas = AnnotationCanvasRect();
+        AnnotationTranslationResult const translation = TranslateAnnotationBoundsWithinRect(
+            drag_annotation_origin_bounds_, annotation_canvas, delta_x, delta_y);
+        if (!CanvasRectEquals(drag_annotation_preview_bounds_, translation.bounds))
+        {
+            drag_annotation_preview_bounds_ = translation.bounds;
+            InvalidateAnnotationCanvas();
+        }
     }
 
     void CaptureOverlay::BeginMoveSelection(POINT overlay_point) noexcept
@@ -2075,6 +2364,7 @@ namespace capturezy::feature_capture
         resize_anchor_handle_ = ResizeHandle::None;
         hovered_toolbar_action_ = ToolbarAction::None;
         pressed_toolbar_action_ = ToolbarAction::None;
+        ResetAnnotationDragState();
         SetCapture(overlay_window_);
     }
 
@@ -2123,6 +2413,7 @@ namespace capturezy::feature_capture
         resize_anchor_handle_ = active_resize_handle_;
         hovered_toolbar_action_ = ToolbarAction::None;
         pressed_toolbar_action_ = ToolbarAction::None;
+        ResetAnnotationDragState();
         SetCapture(overlay_window_);
     }
 
@@ -2216,6 +2507,12 @@ namespace capturezy::feature_capture
         RECT new_preview_rect{};
         bool const had_new_preview = TryGetCurrentPreviewRect(new_preview_rect);
         InvalidatePreviewRectChange(old_preview_rect, had_old_preview, new_preview_rect, had_new_preview);
+        if (overlay_window_ != nullptr)
+        {
+            // 标注现在可以出现在整屏画板任意位置，重置选区时整窗重绘最稳妥，
+            // 避免旧选区外残留已清空的标注像素。
+            InvalidateRect(overlay_window_, nullptr, FALSE);
+        }
     }
 
     void CaptureOverlay::ExecuteToolbarAction(ToolbarAction action)
@@ -2369,10 +2666,44 @@ namespace capturezy::feature_capture
             return;
         }
 
+        if (IsAnnotationToolActive())
+        {
+            AnnotationHitResult const annotation_hit = HitTestAnnotations(overlay_point);
+            if (annotation_hit.HasHit())
+            {
+                std::optional<std::size_t> const previous_selected_annotation = selected_annotation_index_;
+                selected_annotation_index_ = annotation_hit.annotation_index;
+                hovered_annotation_index_ = annotation_hit.annotation_index;
+                active_annotation_hit_region_ = annotation_hit.region;
+                if (previous_selected_annotation != selected_annotation_index_)
+                {
+                    InvalidateAnnotationCanvas();
+                }
+
+                if (annotation_hit.region == AnnotationHitRegion::Border ||
+                    annotation_hit.region == AnnotationHitRegion::Fill)
+                {
+                    BeginMoveAnnotation(overlay_point, *annotation_hit.annotation_index);
+                }
+                else
+                {
+                    UpdateCursorForOverlayPoint(overlay_point);
+                }
+                return;
+            }
+        }
+
         if (IsPointInsideCommittedSelection(overlay_point))
         {
             if (IsAnnotationToolActive())
             {
+                if (selected_annotation_index_.has_value())
+                {
+                    selected_annotation_index_.reset();
+                    hovered_annotation_index_.reset();
+                    active_annotation_hit_region_ = AnnotationHitRegion::None;
+                    InvalidateAnnotationCanvas();
+                }
                 BeginCreateAnnotation(overlay_point);
                 return;
             }
@@ -2417,6 +2748,10 @@ namespace capturezy::feature_capture
             else if (pointer_drag_mode_ == PointerDragMode::MoveSelection)
             {
                 UpdateMoveSelection(overlay_point);
+            }
+            else if (pointer_drag_mode_ == PointerDragMode::MoveAnnotation)
+            {
+                UpdateMoveAnnotation(overlay_point);
             }
             else if (pointer_drag_mode_ == PointerDragMode::CreateAnnotation)
             {
@@ -2467,6 +2802,135 @@ namespace capturezy::feature_capture
         }
     }
 
+    bool CaptureOverlay::CompleteToolbarPointerAction(ToolbarAction pressed_toolbar_action)
+    {
+        if (pressed_toolbar_action == ToolbarAction::None)
+        {
+            return false;
+        }
+
+        InvalidateToolbarVisual();
+        ToolbarAction const released_toolbar_action = HitTestToolbarAction(drag_current_);
+        if (pressed_toolbar_action == released_toolbar_action)
+        {
+            ExecuteToolbarAction(pressed_toolbar_action);
+            return true;
+        }
+
+        UpdateHoveredToolbarAction(drag_current_);
+        UpdateCursorForOverlayPoint(drag_current_);
+        return true;
+    }
+
+    bool CaptureOverlay::CompleteSelectionTransform(PointerDragMode pointer_drag_mode, bool was_dragging)
+    {
+        if (pointer_drag_mode == PointerDragMode::ResizeSelection ||
+            (pointer_drag_mode == PointerDragMode::MoveSelection && was_dragging))
+        {
+            drag_in_progress_ = false;
+            if (has_committed_selection_)
+            {
+                UpdateCursorForOverlayPoint(drag_current_);
+                InvalidateRect(overlay_window_, nullptr, FALSE);
+            }
+            return true;
+        }
+
+        return false;
+    }
+
+    bool CaptureOverlay::CompleteAnnotationPointerAction(PointerDragMode pointer_drag_mode, bool was_dragging,
+                                                         std::optional<std::size_t> drag_annotation_index,
+                                                         AnnotationCanvasPixelRect drag_annotation_origin_bounds,
+                                                         AnnotationCanvasPixelRect drag_annotation_preview_bounds)
+    {
+        if (pointer_drag_mode == PointerDragMode::MoveAnnotation)
+        {
+            if (drag_annotation_index.has_value())
+            {
+                auto const &objects = annotation_session_.Objects();
+                if (*drag_annotation_index < objects.size() && was_dragging &&
+                    !CanvasRectEquals(drag_annotation_origin_bounds, drag_annotation_preview_bounds))
+                {
+                    AnnotationObject moved_object = objects[*drag_annotation_index];
+                    moved_object.bounds = drag_annotation_preview_bounds;
+                    if (annotation_session_.ReplaceObject(*drag_annotation_index, moved_object))
+                    {
+                        selected_annotation_index_ = drag_annotation_index;
+                        hovered_annotation_index_ = drag_annotation_index;
+                        active_annotation_hit_region_ = AnnotationHitRegion::Border;
+                    }
+                }
+            }
+
+            drag_in_progress_ = false;
+            ResetAnnotationDragState();
+            InvalidateAnnotationCanvas();
+            UpdateCursorForOverlayPoint(drag_current_);
+            return true;
+        }
+
+        if (pointer_drag_mode == PointerDragMode::CreateAnnotation)
+        {
+            bool const has_meaningful_annotation = has_draft_annotation_ &&
+                                                   (std::abs(drag_current_.x - drag_start_.x) >= kDragThreshold ||
+                                                    std::abs(drag_current_.y - drag_start_.y) >= kDragThreshold);
+            if (has_meaningful_annotation)
+            {
+                annotation_session_.AddObject(
+                    AnnotationObject{.kind = AnnotationKind::Rectangle, .bounds = draft_annotation_bounds_});
+                selected_annotation_index_ = annotation_session_.Objects().empty()
+                                                 ? std::optional<std::size_t>{}
+                                                 : std::optional<std::size_t>{annotation_session_.Objects().size() - 1};
+                hovered_annotation_index_ = selected_annotation_index_;
+                active_annotation_hit_region_ = AnnotationHitRegion::None;
+                InvalidateToolbarVisual();
+                InvalidateAnnotationCanvas();
+            }
+            has_draft_annotation_ = false;
+            draft_annotation_bounds_ = {};
+            drag_in_progress_ = false;
+            InvalidateAnnotationCanvas();
+            UpdateCursorForOverlayPoint(drag_current_);
+            return true;
+        }
+
+        return false;
+    }
+
+    bool CaptureOverlay::CompleteSelectionCreation(bool was_dragging, bool had_click_candidate,
+                                                   RECT click_candidate_rect)
+    {
+        if (was_dragging)
+        {
+            drag_in_progress_ = false;
+            committed_selection_rect_ = CurrentSelectionRectScreen();
+            has_committed_selection_ = IsRectNonEmpty(committed_selection_rect_);
+            has_selection_ = false;
+            if (has_committed_selection_)
+            {
+                UpdateCursorForOverlayPoint(drag_current_);
+                InvalidateRect(overlay_window_, nullptr, FALSE);
+            }
+            return true;
+        }
+
+        if (had_click_candidate)
+        {
+            has_click_candidate_window_ = false;
+            committed_selection_rect_ = click_candidate_rect;
+            has_committed_selection_ = IsRectNonEmpty(committed_selection_rect_);
+            if (has_committed_selection_)
+            {
+                UpdateCursorForOverlayPoint(drag_current_);
+                InvalidateRect(overlay_window_, nullptr, FALSE);
+            }
+            return true;
+        }
+
+        return false;
+    }
+
     void CaptureOverlay::CompletePointerSelection(LPARAM l_param)
     {
         if (!pointer_down_)
@@ -2480,6 +2944,9 @@ namespace capturezy::feature_capture
         PointerDragMode const pointer_drag_mode = pointer_drag_mode_;
         ToolbarAction const pressed_toolbar_action = pressed_toolbar_action_;
         RECT const click_candidate_rect = click_candidate_window_rect_;
+        std::optional<std::size_t> const drag_annotation_index = drag_annotation_index_;
+        AnnotationCanvasPixelRect const drag_annotation_origin_bounds = drag_annotation_origin_bounds_;
+        AnnotationCanvasPixelRect const drag_annotation_preview_bounds = drag_annotation_preview_bounds_;
         ReleaseCapture();
         drag_current_.x = GET_X_LPARAM(l_param);
         drag_current_.y = GET_Y_LPARAM(l_param);
@@ -2489,91 +2956,114 @@ namespace capturezy::feature_capture
         resize_anchor_handle_ = ResizeHandle::None;
         hovered_toolbar_action_ = ToolbarAction::None;
         pressed_toolbar_action_ = ToolbarAction::None;
-        if (pressed_toolbar_action != ToolbarAction::None)
-        {
-            InvalidateToolbarVisual();
-            ToolbarAction const released_toolbar_action = HitTestToolbarAction(drag_current_);
-            if (pressed_toolbar_action == released_toolbar_action)
-            {
-                ExecuteToolbarAction(pressed_toolbar_action);
-                return;
-            }
 
-            UpdateHoveredToolbarAction(drag_current_);
-            UpdateCursorForOverlayPoint(drag_current_);
-            return;
-        }
-
-        if (pointer_drag_mode == PointerDragMode::ResizeSelection)
+        if (CompleteToolbarPointerAction(pressed_toolbar_action) ||
+            CompleteSelectionTransform(pointer_drag_mode, was_dragging) ||
+            CompleteAnnotationPointerAction(pointer_drag_mode, was_dragging, drag_annotation_index,
+                                            drag_annotation_origin_bounds, drag_annotation_preview_bounds) ||
+            CompleteSelectionCreation(was_dragging, had_click_candidate, click_candidate_rect))
         {
-            drag_in_progress_ = false;
-            if (has_committed_selection_)
-            {
-                UpdateCursorForOverlayPoint(drag_current_);
-                InvalidateRect(overlay_window_, nullptr, FALSE);
-            }
-            return;
-        }
-
-        if (pointer_drag_mode == PointerDragMode::MoveSelection && was_dragging)
-        {
-            drag_in_progress_ = false;
-            if (has_committed_selection_)
-            {
-                UpdateCursorForOverlayPoint(drag_current_);
-                InvalidateRect(overlay_window_, nullptr, FALSE);
-            }
-            return;
-        }
-
-        if (pointer_drag_mode == PointerDragMode::CreateAnnotation)
-        {
-            bool const has_meaningful_annotation = has_draft_annotation_ &&
-                                                   (std::abs(drag_current_.x - drag_start_.x) >= kDragThreshold ||
-                                                    std::abs(drag_current_.y - drag_start_.y) >= kDragThreshold);
-            if (has_meaningful_annotation)
-            {
-                annotation_session_.AddObject(
-                    AnnotationObject{.kind = AnnotationKind::Rectangle, .bounds = draft_annotation_bounds_});
-                InvalidateToolbarVisual();
-                InvalidateAnnotationCanvas();
-            }
-            has_draft_annotation_ = false;
-            draft_annotation_bounds_ = {};
-            drag_in_progress_ = false;
-            InvalidateAnnotationCanvas();
-            UpdateCursorForOverlayPoint(drag_current_);
-            return;
-        }
-
-        if (was_dragging)
-        {
-            drag_in_progress_ = false;
-            committed_selection_rect_ = CurrentSelectionRectScreen();
-            has_committed_selection_ = IsRectNonEmpty(committed_selection_rect_);
-            has_selection_ = false;
-            if (has_committed_selection_)
-            {
-                UpdateCursorForOverlayPoint(drag_current_);
-                InvalidateRect(overlay_window_, nullptr, FALSE);
-            }
-            return;
-        }
-
-        if (had_click_candidate)
-        {
-            has_click_candidate_window_ = false;
-            committed_selection_rect_ = click_candidate_rect;
-            has_committed_selection_ = IsRectNonEmpty(committed_selection_rect_);
-            if (has_committed_selection_)
-            {
-                UpdateCursorForOverlayPoint(drag_current_);
-                InvalidateRect(overlay_window_, nullptr, FALSE);
-            }
             return;
         }
     }
 
+    void CaptureOverlay::PaintAnnotations(HDC device_context, RECT annotation_canvas, POINT paint_origin) const noexcept
+    {
+        if (!has_committed_selection_ || !IsRectNonEmpty(annotation_canvas))
+        {
+            return;
+        }
+
+        auto const &objects = annotation_session_.Objects();
+        for (std::size_t annotation_index = 0; annotation_index < objects.size(); ++annotation_index)
+        {
+            AnnotationObject annotation_object = objects[annotation_index];
+            if (pointer_drag_mode_ == PointerDragMode::MoveAnnotation && drag_annotation_index_ == annotation_index)
+            {
+                annotation_object.bounds = drag_annotation_preview_bounds_;
+            }
+
+            RECT annotation_rect = annotation_object.bounds;
+            if (!IsRectNonEmpty(annotation_rect))
+            {
+                continue;
+            }
+            OffsetRect(&annotation_rect, -paint_origin.x, -paint_origin.y);
+            PaintAnnotationRect(device_context, annotation_object, annotation_rect);
+        }
+    }
+
+    void CaptureOverlay::PaintDraftAnnotation(HDC device_context, RECT annotation_canvas,
+                                              POINT paint_origin) const noexcept
+    {
+        if (!has_draft_annotation_ || !IsRectNonEmpty(annotation_canvas))
+        {
+            return;
+        }
+
+        AnnotationObject const draft_annotation{
+            .kind = AnnotationKind::Rectangle,
+            .bounds = draft_annotation_bounds_,
+            .style = AnnotationStyle{},
+        };
+        RECT annotation_rect = draft_annotation.bounds;
+        if (!IsRectNonEmpty(annotation_rect))
+        {
+            return;
+        }
+        OffsetRect(&annotation_rect, -paint_origin.x, -paint_origin.y);
+        PaintAnnotationRect(device_context, draft_annotation, annotation_rect);
+    }
+
+    void CaptureOverlay::PaintSelectedAnnotationAdorners(HDC device_context, RECT annotation_canvas,
+                                                         POINT paint_origin) const noexcept
+    {
+        if (!has_committed_selection_ || !IsAnnotationToolActive() || !selected_annotation_index_.has_value() ||
+            !IsRectNonEmpty(annotation_canvas))
+        {
+            return;
+        }
+
+        auto const &objects = annotation_session_.Objects();
+        if (*selected_annotation_index_ >= objects.size())
+        {
+            return;
+        }
+
+        AnnotationCanvasPixelRect annotation_bounds = objects[*selected_annotation_index_].bounds;
+        if (pointer_drag_mode_ == PointerDragMode::MoveAnnotation &&
+            drag_annotation_index_ == selected_annotation_index_)
+        {
+            annotation_bounds = drag_annotation_preview_bounds_;
+        }
+
+        RECT annotation_rect = annotation_bounds;
+        if (!IsRectNonEmpty(annotation_rect))
+        {
+            return;
+        }
+
+        RECT const interaction_rect = OverlayToClientRect(committed_selection_rect_);
+        if (!IsRectNonEmpty(interaction_rect))
+        {
+            return;
+        }
+
+        std::array<POINT, 8> handle_points = AnnotationHandleCenters(annotation_rect);
+        for (POINT const handle_point : handle_points)
+        {
+            if (PtInRect(&interaction_rect, handle_point) == FALSE)
+            {
+                continue;
+            }
+
+            POINT local_handle_point{
+                .x = handle_point.x - paint_origin.x,
+                .y = handle_point.y - paint_origin.y,
+            };
+            PaintResizeHandle(device_context, local_handle_point);
+        }
+    }
     // 绘制流程要按背景、预览、控制点、工具条、指引文案与 HUD 固定顺序叠加，暂时保留在单入口。
     // NOLINTNEXTLINE(readability-function-cognitive-complexity)
     void CaptureOverlay::PaintOverlay() noexcept
@@ -2655,18 +3145,13 @@ namespace capturezy::feature_capture
             }
             if (has_committed_selection_)
             {
-                for (AnnotationObject const &annotation_object : annotation_session_.Objects())
-                {
-                    RECT annotation_rect = NormalizedRectToClientRect(annotation_object.bounds, preview_rect);
-                    OffsetRect(&annotation_rect, -paint_rect.left, -paint_rect.top);
-                    PaintAnnotationRect(buffer_device_context, annotation_rect);
-                }
-                if (has_draft_annotation_)
-                {
-                    RECT annotation_rect = NormalizedRectToClientRect(draft_annotation_bounds_, preview_rect);
-                    OffsetRect(&annotation_rect, -paint_rect.left, -paint_rect.top);
-                    PaintAnnotationRect(buffer_device_context, annotation_rect);
-                }
+                RECT const annotation_canvas = AnnotationCanvasRect();
+                PaintAnnotations(buffer_device_context, annotation_canvas,
+                                 POINT{.x = paint_rect.left, .y = paint_rect.top});
+                PaintDraftAnnotation(buffer_device_context, annotation_canvas,
+                                     POINT{.x = paint_rect.left, .y = paint_rect.top});
+                PaintSelectedAnnotationAdorners(buffer_device_context, annotation_canvas,
+                                                POINT{.x = paint_rect.left, .y = paint_rect.top});
             }
             bool const should_show_resize_handles = ((drag_in_progress_ && has_selection_) ||
                                                      has_committed_selection_) &&
@@ -2935,6 +3420,7 @@ namespace capturezy::feature_capture
             resize_anchor_handle_ = ResizeHandle::None;
             hovered_toolbar_action_ = ToolbarAction::None;
             pressed_toolbar_action_ = ToolbarAction::None;
+            ResetAnnotationDragState();
             InvalidateToolbarVisual();
             return 0;
 

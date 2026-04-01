@@ -2,6 +2,7 @@ add_executable(
   capturezy_annotation_session_test
     feature_capture/annotation_session_test.cpp
     ${PROJECT_SOURCE_DIR}/src/feature_capture/capture_annotation.cpp
+    ${PROJECT_SOURCE_DIR}/src/feature_capture/capture_annotation_geometry.cpp
 )
 
 capturezy_apply_defaults(capturezy_annotation_session_test)

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <string>
 
 // clang-format off
@@ -45,6 +46,7 @@ namespace capturezy::feature_capture
             None,
             CreateSelection,
             CreateAnnotation,
+            MoveAnnotation,
             MoveSelection,
             ResizeSelection,
         };
@@ -89,6 +91,32 @@ namespace capturezy::feature_capture
             ResetSelection,
         };
 
+        enum class AnnotationHitRegion : std::uint8_t
+        {
+            None,
+            HandleTopLeft,
+            HandleTop,
+            HandleTopRight,
+            HandleRight,
+            HandleBottomRight,
+            HandleBottom,
+            HandleBottomLeft,
+            HandleLeft,
+            Border,
+            Fill,
+        };
+
+        struct AnnotationHitResult
+        {
+            std::optional<std::size_t> annotation_index;
+            AnnotationHitRegion region{AnnotationHitRegion::None};
+
+            [[nodiscard]] bool HasHit() const noexcept
+            {
+                return annotation_index.has_value() && region != AnnotationHitRegion::None;
+            }
+        };
+
         struct ToolbarActionSpec
         {
             ToolbarAction action;
@@ -122,12 +150,19 @@ namespace capturezy::feature_capture
         [[nodiscard]] static EditingAction ToolbarEditingAction(ToolbarAction action) noexcept;
         [[nodiscard]] static EditingAction GestureEditingAction(WPARAM w_param, bool control_down) noexcept;
         [[nodiscard]] bool IsToolbarActionEnabled(ToolbarAction action) const noexcept;
-        [[nodiscard]] bool IsPointInsideAnnotationCanvas(POINT overlay_point) const noexcept;
+        [[nodiscard]] bool IsPointInsideAnnotationInteractionRegion(POINT overlay_point) const noexcept;
+        [[nodiscard]] bool IsPointInsideAnnotationCreationRegion(POINT overlay_point) const noexcept;
         [[nodiscard]] bool IsAnnotationToolActive() const noexcept;
         [[nodiscard]] RECT AnnotationCanvasRect() const noexcept;
         [[nodiscard]] bool IsPointInsideToolbar(POINT overlay_point) const noexcept;
         [[nodiscard]] bool IsPointInsideCommittedSelection(POINT overlay_point) const noexcept;
         [[nodiscard]] ResizeHandle HitTestCommittedSelectionResizeHandle(POINT overlay_point) const noexcept;
+        [[nodiscard]] AnnotationHitResult HitTestAnnotations(POINT overlay_point) const noexcept;
+        [[nodiscard]] static AnnotationHitResult HitTestAnnotation(POINT overlay_point, RECT annotation_rect,
+                                                                   AnnotationStyle const &style, bool include_handles,
+                                                                   RECT interaction_rect,
+                                                                   std::size_t annotation_index) noexcept;
+        [[nodiscard]] bool TryGetAnnotationRect(std::size_t annotation_index, RECT &rect) const noexcept;
         [[nodiscard]] RECT ToolbarRect(RECT selection_rect, RECT bounds_rect) const noexcept;
         [[nodiscard]] static RECT ToolbarButtonRect(RECT toolbar_rect, ToolbarAction action) noexcept;
         [[nodiscard]] ToolbarAction HitTestToolbarAction(POINT overlay_point) const noexcept;
@@ -136,6 +171,9 @@ namespace capturezy::feature_capture
         [[nodiscard]] RECT CurrentToolbarRect() const noexcept;
         void InvalidateToolbarVisual() noexcept;
         void UpdateHoveredToolbarAction(POINT overlay_point) noexcept;
+        void UpdateAnnotationHoverState(AnnotationHitResult const &hit_result) noexcept;
+        void ReconcileAnnotationInteractionState() noexcept;
+        void ResetAnnotationDragState() noexcept;
         void InvalidatePreviewRectChange(RECT old_preview_rect, bool had_old_preview, RECT new_preview_rect,
                                          bool had_new_preview) noexcept;
         void InvalidateAnnotationCanvas() noexcept;
@@ -143,6 +181,8 @@ namespace capturezy::feature_capture
         void ResetCommittedSelection() noexcept;
         void BeginCreateAnnotation(POINT overlay_point) noexcept;
         void UpdateCreateAnnotation(POINT overlay_point) noexcept;
+        void BeginMoveAnnotation(POINT overlay_point, std::size_t annotation_index) noexcept;
+        void UpdateMoveAnnotation(POINT overlay_point) noexcept;
         void BeginMoveSelection(POINT overlay_point) noexcept;
         void UpdateMoveSelection(POINT overlay_point) noexcept;
         void BeginResizeSelection(POINT overlay_point) noexcept;
@@ -154,12 +194,25 @@ namespace capturezy::feature_capture
         [[nodiscard]] bool HandleKeyDown(WPARAM w_param);
         void BeginPointerSelection(LPARAM l_param) noexcept;
         void UpdatePointerSelection(LPARAM l_param);
+        [[nodiscard]] bool CompleteToolbarPointerAction(ToolbarAction pressed_toolbar_action);
+        [[nodiscard]] bool CompleteSelectionTransform(PointerDragMode pointer_drag_mode, bool was_dragging);
+        [[nodiscard]] bool CompleteAnnotationPointerAction(PointerDragMode pointer_drag_mode, bool was_dragging,
+                                                           std::optional<std::size_t> drag_annotation_index,
+                                                           AnnotationCanvasPixelRect drag_annotation_origin_bounds,
+                                                           AnnotationCanvasPixelRect drag_annotation_preview_bounds);
+        [[nodiscard]] bool CompleteSelectionCreation(bool was_dragging, bool had_click_candidate,
+                                                     RECT click_candidate_rect);
         void CompletePointerSelection(LPARAM l_param);
+        void PaintAnnotations(HDC device_context, RECT annotation_canvas, POINT paint_origin) const noexcept;
+        void PaintDraftAnnotation(HDC device_context, RECT annotation_canvas, POINT paint_origin) const noexcept;
+        void PaintSelectedAnnotationAdorners(HDC device_context, RECT annotation_canvas,
+                                             POINT paint_origin) const noexcept;
         void PaintOverlay() noexcept;
         [[nodiscard]] ATOM RegisterWindowClass() const;
         [[nodiscard]] LRESULT HandleMessage(UINT message, WPARAM w_param, LPARAM l_param);
         void Finish(OverlayResult result) noexcept;
 
+        [[nodiscard]] static HCURSOR CursorForAnnotationHitRegion(AnnotationHitRegion region) noexcept;
         static LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM w_param, LPARAM l_param);
 
         HINSTANCE instance_;
@@ -178,7 +231,7 @@ namespace capturezy::feature_capture
         RECT click_candidate_window_rect_{};
         RECT committed_selection_rect_{};
         RECT resize_anchor_selection_rect_{};
-        NormalizedRectF draft_annotation_bounds_{};
+        AnnotationCanvasPixelRect draft_annotation_bounds_{};
         bool pointer_down_{false};
         bool drag_in_progress_{false};
         bool has_selection_{false};
@@ -191,6 +244,12 @@ namespace capturezy::feature_capture
         PointerDragMode pointer_drag_mode_{PointerDragMode::None};
         ResizeHandle active_resize_handle_{ResizeHandle::None};
         ResizeHandle resize_anchor_handle_{ResizeHandle::None};
+        std::optional<std::size_t> drag_annotation_index_;
+        AnnotationCanvasPixelRect drag_annotation_origin_bounds_{};
+        AnnotationCanvasPixelRect drag_annotation_preview_bounds_{};
+        std::optional<std::size_t> selected_annotation_index_;
+        std::optional<std::size_t> hovered_annotation_index_;
+        AnnotationHitRegion active_annotation_hit_region_{AnnotationHitRegion::None};
         ToolbarAction hovered_toolbar_action_{ToolbarAction::None};
         ToolbarAction pressed_toolbar_action_{ToolbarAction::None};
         AnnotationSession annotation_session_{};

@@ -2,6 +2,7 @@
 #include <iostream>
 
 #include "feature_capture/capture_annotation.h"
+#include "feature_capture/capture_annotation_geometry.h"
 
 namespace capturezy::feature_capture
 {
@@ -25,10 +26,10 @@ namespace capturezy::feature_capture
             return std::fabs(left - right) <= kFloatTolerance;
         }
 
-        bool RectEquals(NormalizedRectF const &left, NormalizedRectF const &right)
+        bool RectEquals(RECT const &left, RECT const &right)
         {
-            return AreClose(left.left, right.left) && AreClose(left.top, right.top) &&
-                   AreClose(left.right, right.right) && AreClose(left.bottom, right.bottom);
+            return left.left == right.left && left.top == right.top && left.right == right.right &&
+                   left.bottom == right.bottom;
         }
 
         bool StyleEquals(AnnotationStyle const &left, AnnotationStyle const &right)
@@ -69,11 +70,11 @@ namespace capturezy::feature_capture
             session.AddObject(AnnotationObject{
                 .kind = AnnotationKind::Rectangle,
                 .bounds =
-                    NormalizedRectF{
-                        .left = 0.1F,
-                        .top = 0.2F,
-                        .right = 0.7F,
-                        .bottom = 0.8F,
+                    RECT{
+                        .left = 100,
+                        .top = 200,
+                        .right = 700,
+                        .bottom = 800,
                     },
             });
             if (!Expect(session.Objects().size() == 1U, "adding an object should append to the session"))
@@ -114,11 +115,11 @@ namespace capturezy::feature_capture
             session.AddObject(AnnotationObject{
                 .kind = AnnotationKind::Rectangle,
                 .bounds =
-                    NormalizedRectF{
-                        .left = 0.0F,
-                        .top = 0.0F,
-                        .right = 1.0F,
-                        .bottom = 1.0F,
+                    RECT{
+                        .left = 0,
+                        .top = 0,
+                        .right = 1920,
+                        .bottom = 1080,
                     },
             });
             return Expect(!session.CanRedo(), "adding a new object should clear redo history");
@@ -143,7 +144,7 @@ namespace capturezy::feature_capture
             {
                 return false;
             }
-            return Expect(style.has_fill, "default annotations should keep fill enabled");
+            return Expect(!style.has_fill, "default rectangle annotations should be hollow");
         }
 
         bool TestAddObjectKeepsStyleData()
@@ -161,11 +162,11 @@ namespace capturezy::feature_capture
             AnnotationObject const object{
                 .kind = AnnotationKind::Rectangle,
                 .bounds =
-                    NormalizedRectF{
-                        .left = 0.2F,
-                        .top = 0.2F,
-                        .right = 0.6F,
-                        .bottom = 0.7F,
+                    RECT{
+                        .left = 240,
+                        .top = 150,
+                        .right = 960,
+                        .bottom = 760,
                     },
                 .style = expected_style,
             };
@@ -201,11 +202,11 @@ namespace capturezy::feature_capture
             AnnotationObject const first{
                 .kind = AnnotationKind::Rectangle,
                 .bounds =
-                    NormalizedRectF{
-                        .left = 0.0F,
-                        .top = 0.0F,
-                        .right = 0.3F,
-                        .bottom = 0.3F,
+                    RECT{
+                        .left = 0,
+                        .top = 0,
+                        .right = 300,
+                        .bottom = 300,
                     },
                 .style =
                     AnnotationStyle{
@@ -219,11 +220,11 @@ namespace capturezy::feature_capture
             AnnotationObject const second{
                 .kind = AnnotationKind::Rectangle,
                 .bounds =
-                    NormalizedRectF{
-                        .left = 0.4F,
-                        .top = 0.4F,
-                        .right = 0.8F,
-                        .bottom = 0.8F,
+                    RECT{
+                        .left = 400,
+                        .top = 400,
+                        .right = 800,
+                        .bottom = 800,
                     },
                 .style =
                     AnnotationStyle{
@@ -237,11 +238,11 @@ namespace capturezy::feature_capture
             AnnotationObject const replacement{
                 .kind = AnnotationKind::Rectangle,
                 .bounds =
-                    NormalizedRectF{
-                        .left = 0.45F,
-                        .top = 0.45F,
-                        .right = 0.9F,
-                        .bottom = 0.95F,
+                    RECT{
+                        .left = 450,
+                        .top = 450,
+                        .right = 900,
+                        .bottom = 950,
                     },
                 .style =
                     AnnotationStyle{
@@ -315,22 +316,22 @@ namespace capturezy::feature_capture
             AnnotationObject const original{
                 .kind = AnnotationKind::Rectangle,
                 .bounds =
-                    NormalizedRectF{
-                        .left = 0.1F,
-                        .top = 0.1F,
-                        .right = 0.3F,
-                        .bottom = 0.3F,
+                    RECT{
+                        .left = 100,
+                        .top = 100,
+                        .right = 300,
+                        .bottom = 300,
                     },
                 .style = AnnotationStyle{},
             };
             AnnotationObject const first_replacement{
                 .kind = AnnotationKind::Rectangle,
                 .bounds =
-                    NormalizedRectF{
-                        .left = 0.4F,
-                        .top = 0.4F,
-                        .right = 0.6F,
-                        .bottom = 0.6F,
+                    RECT{
+                        .left = 400,
+                        .top = 400,
+                        .right = 600,
+                        .bottom = 600,
                     },
                 .style =
                     AnnotationStyle{
@@ -344,11 +345,11 @@ namespace capturezy::feature_capture
             AnnotationObject const second_replacement{
                 .kind = AnnotationKind::Rectangle,
                 .bounds =
-                    NormalizedRectF{
-                        .left = 0.5F,
-                        .top = 0.5F,
-                        .right = 0.9F,
-                        .bottom = 0.9F,
+                    RECT{
+                        .left = 500,
+                        .top = 500,
+                        .right = 900,
+                        .bottom = 900,
                     },
                 .style =
                     AnnotationStyle{
@@ -380,6 +381,51 @@ namespace capturezy::feature_capture
             }
             return Expect(!session.CanRedo(), "successful replace should clear redo history");
         }
+
+        bool TestTranslateAnnotationBoundsWithinCanvas()
+        {
+            RECT const canvas{.left = 0, .top = 0, .right = 1920, .bottom = 1080};
+            RECT const original{.left = 100, .top = 120, .right = 300, .bottom = 260};
+
+            AnnotationTranslationResult const result = TranslateAnnotationBoundsWithinRect(original, canvas, 50, -20);
+            if (!Expect(result.moved, "translation should report movement when delta fits inside canvas"))
+            {
+                return false;
+            }
+
+            return Expect(RectEquals(result.bounds, RECT{.left = 150, .top = 100, .right = 350, .bottom = 240}),
+                          "translation should stay in canvas pixel space");
+        }
+
+        bool TestTranslateAnnotationBoundsClampsAtCanvasEdge()
+        {
+            RECT const canvas{.left = 0, .top = 0, .right = 1920, .bottom = 1080};
+            RECT const original{.left = 1800, .top = 1020, .right = 1910, .bottom = 1070};
+
+            AnnotationTranslationResult const result = TranslateAnnotationBoundsWithinRect(original, canvas, 30, 30);
+            if (!Expect(result.moved, "translation should still report movement when delta is clamped"))
+            {
+                return false;
+            }
+
+            return Expect(RectEquals(result.bounds, RECT{.left = 1810, .top = 1030, .right = 1920, .bottom = 1080}),
+                          "translation should clamp moved bounds to canvas edge");
+        }
+
+        bool TestTranslateAnnotationBoundsReportsNoMovementWhenFullyClamped()
+        {
+            RECT const canvas{.left = 0, .top = 0, .right = 1920, .bottom = 1080};
+            RECT const original{.left = 1810, .top = 1030, .right = 1920, .bottom = 1080};
+
+            AnnotationTranslationResult const result = TranslateAnnotationBoundsWithinRect(original, canvas, 30, 40);
+            if (!Expect(!result.moved, "translation should report no movement when delta is fully clamped"))
+            {
+                return false;
+            }
+
+            return Expect(RectEquals(result.bounds, original),
+                          "fully clamped translation should keep bounds unchanged");
+        }
         bool TestReplaceObjectRejectsInvalidIndex()
         {
             AnnotationSession session;
@@ -388,11 +434,11 @@ namespace capturezy::feature_capture
             AnnotationObject const replacement{
                 .kind = AnnotationKind::Rectangle,
                 .bounds =
-                    NormalizedRectF{
-                        .left = 0.0F,
-                        .top = 0.0F,
-                        .right = 1.0F,
-                        .bottom = 1.0F,
+                    RECT{
+                        .left = 0,
+                        .top = 0,
+                        .right = 1920,
+                        .bottom = 1080,
                     },
                 .style = AnnotationStyle{},
             };
@@ -438,6 +484,18 @@ int main()
         return 1;
     }
     if (!TestReplaceObjectClearsRedoAfterUndo())
+    {
+        return 1;
+    }
+    if (!TestTranslateAnnotationBoundsWithinCanvas())
+    {
+        return 1;
+    }
+    if (!TestTranslateAnnotationBoundsClampsAtCanvasEdge())
+    {
+        return 1;
+    }
+    if (!TestTranslateAnnotationBoundsReportsNoMovementWhenFullyClamped())
     {
         return 1;
     }

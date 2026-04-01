@@ -43,13 +43,15 @@ namespace capturezy::feature_capture
         float stroke_width{2.0F};
         COLORREF fill_color{RGB(255, 214, 102)};
         BYTE fill_alpha{28};
-        bool has_fill{true};
+        bool has_fill{false};
     };
+    // 画板像素矩形：坐标原点固定在冻结画板左上角（非桌面绝对屏幕坐标）。
+    using AnnotationCanvasPixelRect = RECT;
 
     struct AnnotationObject
     {
         AnnotationKind kind{AnnotationKind::Rectangle};
-        NormalizedRectF bounds{};
+        AnnotationCanvasPixelRect bounds{};
         AnnotationStyle style{};
     };
 
