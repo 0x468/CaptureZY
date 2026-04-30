@@ -205,7 +205,7 @@ namespace capturezy::platform_win
         TASKDIALOGCONFIG dialog_config{};
         dialog_config.cbSize = sizeof(dialog_config);
         dialog_config.hwndParent = window_;
-        dialog_config.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION | TDF_POSITION_RELATIVE_TO_WINDOW;
+        dialog_config.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION;
         dialog_config.pszWindowTitle = L"退出 CaptureZY";
         dialog_config.pszMainInstruction = L"确定要退出 CaptureZY 吗？";
         dialog_config.pszContent = L"退出后会结束托盘驻留，并关闭当前所有贴图窗口。";
