@@ -16,6 +16,8 @@ namespace capturezy::feature_capture
         Arrow,
         Text,
         Mosaic,
+        Highlighter,
+        NumberMarker,
     };
 
     enum class ShapeToolVariant : std::uint8_t

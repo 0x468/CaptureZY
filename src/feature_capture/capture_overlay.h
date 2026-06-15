@@ -68,9 +68,11 @@ namespace capturezy::feature_capture
         {
             None,
             ToolShape,
-            PlaceholderArrow,
-            PlaceholderText,
-            PlaceholderMosaic,
+            ToolArrow,
+            ToolText,
+            ToolMosaic,
+            ToolHighlighter,
+            ToolNumberMarker,
             PlaceholderUndo,
             PlaceholderRedo,
             StyleColorYellow,
@@ -196,6 +198,7 @@ namespace capturezy::feature_capture
         RECT committed_selection_rect_{};
         RECT resize_anchor_selection_rect_{};
         NormalizedRectF draft_annotation_bounds_{};
+        std::vector<NormalizedPointF> draft_highlighter_path_{};
         NormalizedRectF annotation_object_drag_anchor_{};
         AnnotationObjectId active_annotation_object_id_{0};
         int active_annotation_object_handle_{-1};

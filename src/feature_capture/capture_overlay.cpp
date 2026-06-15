@@ -134,6 +134,23 @@ namespace capturezy::feature_capture
             };
         }
 
+        [[nodiscard]] NormalizedPointF BuildNormalizedPointF(POINT pixel_point, RECT selection_rect) noexcept
+        {
+            if (!IsRectNonEmpty(selection_rect))
+            {
+                return {};
+            }
+
+            LONG const clamped_x = std::clamp(pixel_point.x, selection_rect.left, selection_rect.right);
+            LONG const clamped_y = std::clamp(pixel_point.y, selection_rect.top, selection_rect.bottom);
+            auto const selection_width = static_cast<float>(selection_rect.right - selection_rect.left);
+            auto const selection_height = static_cast<float>(selection_rect.bottom - selection_rect.top);
+            return NormalizedPointF{
+                .x = static_cast<float>(clamped_x - selection_rect.left) / selection_width,
+                .y = static_cast<float>(clamped_y - selection_rect.top) / selection_height,
+            };
+        }
+
         void PaintAnnotationRect(HDC destination_device_context, RECT annotation_rect,
                                  AnnotationStyle const &style = AnnotationStyle{}) noexcept
         {
@@ -1352,7 +1369,7 @@ namespace capturezy::feature_capture
 
     CaptureOverlay::ToolbarActionSpec const &CaptureOverlay::ToolbarActionMetadata(ToolbarAction action) noexcept
     {
-        static constexpr std::array<ToolbarActionSpec, 19> kToolbarActionSpecs{{
+        static constexpr std::array<ToolbarActionSpec, 21> kToolbarActionSpecs{{
             ToolbarActionSpec{.action = ToolbarAction::ToolShape,
                               .label = L"形",
                               .hint = L"形状工具（默认矩形）",
@@ -1360,27 +1377,41 @@ namespace capturezy::feature_capture
                               .index_in_group = 0,
                               .width = kToolbarToolButtonWidth,
                               .interactive = true},
-            ToolbarActionSpec{.action = ToolbarAction::PlaceholderArrow,
+            ToolbarActionSpec{.action = ToolbarAction::ToolArrow,
                               .label = L"箭",
-                              .hint = L"箭头工具（暂未开放）",
+                              .hint = L"箭头工具",
                               .group = 0,
                               .index_in_group = 1,
                               .width = kToolbarToolButtonWidth,
-                              .interactive = false},
-            ToolbarActionSpec{.action = ToolbarAction::PlaceholderText,
+                              .interactive = true},
+            ToolbarActionSpec{.action = ToolbarAction::ToolText,
                               .label = L"文",
-                              .hint = L"文字工具（暂未开放）",
+                              .hint = L"文字工具",
                               .group = 0,
                               .index_in_group = 2,
                               .width = kToolbarToolButtonWidth,
-                              .interactive = false},
-            ToolbarActionSpec{.action = ToolbarAction::PlaceholderMosaic,
+                              .interactive = true},
+            ToolbarActionSpec{.action = ToolbarAction::ToolMosaic,
                               .label = L"码",
-                              .hint = L"马赛克工具（暂未开放）",
+                              .hint = L"马赛克工具",
                               .group = 0,
                               .index_in_group = 3,
                               .width = kToolbarToolButtonWidth,
-                              .interactive = false},
+                              .interactive = true},
+            ToolbarActionSpec{.action = ToolbarAction::ToolHighlighter,
+                              .label = L"笔",
+                              .hint = L"荧光笔工具",
+                              .group = 0,
+                              .index_in_group = 4,
+                              .width = kToolbarToolButtonWidth,
+                              .interactive = true},
+            ToolbarActionSpec{.action = ToolbarAction::ToolNumberMarker,
+                              .label = L"序",
+                              .hint = L"序号标注工具",
+                              .group = 0,
+                              .index_in_group = 5,
+                              .width = kToolbarToolButtonWidth,
+                              .interactive = true},
             ToolbarActionSpec{.action = ToolbarAction::PlaceholderUndo,
                               .label = L"撤",
                               .hint = L"撤销",
@@ -1541,7 +1572,7 @@ namespace capturezy::feature_capture
         switch (group)
         {
         case 0:
-            return 4;
+            return 6;
 
         case 1:
             return 2;
@@ -1603,14 +1634,20 @@ namespace capturezy::feature_capture
         case ToolbarAction::ToolShape:
             return AnnotationToolFamily::Shape;
 
-        case ToolbarAction::PlaceholderArrow:
+        case ToolbarAction::ToolArrow:
             return AnnotationToolFamily::Arrow;
 
-        case ToolbarAction::PlaceholderText:
+        case ToolbarAction::ToolText:
             return AnnotationToolFamily::Text;
 
-        case ToolbarAction::PlaceholderMosaic:
+        case ToolbarAction::ToolMosaic:
             return AnnotationToolFamily::Mosaic;
+
+        case ToolbarAction::ToolHighlighter:
+            return AnnotationToolFamily::Highlighter;
+
+        case ToolbarAction::ToolNumberMarker:
+            return AnnotationToolFamily::NumberMarker;
 
         case ToolbarAction::None:
         case ToolbarAction::PlaceholderUndo:
@@ -1648,9 +1685,11 @@ namespace capturezy::feature_capture
 
         case ToolbarAction::None:
         case ToolbarAction::ToolShape:
-        case ToolbarAction::PlaceholderArrow:
-        case ToolbarAction::PlaceholderText:
-        case ToolbarAction::PlaceholderMosaic:
+        case ToolbarAction::ToolArrow:
+        case ToolbarAction::ToolText:
+        case ToolbarAction::ToolMosaic:
+        case ToolbarAction::ToolHighlighter:
+        case ToolbarAction::ToolNumberMarker:
         default:
             return EditingAction::None;
         }
@@ -1691,6 +1730,11 @@ namespace capturezy::feature_capture
         switch (action)
         {
         case ToolbarAction::ToolShape:
+        case ToolbarAction::ToolArrow:
+        case ToolbarAction::ToolText:
+        case ToolbarAction::ToolMosaic:
+        case ToolbarAction::ToolHighlighter:
+        case ToolbarAction::ToolNumberMarker:
             return true;
 
         case ToolbarAction::PlaceholderUndo:
@@ -2265,6 +2309,20 @@ namespace capturezy::feature_capture
         resize_anchor_handle_ = ResizeHandle::None;
         has_draft_annotation_ = true;
         draft_annotation_bounds_ = {};
+        draft_highlighter_path_.clear();
+
+        // 对于荧光笔工具，记录起始路径点
+        AnnotationToolFamily const family = annotation_session_.ActiveToolFamily();
+        if (family == AnnotationToolFamily::Highlighter)
+        {
+            RECT annotation_canvas = AnnotationCanvasRect();
+            if (IsRectNonEmpty(annotation_canvas))
+            {
+                NormalizedPointF start_point = BuildNormalizedPointF(overlay_point, annotation_canvas);
+                draft_highlighter_path_.push_back(start_point);
+            }
+        }
+
         SetCapture(overlay_window_);
     }
 
@@ -2284,6 +2342,15 @@ namespace capturezy::feature_capture
         }
 
         draft_annotation_bounds_ = BuildNormalizedRectForSelection(drag_start_, drag_current_, annotation_canvas);
+
+        // 对于荧光笔工具，持续追加路径点
+        AnnotationToolFamily const family = annotation_session_.ActiveToolFamily();
+        if (family == AnnotationToolFamily::Highlighter && drag_in_progress_)
+        {
+            NormalizedPointF path_point = BuildNormalizedPointF(overlay_point, annotation_canvas);
+            draft_highlighter_path_.push_back(path_point);
+        }
+
         InvalidateAnnotationCanvas();
     }
 
@@ -2627,13 +2694,42 @@ namespace capturezy::feature_capture
 
     void CaptureOverlay::ExecuteToolbarAction(ToolbarAction action)
     {
-        if (action == ToolbarAction::ToolShape)
+        // 工具按钮：切换对应的标注工具族
+        switch (action)
         {
+        case ToolbarAction::ToolShape:
             annotation_session_.SetShapeVariant(ShapeToolVariant::Rectangle);
             annotation_session_.ToggleToolFamily(AnnotationToolFamily::Shape);
             InvalidateToolbarVisual();
             InvalidateAnnotationCanvas();
             return;
+        case ToolbarAction::ToolArrow:
+            annotation_session_.ToggleToolFamily(AnnotationToolFamily::Arrow);
+            InvalidateToolbarVisual();
+            InvalidateAnnotationCanvas();
+            return;
+        case ToolbarAction::ToolText:
+            annotation_session_.ToggleToolFamily(AnnotationToolFamily::Text);
+            InvalidateToolbarVisual();
+            InvalidateAnnotationCanvas();
+            return;
+        case ToolbarAction::ToolMosaic:
+            annotation_session_.ToggleToolFamily(AnnotationToolFamily::Mosaic);
+            InvalidateToolbarVisual();
+            InvalidateAnnotationCanvas();
+            return;
+        case ToolbarAction::ToolHighlighter:
+            annotation_session_.ToggleToolFamily(AnnotationToolFamily::Highlighter);
+            InvalidateToolbarVisual();
+            InvalidateAnnotationCanvas();
+            return;
+        case ToolbarAction::ToolNumberMarker:
+            annotation_session_.ToggleToolFamily(AnnotationToolFamily::NumberMarker);
+            InvalidateToolbarVisual();
+            InvalidateAnnotationCanvas();
+            return;
+        default:
+            break;
         }
 
         // 样式颜色按钮
@@ -3048,21 +3144,65 @@ namespace capturezy::feature_capture
 
         if (pointer_drag_mode == PointerDragMode::CreateAnnotation)
         {
+            AnnotationToolFamily const active_family = annotation_session_.ActiveToolFamily();
             bool const has_meaningful_annotation = has_draft_annotation_ &&
                                                    (std::abs(drag_current_.x - drag_start_.x) >= kDragThreshold ||
                                                     std::abs(drag_current_.y - drag_start_.y) >= kDragThreshold);
+
             if (has_meaningful_annotation)
             {
-                annotation_session_.AddObject(
-                    AnnotationObject{.id = 0,
-                                     .kind = AnnotationKind::Rectangle,
-                                     .bounds = draft_annotation_bounds_,
-                                     .style = annotation_session_.ActiveStyle()});
+                AnnotationObject obj{
+                    .id = 0,
+                    .kind = AnnotationKind::Rectangle,
+                    .bounds = draft_annotation_bounds_,
+                    .style = annotation_session_.ActiveStyle(),
+                };
+
+                switch (active_family)
+                {
+                case AnnotationToolFamily::Shape:
+                    obj.kind = AnnotationKind::Rectangle;
+                    break;
+                case AnnotationToolFamily::Arrow:
+                    obj.kind = AnnotationKind::Arrow;
+                    obj.type_data = ArrowData{
+                        .start = NormalizedPointF{draft_annotation_bounds_.left, draft_annotation_bounds_.top},
+                        .end = NormalizedPointF{draft_annotation_bounds_.right, draft_annotation_bounds_.bottom},
+                    };
+                    break;
+                case AnnotationToolFamily::Text:
+                    obj.kind = AnnotationKind::Text;
+                    obj.type_data = TextData{L"", 16.0F};
+                    break;
+                case AnnotationToolFamily::Mosaic:
+                    obj.kind = AnnotationKind::Mosaic;
+                    obj.type_data = MosaicData{8};
+                    break;
+                case AnnotationToolFamily::Highlighter:
+                    obj.kind = AnnotationKind::Highlighter;
+                    obj.type_data = HighlighterData{
+                        .path = draft_highlighter_path_,
+                        .brush_width = 0.02F,
+                    };
+                    break;
+                case AnnotationToolFamily::NumberMarker:
+                    obj.kind = AnnotationKind::NumberMarker;
+                    obj.type_data = NumberMarkerData{
+                        .number = 1,
+                        .radius_normalized = 0.02F,
+                    };
+                    break;
+                default:
+                    break;
+                }
+
+                annotation_session_.AddObject(obj);
                 InvalidateToolbarVisual();
                 InvalidateAnnotationCanvas();
             }
             has_draft_annotation_ = false;
             draft_annotation_bounds_ = {};
+            draft_highlighter_path_.clear();
             drag_in_progress_ = false;
             InvalidateAnnotationCanvas();
             UpdateCursorForOverlayPoint(drag_current_);
@@ -3196,9 +3336,28 @@ namespace capturezy::feature_capture
                 }
                 if (has_draft_annotation_)
                 {
-                    RECT annotation_rect = NormalizedRectToClientRect(draft_annotation_bounds_, preview_rect);
-                    OffsetRect(&annotation_rect, -paint_rect.left, -paint_rect.top);
-                    PaintAnnotationRect(buffer_device_context, annotation_rect);
+                    AnnotationToolFamily const draft_family = annotation_session_.ActiveToolFamily();
+                    if (draft_family == AnnotationToolFamily::Highlighter && draft_highlighter_path_.size() >= 2)
+                    {
+                        // 绘制荧光笔草稿路径
+                        AnnotationObject draft_obj{
+                            .kind = AnnotationKind::Highlighter,
+                            .bounds = draft_annotation_bounds_,
+                            .style = annotation_session_.ActiveStyle(),
+                            .type_data = HighlighterData{
+                                .path = draft_highlighter_path_,
+                                .brush_width = 0.02F,
+                            },
+                        };
+                        PaintAnnotation(buffer_device_context, preview_rect, draft_obj, frozen_background_.Get());
+                    }
+                    else
+                    {
+                        // 其他工具绘制草稿矩形预览
+                        RECT annotation_rect = NormalizedRectToClientRect(draft_annotation_bounds_, preview_rect);
+                        OffsetRect(&annotation_rect, -paint_rect.left, -paint_rect.top);
+                        PaintAnnotationRect(buffer_device_context, annotation_rect);
+                    }
                 }
             }
             bool const should_show_resize_handles = ((drag_in_progress_ && has_selection_) ||
@@ -3232,11 +3391,13 @@ namespace capturezy::feature_capture
                     OffsetRect(&local_toolbar_rect, -paint_rect.left, -paint_rect.top);
                     PaintToolbarBackground(buffer_device_context, local_toolbar_rect);
 
-                    constexpr std::array<ToolbarAction, 4> kToolActions{
+                    constexpr std::array<ToolbarAction, 6> kToolActions{
                         ToolbarAction::ToolShape,
-                        ToolbarAction::PlaceholderArrow,
-                        ToolbarAction::PlaceholderText,
-                        ToolbarAction::PlaceholderMosaic,
+                        ToolbarAction::ToolArrow,
+                        ToolbarAction::ToolText,
+                        ToolbarAction::ToolMosaic,
+                        ToolbarAction::ToolHighlighter,
+                        ToolbarAction::ToolNumberMarker,
                     };
                     constexpr std::array<ToolbarAction, 2> kHistoryActions{
                         ToolbarAction::PlaceholderUndo,
@@ -3263,7 +3424,7 @@ namespace capturezy::feature_capture
                     };
 
                     RECT const tool_group_last_button = ToolbarButtonRect(toolbar_rect,
-                                                                           ToolbarAction::PlaceholderMosaic);
+                                                                           ToolbarAction::ToolNumberMarker);
                     RECT const history_group_first_button = ToolbarButtonRect(toolbar_rect,
                                                                               ToolbarAction::PlaceholderUndo);
                     RECT const history_group_last_button = ToolbarButtonRect(toolbar_rect,
