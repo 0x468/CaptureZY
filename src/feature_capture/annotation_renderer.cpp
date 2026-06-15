@@ -228,7 +228,49 @@ namespace capturezy::feature_capture
         DeleteObject(font);
     }
 
-    void PaintAnnotation(HDC hdc, RECT const& canvas_rect, AnnotationObject const& obj)
+    void PaintMosaic(HDC hdc, RECT const& canvas_rect, AnnotationObject const& obj, HBITMAP source_bitmap)
+    {
+        auto const* mosaic_data = std::get_if<MosaicData>(&obj.type_data);
+        if (!mosaic_data || mosaic_data->block_size <= 0)
+        {
+            return;
+        }
+
+        RECT const rect = NormalizedRectToPixel(canvas_rect, obj.bounds);
+        int const block_size = mosaic_data->block_size;
+
+        // 创建临时 DC 用于读取源图像
+        HDC temp_dc = CreateCompatibleDC(hdc);
+        HBITMAP old_bitmap = static_cast<HBITMAP>(SelectObject(temp_dc, source_bitmap));
+
+        // 遍历每个马赛克块
+        for (int y = rect.top; y < rect.bottom; y += block_size)
+        {
+            for (int x = rect.left; x < rect.right; x += block_size)
+            {
+                // 计算块的实际大小（边界处理）
+                LONG block_width = std::min(static_cast<LONG>(block_size), rect.right - x);
+                LONG block_height = std::min(static_cast<LONG>(block_size), rect.bottom - y);
+
+                // 采样块中心点的颜色
+                int sample_x = static_cast<int>(x + block_width / 2);
+                int sample_y = static_cast<int>(y + block_height / 2);
+                COLORREF color = GetPixel(temp_dc, sample_x, sample_y);
+
+                // 用该颜色填充整个块
+                HBRUSH brush = CreateSolidBrush(color);
+                RECT block_rect = {x, y, x + static_cast<LONG>(block_width), y + static_cast<LONG>(block_height)};
+                FillRect(hdc, &block_rect, brush);
+                DeleteObject(brush);
+            }
+        }
+
+        // 清理
+        SelectObject(temp_dc, old_bitmap);
+        DeleteDC(temp_dc);
+    }
+
+    void PaintAnnotation(HDC hdc, RECT const& canvas_rect, AnnotationObject const& obj, HBITMAP source_bitmap)
     {
         switch (obj.kind)
         {
@@ -246,6 +288,12 @@ namespace capturezy::feature_capture
             break;
         case AnnotationKind::Text:
             PaintText(hdc, canvas_rect, obj);
+            break;
+        case AnnotationKind::Mosaic:
+            if (source_bitmap)
+            {
+                PaintMosaic(hdc, canvas_rect, obj, source_bitmap);
+            }
             break;
         default:
             break;

@@ -11,5 +11,6 @@ namespace capturezy::feature_capture
     void PaintArrow(HDC hdc, RECT const& canvas_rect, AnnotationObject const& obj);
     void PaintEllipse(HDC hdc, RECT const& canvas_rect, AnnotationObject const& obj);
     void PaintText(HDC hdc, RECT const& canvas_rect, AnnotationObject const& obj);
-    void PaintAnnotation(HDC hdc, RECT const& canvas_rect, AnnotationObject const& obj);
+    void PaintMosaic(HDC hdc, RECT const& canvas_rect, AnnotationObject const& obj, HBITMAP source_bitmap);
+    void PaintAnnotation(HDC hdc, RECT const& canvas_rect, AnnotationObject const& obj, HBITMAP source_bitmap = nullptr);
 }

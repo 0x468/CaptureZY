@@ -694,6 +694,86 @@ namespace capturezy::feature_capture
 
             return true;
         }
+
+        bool TestAddMosaicAnnotation()
+        {
+            AnnotationSession session;
+            session.Reset();
+
+            MosaicData mosaic{8};
+            AnnotationObject obj{
+                .id = 1,
+                .kind = AnnotationKind::Mosaic,
+                .bounds = {.left = 0.1F, .top = 0.1F, .right = 0.5F, .bottom = 0.5F},
+                .style = AnnotationStyle{},
+                .type_data = mosaic
+            };
+            session.AddObject(obj);
+
+            if (!Expect(session.Objects().size() == 1U, "adding a mosaic should append to the session"))
+            {
+                return false;
+            }
+            if (!Expect(session.Objects()[0].kind == AnnotationKind::Mosaic, "object kind should be Mosaic"))
+            {
+                return false;
+            }
+
+            auto const* retrieved = std::get_if<MosaicData>(&session.Objects()[0].type_data);
+            if (!Expect(retrieved != nullptr, "type_data should hold MosaicData"))
+            {
+                return false;
+            }
+            if (retrieved && !Expect(retrieved->block_size == 8, "block size should match"))
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        bool TestHitTestMosaic()
+        {
+            AnnotationObject obj{
+                .id = 21,
+                .kind = AnnotationKind::Mosaic,
+                .bounds = {.left = 0.2F, .top = 0.2F, .right = 0.8F, .bottom = 0.8F},
+                .style = {},
+                .type_data = MosaicData{8},
+            };
+
+            float const control_radius = 0.03F;
+            float const border_tolerance = 0.02F;
+
+            // Hit inside the mosaic bounds
+            NormalizedRectF fill_point{.left = 0.49F, .top = 0.49F, .right = 0.51F, .bottom = 0.51F};
+            AnnotationHitTestResult result = AnnotationSession::HitTestObject(obj, fill_point, control_radius,
+                                                                              border_tolerance);
+            if (!Expect(result.kind == AnnotationHitKind::Fill, "center of mosaic should hit Fill"))
+            {
+                return false;
+            }
+
+            // Hit near corner (control point)
+            NormalizedRectF corner_point{.left = 0.19F, .top = 0.19F, .right = 0.21F, .bottom = 0.21F};
+            AnnotationHitTestResult corner_result = AnnotationSession::HitTestObject(obj, corner_point, control_radius,
+                                                                                     border_tolerance);
+            if (!Expect(corner_result.kind == AnnotationHitKind::ControlPoint, "corner should hit ControlPoint"))
+            {
+                return false;
+            }
+
+            // Miss the mosaic
+            NormalizedRectF outside_point{.left = 0.05F, .top = 0.05F, .right = 0.07F, .bottom = 0.07F};
+            AnnotationHitTestResult miss_result = AnnotationSession::HitTestObject(obj, outside_point,
+                                                                                   control_radius, border_tolerance);
+            if (!Expect(miss_result.kind == AnnotationHitKind::None, "outside point should miss mosaic"))
+            {
+                return false;
+            }
+
+            return true;
+        }
     } // namespace
 } // namespace capturezy::feature_capture
 
@@ -766,6 +846,14 @@ int main()
         return 1;
     }
     if (!TestHitTestText())
+    {
+        return 1;
+    }
+    if (!TestAddMosaicAnnotation())
+    {
+        return 1;
+    }
+    if (!TestHitTestMosaic())
     {
         return 1;
     }

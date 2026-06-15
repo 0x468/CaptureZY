@@ -244,6 +244,11 @@ namespace capturezy::feature_capture
             return HitTestLine(object, point_rect, control_point_radius_normalized, border_tolerance_normalized);
         }
 
+        if (object.kind == AnnotationKind::Mosaic)
+        {
+            return HitTestRectangle(object, point_rect, control_point_radius_normalized, border_tolerance_normalized);
+        }
+
         float const point_x = (point_rect.left + point_rect.right) * 0.5F;
         float const point_y = (point_rect.top + point_rect.bottom) * 0.5F;
 
@@ -392,6 +397,65 @@ namespace capturezy::feature_capture
         }
 
         return AnnotationHitTestResult{.kind = AnnotationHitKind::None, .object_id = object.id, .handle_index = -1};
+    }
+
+    AnnotationHitTestResult AnnotationSession::HitTestRectangle(AnnotationObject const &object, NormalizedRectF point_rect,
+                                                                float control_point_radius_normalized,
+                                                                float border_tolerance_normalized)
+    {
+        float const point_x = (point_rect.left + point_rect.right) * 0.5F;
+        float const point_y = (point_rect.top + point_rect.bottom) * 0.5F;
+
+        // 控制点检测优先于边界检测
+        float const corners[4][2] = {
+            {object.bounds.left, object.bounds.top},
+            {object.bounds.right, object.bounds.top},
+            {object.bounds.right, object.bounds.bottom},
+            {object.bounds.left, object.bounds.bottom},
+        };
+
+        for (int i = 0; i < 4; ++i)
+        {
+            float const dx = point_x - corners[i][0];
+            float const dy = point_y - corners[i][1];
+            float const distance = std::sqrt((dx * dx) + (dy * dy));
+            if (distance <= control_point_radius_normalized)
+            {
+                return AnnotationHitTestResult{
+                    .kind = AnnotationHitKind::ControlPoint, .object_id = object.id, .handle_index = i};
+            }
+        }
+
+        bool const inside_bounds = point_x >= object.bounds.left && point_x <= object.bounds.right &&
+                                   point_y >= object.bounds.top && point_y <= object.bounds.bottom;
+
+        if (!inside_bounds)
+        {
+            return AnnotationHitTestResult{.kind = AnnotationHitKind::None, .object_id = object.id, .handle_index = -1};
+        }
+
+        // 检测是否在边界附近
+        float const clamped_y = std::clamp(point_y, object.bounds.top, object.bounds.bottom);
+        float const clamped_x = std::clamp(point_x, object.bounds.left, object.bounds.right);
+        float const dist_to_left_edge = std::sqrt((point_x - object.bounds.left) * (point_x - object.bounds.left) +
+                                                  (clamped_y - point_y) * (clamped_y - point_y));
+        float const dist_to_right_edge = std::sqrt((point_x - object.bounds.right) * (point_x - object.bounds.right) +
+                                                   (clamped_y - point_y) * (clamped_y - point_y));
+        float const dist_to_top_edge = std::sqrt((clamped_x - point_x) * (clamped_x - point_x) +
+                                                 (point_y - object.bounds.top) * (point_y - object.bounds.top));
+        float const dist_to_bottom_edge = std::sqrt((clamped_x - point_x) * (clamped_x - point_x) +
+                                                    (point_y - object.bounds.bottom) *
+                                                        (point_y - object.bounds.bottom));
+
+        float const min_edge_distance = std::min(
+            {dist_to_left_edge, dist_to_right_edge, dist_to_top_edge, dist_to_bottom_edge});
+        if (min_edge_distance <= border_tolerance_normalized)
+        {
+            return AnnotationHitTestResult{
+                .kind = AnnotationHitKind::Border, .object_id = object.id, .handle_index = -1};
+        }
+
+        return AnnotationHitTestResult{.kind = AnnotationHitKind::Fill, .object_id = object.id, .handle_index = -1};
     }
 
     void AnnotationSession::PushUndoSnapshot() noexcept

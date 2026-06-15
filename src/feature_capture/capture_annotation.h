@@ -109,6 +109,11 @@ namespace capturezy::feature_capture
         float font_size{16.0F}; // in pixels
     };
 
+    struct MosaicData
+    {
+        int block_size{8}; // 马赛克块大小（像素）
+    };
+
     struct AnnotationObject
     {
         AnnotationObjectId id{0};
@@ -117,7 +122,7 @@ namespace capturezy::feature_capture
         AnnotationStyle style{};
 
         // Type-specific data (only used for certain types)
-        std::variant<std::monostate, LineData, ArrowData, TextData> type_data{};
+        std::variant<std::monostate, LineData, ArrowData, TextData, MosaicData> type_data{};
     };
 
     struct AnnotationHitTestResult
@@ -165,6 +170,11 @@ namespace capturezy::feature_capture
                                                                  NormalizedRectF point_rect,
                                                                  float control_point_radius_normalized,
                                                                  float border_tolerance_normalized);
+
+        [[nodiscard]] static AnnotationHitTestResult HitTestRectangle(AnnotationObject const &object,
+                                                                      NormalizedRectF point_rect,
+                                                                      float control_point_radius_normalized,
+                                                                      float border_tolerance_normalized);
 
       private:
         void PushUndoSnapshot() noexcept;

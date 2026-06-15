@@ -3186,7 +3186,7 @@ namespace capturezy::feature_capture
                 {
                     RECT annotation_rect = NormalizedRectToClientRect(annotation_object.bounds, preview_rect);
                     OffsetRect(&annotation_rect, -paint_rect.left, -paint_rect.top);
-                    PaintAnnotation(buffer_device_context, annotation_rect, annotation_object);
+                    PaintAnnotation(buffer_device_context, annotation_rect, annotation_object, frozen_background_.Get());
 
                     // 如果是选中的对象，绘制选中标记
                     if (annotation_object.id == selected_id)
