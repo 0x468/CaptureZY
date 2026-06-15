@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <variant>
 #include <vector>
 
@@ -102,6 +103,12 @@ namespace capturezy::feature_capture
         float head_size{0.05F}; // normalized, relative to line length
     };
 
+    struct TextData
+    {
+        std::wstring content{};
+        float font_size{16.0F}; // in pixels
+    };
+
     struct AnnotationObject
     {
         AnnotationObjectId id{0};
@@ -110,7 +117,7 @@ namespace capturezy::feature_capture
         AnnotationStyle style{};
 
         // Type-specific data (only used for certain types)
-        std::variant<std::monostate, LineData, ArrowData> type_data{};
+        std::variant<std::monostate, LineData, ArrowData, TextData> type_data{};
     };
 
     struct AnnotationHitTestResult

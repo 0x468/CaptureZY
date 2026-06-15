@@ -1,5 +1,6 @@
 #include <cmath>
 #include <iostream>
+#include <string>
 #include <variant>
 
 #include "feature_capture/capture_annotation.h"
@@ -618,6 +619,81 @@ namespace capturezy::feature_capture
 
             return true;
         }
+
+        bool TestAddTextAnnotation()
+        {
+            AnnotationSession session;
+            session.Reset();
+
+            TextData text{L"Hello World", 16.0F};
+            AnnotationObject obj{
+                .id = 0,
+                .kind = AnnotationKind::Text,
+                .bounds = {.left = 0.1F, .top = 0.1F, .right = 0.5F, .bottom = 0.2F},
+                .style = AnnotationStyle{AnnotationColor::Yellow, AnnotationLineWidth::Medium, false},
+                .type_data = text
+            };
+            session.AddObject(obj);
+
+            if (!Expect(session.Objects().size() == 1U, "adding a text should append to the session"))
+            {
+                return false;
+            }
+            if (!Expect(session.Objects()[0].kind == AnnotationKind::Text, "object kind should be Text"))
+            {
+                return false;
+            }
+
+            auto const* retrieved = std::get_if<TextData>(&session.Objects()[0].type_data);
+            if (!Expect(retrieved != nullptr, "type_data should hold TextData"))
+            {
+                return false;
+            }
+            if (retrieved && !Expect(retrieved->content == L"Hello World", "text content should match"))
+            {
+                return false;
+            }
+            if (retrieved && !Expect(std::abs(retrieved->font_size - 16.0F) < 0.001F, "font size should match"))
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        bool TestHitTestText()
+        {
+            AnnotationObject obj{
+                .id = 20,
+                .kind = AnnotationKind::Text,
+                .bounds = {.left = 0.2F, .top = 0.2F, .right = 0.8F, .bottom = 0.4F},
+                .style = {},
+                .type_data = TextData{L"Test", 16.0F},
+            };
+
+            float const control_radius = 0.03F;
+            float const border_tolerance = 0.01F;
+
+            // Hit inside the text bounds
+            NormalizedRectF fill_point{.left = 0.49F, .top = 0.29F, .right = 0.51F, .bottom = 0.31F};
+            AnnotationHitTestResult result = AnnotationSession::HitTestObject(obj, fill_point, control_radius,
+                                                                              border_tolerance);
+            if (!Expect(result.kind == AnnotationHitKind::Fill, "center of text should hit Fill"))
+            {
+                return false;
+            }
+
+            // Miss the text
+            NormalizedRectF outside_point{.left = 0.05F, .top = 0.05F, .right = 0.07F, .bottom = 0.07F};
+            AnnotationHitTestResult miss_result = AnnotationSession::HitTestObject(obj, outside_point,
+                                                                                   control_radius, border_tolerance);
+            if (!Expect(miss_result.kind == AnnotationHitKind::None, "outside point should miss text"))
+            {
+                return false;
+            }
+
+            return true;
+        }
     } // namespace
 } // namespace capturezy::feature_capture
 
@@ -682,6 +758,14 @@ int main()
         return 1;
     }
     if (!TestHitTestArrow())
+    {
+        return 1;
+    }
+    if (!TestAddTextAnnotation())
+    {
+        return 1;
+    }
+    if (!TestHitTestText())
     {
         return 1;
     }

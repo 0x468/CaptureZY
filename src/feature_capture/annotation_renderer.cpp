@@ -187,6 +187,47 @@ namespace capturezy::feature_capture
         }
     }
 
+    void PaintText(HDC hdc, RECT const& canvas_rect, AnnotationObject const& obj)
+    {
+        auto const* text_data = std::get_if<TextData>(&obj.type_data);
+        if (!text_data || text_data->content.empty())
+        {
+            return;
+        }
+
+        RECT rect = NormalizedRectToPixel(canvas_rect, obj.bounds);
+        COLORREF const text_color = GetColorRef(obj.style.color);
+
+        // Create font
+        HFONT font = CreateFontW(
+            static_cast<int>(text_data->font_size),
+            0, 0, 0,
+            FW_NORMAL,
+            FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET,
+            OUT_DEFAULT_PRECIS,
+            CLIP_DEFAULT_PRECIS,
+            DEFAULT_QUALITY,
+            DEFAULT_PITCH,
+            L"Segoe UI"
+        );
+
+        // Select font and color
+        HFONT old_font = static_cast<HFONT>(SelectObject(hdc, font));
+        COLORREF old_color = SetTextColor(hdc, text_color);
+        int old_mode = SetBkMode(hdc, TRANSPARENT);
+
+        // Draw text
+        DrawTextW(hdc, text_data->content.c_str(), -1, &rect,
+                  DT_LEFT | DT_TOP | DT_WORDBREAK);
+
+        // Cleanup
+        SetBkMode(hdc, old_mode);
+        SetTextColor(hdc, old_color);
+        SelectObject(hdc, old_font);
+        DeleteObject(font);
+    }
+
     void PaintAnnotation(HDC hdc, RECT const& canvas_rect, AnnotationObject const& obj)
     {
         switch (obj.kind)
@@ -202,6 +243,9 @@ namespace capturezy::feature_capture
             break;
         case AnnotationKind::Arrow:
             PaintArrow(hdc, canvas_rect, obj);
+            break;
+        case AnnotationKind::Text:
+            PaintText(hdc, canvas_rect, obj);
             break;
         default:
             break;
