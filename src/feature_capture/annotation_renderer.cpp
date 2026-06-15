@@ -270,6 +270,47 @@ namespace capturezy::feature_capture
         DeleteDC(temp_dc);
     }
 
+    void PaintHighlighter(HDC hdc, RECT const& canvas_rect, AnnotationObject const& obj)
+    {
+        auto const* highlighter_data = std::get_if<HighlighterData>(&obj.type_data);
+        if (!highlighter_data || highlighter_data->path.size() < 2)
+        {
+            return;
+        }
+
+        COLORREF const pen_color = GetColorRef(obj.style.color);
+        int const pen_width = static_cast<int>(highlighter_data->brush_width *
+            static_cast<float>(canvas_rect.right - canvas_rect.left));
+
+        // 使用半透明画笔（通过 AlphaBlend 或简单的半透明颜色）
+        // GDI 不直接支持半透明，使用较浅的颜色模拟效果
+        // 将颜色混合白色以模拟半透明
+        BYTE r = GetRValue(pen_color);
+        BYTE g = GetGValue(pen_color);
+        BYTE b = GetBValue(pen_color);
+        // 混合 50% 白色
+        r = static_cast<BYTE>((r + 255) / 2);
+        g = static_cast<BYTE>((g + 255) / 2);
+        b = static_cast<BYTE>((b + 255) / 2);
+        COLORREF highlight_color = RGB(r, g, b);
+
+        HPEN pen = CreatePen(PS_SOLID, pen_width, highlight_color);
+        HPEN old_pen = static_cast<HPEN>(SelectObject(hdc, pen));
+
+        // 绘制路径
+        POINT first_pt = NormalizedToPixel(canvas_rect, highlighter_data->path[0]);
+        MoveToEx(hdc, first_pt.x, first_pt.y, nullptr);
+
+        for (size_t i = 1; i < highlighter_data->path.size(); ++i)
+        {
+            POINT pt = NormalizedToPixel(canvas_rect, highlighter_data->path[i]);
+            LineTo(hdc, pt.x, pt.y);
+        }
+
+        SelectObject(hdc, old_pen);
+        DeleteObject(pen);
+    }
+
     void PaintAnnotation(HDC hdc, RECT const& canvas_rect, AnnotationObject const& obj, HBITMAP source_bitmap)
     {
         switch (obj.kind)
@@ -294,6 +335,9 @@ namespace capturezy::feature_capture
             {
                 PaintMosaic(hdc, canvas_rect, obj, source_bitmap);
             }
+            break;
+        case AnnotationKind::Highlighter:
+            PaintHighlighter(hdc, canvas_rect, obj);
             break;
         default:
             break;

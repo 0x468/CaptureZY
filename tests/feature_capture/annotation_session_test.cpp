@@ -774,6 +774,96 @@ namespace capturezy::feature_capture
 
             return true;
         }
+
+        bool TestAddHighlighterAnnotation()
+        {
+            HighlighterData highlighter{};
+            highlighter.path.push_back(NormalizedPointF{0.1F, 0.1F});
+            highlighter.path.push_back(NormalizedPointF{0.5F, 0.5F});
+            highlighter.brush_width = 0.02F;
+
+            AnnotationObject obj{};
+            obj.kind = AnnotationKind::Highlighter;
+            obj.bounds = NormalizedRectF{0.1F, 0.1F, 0.5F, 0.5F};
+            obj.type_data = highlighter;
+
+            AnnotationSession session;
+            session.Reset();
+            session.AddObject(obj);
+
+            if (!Expect(session.Objects().size() == 1U, "adding a highlighter should append to the session"))
+            {
+                return false;
+            }
+            if (!Expect(session.Objects()[0].kind == AnnotationKind::Highlighter, "object kind should be Highlighter"))
+            {
+                return false;
+            }
+
+            auto const* retrieved = std::get_if<HighlighterData>(&session.Objects()[0].type_data);
+            if (!Expect(retrieved != nullptr, "type_data should hold HighlighterData"))
+            {
+                return false;
+            }
+            if (retrieved && !Expect(retrieved->path.size() == 2U, "highlighter path should have 2 points"))
+            {
+                return false;
+            }
+            if (retrieved && !Expect(std::abs(retrieved->brush_width - 0.02F) < 0.001F, "brush width should match"))
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        bool TestHitTestHighlighter()
+        {
+            HighlighterData highlighter{};
+            highlighter.path.push_back(NormalizedPointF{0.2F, 0.2F});
+            highlighter.path.push_back(NormalizedPointF{0.8F, 0.8F});
+            highlighter.brush_width = 0.02F;
+
+            AnnotationObject obj{
+                .id = 30,
+                .kind = AnnotationKind::Highlighter,
+                .bounds = {.left = 0.2F, .top = 0.2F, .right = 0.8F, .bottom = 0.8F},
+                .style = {},
+                .type_data = highlighter,
+            };
+
+            float const control_radius = 0.03F;
+            float const border_tolerance = 0.02F;
+
+            // Hit inside the highlighter bounds
+            NormalizedRectF fill_point{.left = 0.49F, .top = 0.49F, .right = 0.51F, .bottom = 0.51F};
+            AnnotationHitTestResult result = AnnotationSession::HitTestObject(obj, fill_point, control_radius,
+                                                                              border_tolerance);
+            if (!Expect(result.kind == AnnotationHitKind::Fill, "center of highlighter should hit Fill"))
+            {
+                return false;
+            }
+
+            // Hit near corner (control point)
+            NormalizedRectF corner_point{.left = 0.19F, .top = 0.19F, .right = 0.21F, .bottom = 0.21F};
+            AnnotationHitTestResult corner_result = AnnotationSession::HitTestObject(obj, corner_point, control_radius,
+                                                                                     border_tolerance);
+            if (!Expect(corner_result.kind == AnnotationHitKind::ControlPoint, "corner should hit ControlPoint"))
+            {
+                return false;
+            }
+
+            // Miss the highlighter
+            NormalizedRectF outside_point{.left = 0.05F, .top = 0.05F, .right = 0.07F, .bottom = 0.07F};
+            AnnotationHitTestResult miss_result = AnnotationSession::HitTestObject(obj, outside_point,
+                                                                                   control_radius, border_tolerance);
+            if (!Expect(miss_result.kind == AnnotationHitKind::None, "outside point should miss highlighter"))
+            {
+                return false;
+            }
+
+            return true;
+        }
     } // namespace
 } // namespace capturezy::feature_capture
 
@@ -854,6 +944,14 @@ int main()
         return 1;
     }
     if (!TestHitTestMosaic())
+    {
+        return 1;
+    }
+    if (!TestAddHighlighterAnnotation())
+    {
+        return 1;
+    }
+    if (!TestHitTestHighlighter())
     {
         return 1;
     }

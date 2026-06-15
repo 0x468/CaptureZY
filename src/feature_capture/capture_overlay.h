@@ -47,6 +47,8 @@ namespace capturezy::feature_capture
             CreateAnnotation,
             MoveSelection,
             ResizeSelection,
+            MoveAnnotationObject,
+            ResizeAnnotationObject,
         };
 
         enum class ResizeHandle : std::uint8_t
@@ -71,6 +73,15 @@ namespace capturezy::feature_capture
             PlaceholderMosaic,
             PlaceholderUndo,
             PlaceholderRedo,
+            StyleColorYellow,
+            StyleColorRed,
+            StyleColorGreen,
+            StyleColorBlue,
+            StyleColorWhite,
+            StyleLineWidthThin,
+            StyleLineWidthMedium,
+            StyleLineWidthThick,
+            StyleFillToggle,
             Cancel,
             CopyAndPin,
             CopyOnly,
@@ -85,6 +96,7 @@ namespace capturezy::feature_capture
             CommitSaveToFile,
             UndoAnnotation,
             RedoAnnotation,
+            DeleteAnnotationObject,
             ExitOverlay,
             ResetSelection,
         };
@@ -128,6 +140,7 @@ namespace capturezy::feature_capture
         [[nodiscard]] bool IsPointInsideToolbar(POINT overlay_point) const noexcept;
         [[nodiscard]] bool IsPointInsideCommittedSelection(POINT overlay_point) const noexcept;
         [[nodiscard]] ResizeHandle HitTestCommittedSelectionResizeHandle(POINT overlay_point) const noexcept;
+        [[nodiscard]] AnnotationHitTestResult HitTestAnnotationObjects(POINT overlay_point) const noexcept;
         [[nodiscard]] RECT ToolbarRect(RECT selection_rect, RECT bounds_rect) const noexcept;
         [[nodiscard]] static RECT ToolbarButtonRect(RECT toolbar_rect, ToolbarAction action) noexcept;
         [[nodiscard]] ToolbarAction HitTestToolbarAction(POINT overlay_point) const noexcept;
@@ -143,6 +156,10 @@ namespace capturezy::feature_capture
         void ResetCommittedSelection() noexcept;
         void BeginCreateAnnotation(POINT overlay_point) noexcept;
         void UpdateCreateAnnotation(POINT overlay_point) noexcept;
+        void BeginMoveAnnotationObject(POINT overlay_point, AnnotationObjectId object_id) noexcept;
+        void UpdateMoveAnnotationObject(POINT overlay_point) noexcept;
+        void BeginResizeAnnotationObject(POINT overlay_point, AnnotationObjectId object_id, int handle_index) noexcept;
+        void UpdateResizeAnnotationObject(POINT overlay_point) noexcept;
         void BeginMoveSelection(POINT overlay_point) noexcept;
         void UpdateMoveSelection(POINT overlay_point) noexcept;
         void BeginResizeSelection(POINT overlay_point) noexcept;
@@ -179,6 +196,9 @@ namespace capturezy::feature_capture
         RECT committed_selection_rect_{};
         RECT resize_anchor_selection_rect_{};
         NormalizedRectF draft_annotation_bounds_{};
+        NormalizedRectF annotation_object_drag_anchor_{};
+        AnnotationObjectId active_annotation_object_id_{0};
+        int active_annotation_object_handle_{-1};
         bool pointer_down_{false};
         bool drag_in_progress_{false};
         bool has_selection_{false};
