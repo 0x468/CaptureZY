@@ -28,6 +28,9 @@ namespace capturezy::platform_win
         constexpr UINT_PTR SetDefaultActionCopyAndPin = 1016;
         constexpr UINT_PTR SetDefaultActionSaveToFile = 1017;
         constexpr UINT_PTR OpenDefaultSaveDirectory = 1018;
+        constexpr UINT_PTR BeginCaptureWithCountdown3 = 1019;
+        constexpr UINT_PTR BeginCaptureWithCountdown5 = 1020;
+        constexpr UINT_PTR BeginCaptureWithCountdown10 = 1021;
         constexpr UINT_PTR OpenSettingsDialog = 1022;
     } // namespace TrayMenuCommand
 

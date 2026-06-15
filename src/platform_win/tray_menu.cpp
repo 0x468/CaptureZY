@@ -170,6 +170,9 @@ namespace capturezy::platform_win
 
         AppendMenuW(menu, MF_STRING, TrayMenuCommand::BeginCapture, L"开始截图");
         AppendMenuW(menu, MF_STRING, TrayMenuCommand::BeginCaptureAndSave, L"开始截图并保存");
+        AppendMenuW(menu, MF_STRING, TrayMenuCommand::BeginCaptureWithCountdown3, L"延迟截图 (3秒)");
+        AppendMenuW(menu, MF_STRING, TrayMenuCommand::BeginCaptureWithCountdown5, L"延迟截图 (5秒)");
+        AppendMenuW(menu, MF_STRING, TrayMenuCommand::BeginCaptureWithCountdown10, L"延迟截图 (10秒)");
         AppendMenuW(menu, MF_STRING, TrayMenuCommand::BeginFullScreenCapture, L"全屏截图");
         AppendMenuW(menu, MF_STRING, TrayMenuCommand::BeginFullScreenCaptureAndSave, L"全屏截图并保存");
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);

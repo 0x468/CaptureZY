@@ -60,11 +60,35 @@ namespace capturezy::platform_win
         CAPTUREZY_LOG_INFO(core::LogCategory::Capture,
                            std::wstring(L"Begin capture request. scope=") +
                                std::to_wstring(static_cast<int>(capture_request.scope)) + L", action=" +
-                               std::to_wstring(static_cast<int>(capture_request.action)) + L".");
+                               std::to_wstring(static_cast<int>(capture_request.action)) + L", countdown=" +
+                               std::to_wstring(capture_request.countdown_seconds) + L".");
+
         pending_capture_request_ = capture_request;
         app_state_->BeginCapture();
         UpdateWindowPresentation();
         HideToTray();
+
+        if (capture_request.countdown_seconds > 0)
+        {
+            // 延迟截图模式：显示倒计时覆盖层
+            countdown_overlay_ = std::make_unique<feature_capture::CountdownOverlay>(instance_);
+            if (!countdown_overlay_->Show(window_, capture_request.countdown_seconds))
+            {
+                // 倒计时窗口创建失败，直接执行截图
+                countdown_overlay_.reset();
+                PostMessageW(window_, kExecutePendingCaptureMessage, 0, 0);
+            }
+        }
+        else
+        {
+            // 立即截图模式
+            PostMessageW(window_, kExecutePendingCaptureMessage, 0, 0);
+        }
+    }
+
+    void MainWindow::HandleCountdownComplete()
+    {
+        countdown_overlay_.reset();
         PostMessageW(window_, kExecutePendingCaptureMessage, 0, 0);
     }
 

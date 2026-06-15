@@ -19,7 +19,7 @@ namespace capturezy::core
         constexpr wchar_t const *kSettingsFileName = L"settings.json";
         constexpr wchar_t const *kDefaultSaveDirectoryName = L"CaptureZY";
         constexpr wchar_t const *kDefaultFilePrefix = L"CaptureZY";
-        constexpr unsigned int kSettingsVersion = 4;
+        constexpr unsigned int kSettingsVersion = 5;
 
         [[nodiscard]] std::wstring WideToUtf8FallbackPath(std::filesystem::path const &path)
         {
@@ -238,7 +238,10 @@ namespace capturezy::core
             json_text += "\",\n";
             json_text += R"(  "default_save_file_prefix": ")";
             json_text += EscapeJsonString(settings.default_save_file_prefix);
-            json_text += "\"\n";
+            json_text += "\",\n";
+            json_text += "  \"default_capture_countdown_seconds\": ";
+            json_text += std::to_string(settings.default_capture_countdown_seconds);
+            json_text += "\n";
             json_text += "}\n";
             return json_text;
         }
@@ -488,6 +491,13 @@ namespace capturezy::core
             if (TryReadString(settings_json, "default_save_file_prefix", string_value))
             {
                 settings.default_save_file_prefix = string_value;
+            }
+
+            UINT countdown_value = 0;
+            if (TryReadUnsigned(settings_json, "default_capture_countdown_seconds", countdown_value))
+            {
+                settings.default_capture_countdown_seconds =
+                    static_cast<std::uint32_t>(std::min(countdown_value, static_cast<UINT>(30)));
             }
         }
 

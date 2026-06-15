@@ -6,6 +6,7 @@ add_library(
     capture_file_dialog.cpp
     capture_result.cpp
     capture_overlay.cpp
+    countdown_overlay.cpp
     screen_capture.cpp
 )
 

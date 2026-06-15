@@ -148,6 +148,18 @@ namespace capturezy::platform_win
             BeginCaptureEntry(CaptureRequest{CaptureScope::FullScreen, CaptureAction::SaveToFile});
             return true;
 
+        case TrayMenuCommand::BeginCaptureWithCountdown3:
+            BeginCaptureEntry(CaptureRequest{CaptureScope::Region, CaptureAction::CopyAndPin, 3});
+            return true;
+
+        case TrayMenuCommand::BeginCaptureWithCountdown5:
+            BeginCaptureEntry(CaptureRequest{CaptureScope::Region, CaptureAction::CopyAndPin, 5});
+            return true;
+
+        case TrayMenuCommand::BeginCaptureWithCountdown10:
+            BeginCaptureEntry(CaptureRequest{CaptureScope::Region, CaptureAction::CopyAndPin, 10});
+            return true;
+
         case TrayMenuCommand::OpenSettingsDialog:
             OpenSettingsDialog();
             return true;
@@ -299,6 +311,14 @@ namespace capturezy::platform_win
             ExecutePendingCaptureRequest();
             return 0;
 
+        case feature_capture::CaptureOverlay::ResultMessage():
+            HandleOverlayResult(static_cast<feature_capture::OverlayResult>(w_param));
+            return 0;
+
+        case feature_capture::CountdownOverlay::CountdownCompleteMessage():
+            HandleCountdownComplete();
+            return 0;
+
         case WM_TIMER:
             if (w_param == kTrayLeftClickTimerId)
             {
@@ -311,10 +331,6 @@ namespace capturezy::platform_win
                 return 0;
             }
             break;
-
-        case feature_capture::CaptureOverlay::ResultMessage():
-            HandleOverlayResult(static_cast<feature_capture::OverlayResult>(w_param));
-            return 0;
 
         case WM_HOTKEY:
             if (HandleHotkey(w_param))

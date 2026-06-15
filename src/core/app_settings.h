@@ -45,6 +45,7 @@ namespace capturezy::core
         bool confirm_exit{true};
         std::wstring default_save_directory;
         std::wstring default_save_file_prefix{L"CaptureZY"};
+        std::uint32_t default_capture_countdown_seconds{0};
 
         [[nodiscard]] bool HasValidCaptureHotkey() const noexcept;
     };

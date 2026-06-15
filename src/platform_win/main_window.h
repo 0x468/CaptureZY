@@ -13,6 +13,7 @@
 #include "core/app_settings.h"
 #include "core/app_state.h"
 #include "feature_capture/capture_overlay.h"
+#include "feature_capture/countdown_overlay.h"
 #include "feature_pin/pin_manager.h"
 
 namespace capturezy::platform_win
@@ -48,13 +49,15 @@ namespace capturezy::platform_win
         struct CaptureRequest final
         {
             constexpr CaptureRequest() noexcept = default;
-            constexpr CaptureRequest(CaptureScope requested_scope, CaptureAction requested_action) noexcept
-                : scope(requested_scope), action(requested_action)
+            constexpr CaptureRequest(CaptureScope requested_scope, CaptureAction requested_action,
+                                     std::uint32_t countdown_seconds = 0) noexcept
+                : scope(requested_scope), action(requested_action), countdown_seconds(countdown_seconds)
             {
             }
 
             CaptureScope scope{CaptureScope::Region};
             CaptureAction action{CaptureAction::CopyAndPin};
+            std::uint32_t countdown_seconds{0};
         };
 
         [[nodiscard]] CaptureScope DefaultCaptureScope() const noexcept;
@@ -88,6 +91,7 @@ namespace capturezy::platform_win
         [[nodiscard]] bool HandleCommand(WPARAM w_param);
         [[nodiscard]] bool HandleHotkey(WPARAM w_param);
         [[nodiscard]] bool HandleTrayMessage(LPARAM l_param);
+        void HandleCountdownComplete();
         [[nodiscard]] ATOM RegisterWindowClass() const;
         [[nodiscard]] LRESULT HandleMessage(UINT message, WPARAM w_param, LPARAM l_param);
 
@@ -98,6 +102,7 @@ namespace capturezy::platform_win
         core::AppState *app_state_;
         HWND window_{};
         std::unique_ptr<feature_capture::CaptureOverlay> capture_overlay_;
+        std::unique_ptr<feature_capture::CountdownOverlay> countdown_overlay_;
         std::unique_ptr<feature_pin::PinManager> pin_manager_;
         NOTIFYICONDATAW tray_icon_{};
         CaptureRequest pending_capture_request_;
