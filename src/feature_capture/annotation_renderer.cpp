@@ -36,6 +36,19 @@ namespace capturezy::feature_capture
                 return 2;
             }
         }
+
+        RECT NormalizedRectToPixel(RECT const& canvas_rect, NormalizedRectF const& normalized)
+        {
+            float const canvas_width = static_cast<float>(canvas_rect.right - canvas_rect.left);
+            float const canvas_height = static_cast<float>(canvas_rect.bottom - canvas_rect.top);
+
+            return RECT{
+                canvas_rect.left + static_cast<LONG>(normalized.left * canvas_width),
+                canvas_rect.top + static_cast<LONG>(normalized.top * canvas_height),
+                canvas_rect.left + static_cast<LONG>(normalized.right * canvas_width),
+                canvas_rect.top + static_cast<LONG>(normalized.bottom * canvas_height)
+            };
+        }
     } // namespace
 
     POINT NormalizedToPixel(RECT const& canvas_rect, NormalizedPointF const& pt)
@@ -146,12 +159,43 @@ namespace capturezy::feature_capture
         DeleteObject(pen);
     }
 
+    void PaintEllipse(HDC hdc, RECT const& canvas_rect, AnnotationObject const& obj)
+    {
+        RECT const rect = NormalizedRectToPixel(canvas_rect, obj.bounds);
+
+        int const pen_width = GetPenWidth(obj.style.line_width);
+        COLORREF const pen_color = GetColorRef(obj.style.color);
+        HPEN pen = CreatePen(PS_SOLID, pen_width, pen_color);
+
+        HBRUSH brush = static_cast<HBRUSH>(GetStockObject(HOLLOW_BRUSH));
+        if (obj.style.fill_enabled)
+        {
+            brush = CreateSolidBrush(pen_color);
+        }
+
+        HPEN old_pen = static_cast<HPEN>(SelectObject(hdc, pen));
+        HBRUSH old_brush = static_cast<HBRUSH>(SelectObject(hdc, brush));
+
+        Ellipse(hdc, rect.left, rect.top, rect.right, rect.bottom);
+
+        SelectObject(hdc, old_pen);
+        SelectObject(hdc, old_brush);
+        DeleteObject(pen);
+        if (obj.style.fill_enabled)
+        {
+            DeleteObject(brush);
+        }
+    }
+
     void PaintAnnotation(HDC hdc, RECT const& canvas_rect, AnnotationObject const& obj)
     {
         switch (obj.kind)
         {
         case AnnotationKind::Rectangle:
             PaintRectangle(hdc, canvas_rect, obj.style);
+            break;
+        case AnnotationKind::Ellipse:
+            PaintEllipse(hdc, canvas_rect, obj);
             break;
         case AnnotationKind::Line:
             PaintLine(hdc, canvas_rect, obj);

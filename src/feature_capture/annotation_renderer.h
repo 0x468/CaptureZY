@@ -9,5 +9,6 @@ namespace capturezy::feature_capture
     void PaintRectangle(HDC hdc, RECT const& rect, AnnotationStyle const& style);
     void PaintLine(HDC hdc, RECT const& canvas_rect, AnnotationObject const& obj);
     void PaintArrow(HDC hdc, RECT const& canvas_rect, AnnotationObject const& obj);
+    void PaintEllipse(HDC hdc, RECT const& canvas_rect, AnnotationObject const& obj);
     void PaintAnnotation(HDC hdc, RECT const& canvas_rect, AnnotationObject const& obj);
 }
