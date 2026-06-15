@@ -1,6 +1,7 @@
 add_library(
   capturezy_feature_capture
   STATIC
+    annotation_renderer.cpp
     capture_annotation.cpp
     capture_file_dialog.cpp
     capture_result.cpp

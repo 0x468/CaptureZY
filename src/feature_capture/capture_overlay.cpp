@@ -11,6 +11,7 @@
 // clang-format on
 
 #include "core/log.h"
+#include "feature_capture/annotation_renderer.h"
 #include "feature_capture/capture_result.h"
 
 namespace capturezy::feature_capture
@@ -133,18 +134,65 @@ namespace capturezy::feature_capture
             };
         }
 
-        void PaintAnnotationRect(HDC destination_device_context, RECT annotation_rect) noexcept
+        void PaintAnnotationRect(HDC destination_device_context, RECT annotation_rect,
+                                 AnnotationStyle const &style = AnnotationStyle{}) noexcept
         {
             if (!IsRectNonEmpty(annotation_rect))
             {
                 return;
             }
 
-            RECT fill_rect = annotation_rect;
-            AlphaFillRect(destination_device_context, fill_rect,
-                          AlphaFillStyle{.color = kAnnotationFillColor, .alpha = kAnnotationFillAlpha});
+            // 根据样式获取颜色
+            COLORREF frame_color = kAnnotationFrameColor;
+            COLORREF fill_color = kAnnotationFillColor;
+            switch (style.color)
+            {
+            case AnnotationColor::Red:
+                frame_color = RGB(255, 80, 80);
+                fill_color = RGB(255, 80, 80);
+                break;
+            case AnnotationColor::Green:
+                frame_color = RGB(80, 255, 80);
+                fill_color = RGB(80, 255, 80);
+                break;
+            case AnnotationColor::Blue:
+                frame_color = RGB(80, 160, 255);
+                fill_color = RGB(80, 160, 255);
+                break;
+            case AnnotationColor::White:
+                frame_color = RGB(255, 255, 255);
+                fill_color = RGB(255, 255, 255);
+                break;
+            case AnnotationColor::Yellow:
+            default:
+                break;
+            }
 
-            HPEN frame_pen = CreatePen(PS_SOLID, 2, kAnnotationFrameColor);
+            // 根据样式获取线宽
+            int line_width = 2;
+            switch (style.line_width)
+            {
+            case AnnotationLineWidth::Thin:
+                line_width = 1;
+                break;
+            case AnnotationLineWidth::Thick:
+                line_width = 4;
+                break;
+            case AnnotationLineWidth::Medium:
+            default:
+                break;
+            }
+
+            // 绘制填充
+            if (style.fill_enabled)
+            {
+                RECT fill_rect = annotation_rect;
+                AlphaFillRect(destination_device_context, fill_rect,
+                              AlphaFillStyle{.color = fill_color, .alpha = kAnnotationFillAlpha});
+            }
+
+            // 绘制边框
+            HPEN frame_pen = CreatePen(PS_SOLID, line_width, frame_color);
             HGDIOBJ old_pen = SelectObject(destination_device_context, frame_pen);
             HGDIOBJ old_brush = SelectObject(destination_device_context, GetStockObject(HOLLOW_BRUSH));
             Rectangle(destination_device_context, annotation_rect.left, annotation_rect.top, annotation_rect.right,
@@ -152,6 +200,24 @@ namespace capturezy::feature_capture
             SelectObject(destination_device_context, old_brush);
             SelectObject(destination_device_context, old_pen);
             DeleteObject(frame_pen);
+        }
+
+        void PaintSelectedAnnotationAdorners(HDC destination_device_context, RECT annotation_rect) noexcept
+        {
+            if (!IsRectNonEmpty(annotation_rect))
+            {
+                return;
+            }
+
+            // 绘制选中状态边框（虚线）
+            HPEN selected_pen = CreatePen(PS_DASH, 2, RGB(0, 120, 215));
+            HGDIOBJ old_pen = SelectObject(destination_device_context, selected_pen);
+            HGDIOBJ old_brush = SelectObject(destination_device_context, GetStockObject(HOLLOW_BRUSH));
+            Rectangle(destination_device_context, annotation_rect.left, annotation_rect.top, annotation_rect.right,
+                      annotation_rect.bottom);
+            SelectObject(destination_device_context, old_brush);
+            SelectObject(destination_device_context, old_pen);
+            DeleteObject(selected_pen);
         }
 
         void SetWindowUserData(HWND window, CaptureOverlay *overlay)
@@ -1286,7 +1352,7 @@ namespace capturezy::feature_capture
 
     CaptureOverlay::ToolbarActionSpec const &CaptureOverlay::ToolbarActionMetadata(ToolbarAction action) noexcept
     {
-        static constexpr std::array<ToolbarActionSpec, 10> kToolbarActionSpecs{{
+        static constexpr std::array<ToolbarActionSpec, 19> kToolbarActionSpecs{{
             ToolbarActionSpec{.action = ToolbarAction::ToolShape,
                               .label = L"形",
                               .hint = L"形状工具（默认矩形）",
@@ -1329,31 +1395,94 @@ namespace capturezy::feature_capture
                               .index_in_group = 1,
                               .width = kToolbarToolButtonWidth,
                               .interactive = true},
+            ToolbarActionSpec{.action = ToolbarAction::StyleColorYellow,
+                              .label = L"",
+                              .hint = L"黄色",
+                              .group = 2,
+                              .index_in_group = 0,
+                              .width = 24,
+                              .interactive = true},
+            ToolbarActionSpec{.action = ToolbarAction::StyleColorRed,
+                              .label = L"",
+                              .hint = L"红色",
+                              .group = 2,
+                              .index_in_group = 1,
+                              .width = 24,
+                              .interactive = true},
+            ToolbarActionSpec{.action = ToolbarAction::StyleColorGreen,
+                              .label = L"",
+                              .hint = L"绿色",
+                              .group = 2,
+                              .index_in_group = 2,
+                              .width = 24,
+                              .interactive = true},
+            ToolbarActionSpec{.action = ToolbarAction::StyleColorBlue,
+                              .label = L"",
+                              .hint = L"蓝色",
+                              .group = 2,
+                              .index_in_group = 3,
+                              .width = 24,
+                              .interactive = true},
+            ToolbarActionSpec{.action = ToolbarAction::StyleColorWhite,
+                              .label = L"",
+                              .hint = L"白色",
+                              .group = 2,
+                              .index_in_group = 4,
+                              .width = 24,
+                              .interactive = true},
+            ToolbarActionSpec{.action = ToolbarAction::StyleLineWidthThin,
+                              .label = L"细",
+                              .hint = L"细线",
+                              .group = 3,
+                              .index_in_group = 0,
+                              .width = 28,
+                              .interactive = true},
+            ToolbarActionSpec{.action = ToolbarAction::StyleLineWidthMedium,
+                              .label = L"中",
+                              .hint = L"中线",
+                              .group = 3,
+                              .index_in_group = 1,
+                              .width = 28,
+                              .interactive = true},
+            ToolbarActionSpec{.action = ToolbarAction::StyleLineWidthThick,
+                              .label = L"粗",
+                              .hint = L"粗线",
+                              .group = 3,
+                              .index_in_group = 2,
+                              .width = 28,
+                              .interactive = true},
+            ToolbarActionSpec{.action = ToolbarAction::StyleFillToggle,
+                              .label = L"填",
+                              .hint = L"填充开关",
+                              .group = 3,
+                              .index_in_group = 3,
+                              .width = 28,
+                              .interactive = true},
             ToolbarActionSpec{.action = ToolbarAction::Cancel,
                               .label = L"取消",
                               .hint = L"退出截图",
-                              .group = 2,
+                              .group = 4,
                               .index_in_group = 0,
                               .width = kToolbarResultButtonWidth,
                               .interactive = true},
             ToolbarActionSpec{.action = ToolbarAction::CopyAndPin,
                               .label = L"贴图",
                               .hint = L"复制并贴图",
-                              .group = 2,
+                              .group = 4,
                               .index_in_group = 1,
                               .width = kToolbarResultButtonWidth,
                               .interactive = true},
             ToolbarActionSpec{.action = ToolbarAction::SaveToFile,
                               .label = L"快存",
                               .hint = L"保存到默认位置",
-                              .group = 2,
+                              .group = 4,
                               .index_in_group = 2,
                               .width = kToolbarResultButtonWidth,
                               .interactive = true},
             ToolbarActionSpec{.action = ToolbarAction::CopyOnly,
                               .label = L"复制",
                               .hint = L"复制到剪贴板",
-                              .group = 2,
+                              .group = 4,
                               .index_in_group = 3,
                               .width = kToolbarResultButtonWidth,
                               .interactive = true},
@@ -1418,6 +1547,12 @@ namespace capturezy::feature_capture
             return 2;
 
         case 2:
+            return 5;
+
+        case 3:
+            return 4;
+
+        case 4:
             return 4;
 
         default:
@@ -1441,6 +1576,12 @@ namespace capturezy::feature_capture
                 return kToolbarToolButtonWidth;
 
             case 2:
+                return 24;
+
+            case 3:
+                return 28;
+
+            case 4:
                 return kToolbarResultButtonWidth;
 
             default:
@@ -1596,11 +1737,13 @@ namespace capturezy::feature_capture
             return {};
         }
 
-        int const placeholder_group_width = ToolbarGroupWidth(0);
+        int const tools_group_width = ToolbarGroupWidth(0);
         int const history_group_width = ToolbarGroupWidth(1);
-        int const result_group_width = ToolbarGroupWidth(2);
-        int const toolbar_width = placeholder_group_width + history_group_width + result_group_width +
-                                  (kToolbarSectionSpacing * 2) + (kToolbarPadding * 2);
+        int const color_group_width = ToolbarGroupWidth(2);
+        int const line_group_width = ToolbarGroupWidth(3);
+        int const action_group_width = ToolbarGroupWidth(4);
+        int const toolbar_width = tools_group_width + history_group_width + color_group_width + line_group_width + action_group_width +
+                                  (kToolbarSectionSpacing * 4) + (kToolbarPadding * 2);
         int const toolbar_height = kToolbarButtonHeight + (kToolbarPadding * 2);
         int const selection_center_x = (selection_rect.left + selection_rect.right) / 2;
         RECT toolbar_rect{
@@ -1767,6 +1910,52 @@ namespace capturezy::feature_capture
 
         RECT selection_rect = OverlayToClientRect(committed_selection_rect_);
         return PtInRect(&selection_rect, overlay_point) != FALSE;
+    }
+
+    AnnotationHitTestResult CaptureOverlay::HitTestAnnotationObjects(POINT overlay_point) const noexcept
+    {
+        if (!has_committed_selection_ || !IsAnnotationToolActive())
+        {
+            return AnnotationHitTestResult{};
+        }
+
+        RECT annotation_canvas = AnnotationCanvasRect();
+        if (!IsRectNonEmpty(annotation_canvas))
+        {
+            return AnnotationHitTestResult{};
+        }
+
+        float const canvas_width = static_cast<float>(annotation_canvas.right - annotation_canvas.left);
+        float const canvas_height = static_cast<float>(annotation_canvas.bottom - annotation_canvas.top);
+        if (canvas_width <= 0.0F || canvas_height <= 0.0F)
+        {
+            return AnnotationHitTestResult{};
+        }
+
+        float const point_x = static_cast<float>(overlay_point.x - annotation_canvas.left) / canvas_width;
+        float const point_y = static_cast<float>(overlay_point.y - annotation_canvas.top) / canvas_height;
+
+        constexpr float kControlPointRadius = 0.03F;
+        constexpr float kBorderTolerance = 0.02F;
+
+        NormalizedRectF point_rect{
+            .left = point_x - 0.001F,
+            .top = point_y - 0.001F,
+            .right = point_x + 0.001F,
+            .bottom = point_y + 0.001F,
+        };
+
+        auto const &objects = annotation_session_.Objects();
+        for (auto it = objects.rbegin(); it != objects.rend(); ++it)
+        {
+            AnnotationHitTestResult hit = AnnotationSession::HitTestObject(*it, point_rect, kControlPointRadius, kBorderTolerance);
+            if (hit.kind != AnnotationHitKind::None)
+            {
+                return hit;
+            }
+        }
+
+        return AnnotationHitTestResult{};
     }
 
     CaptureOverlay::ResizeHandle
@@ -1967,6 +2156,26 @@ namespace capturezy::feature_capture
             return;
         }
 
+        if (pointer_drag_mode_ == PointerDragMode::MoveAnnotationObject && pointer_down_)
+        {
+            SetCursor(MoveSelectionCursor());
+            return;
+        }
+
+        if (pointer_drag_mode_ == PointerDragMode::ResizeAnnotationObject && pointer_down_)
+        {
+            int const handle = active_annotation_object_handle_;
+            if (handle >= 0 && handle < 4)
+            {
+                SetCursor(LoadCursorW(nullptr, IDC_SIZEALL));
+            }
+            else
+            {
+                SetCursor(CursorForResizeHandle(ResizeHandle::Left));
+            }
+            return;
+        }
+
         if (has_committed_selection_)
         {
             ToolbarAction const toolbar_action = HitTestToolbarAction(overlay_point);
@@ -1994,7 +2203,23 @@ namespace capturezy::feature_capture
 
             if (IsPointInsideAnnotationCanvas(overlay_point))
             {
-                SetCursor(LoadCursorW(nullptr, IDC_CROSS));
+                AnnotationHitTestResult const hit = HitTestAnnotationObjects(overlay_point);
+                if (hit.kind == AnnotationHitKind::ControlPoint || hit.kind == AnnotationHitKind::EdgeMidpoint)
+                {
+                    SetCursor(LoadCursorW(nullptr, IDC_SIZEALL));
+                }
+                else if (hit.kind == AnnotationHitKind::Border)
+                {
+                    SetCursor(LoadCursorW(nullptr, IDC_SIZEALL));
+                }
+                else if (hit.kind == AnnotationHitKind::Fill)
+                {
+                    SetCursor(MoveSelectionCursor());
+                }
+                else
+                {
+                    SetCursor(LoadCursorW(nullptr, IDC_CROSS));
+                }
                 return;
             }
 
@@ -2060,6 +2285,188 @@ namespace capturezy::feature_capture
 
         draft_annotation_bounds_ = BuildNormalizedRectForSelection(drag_start_, drag_current_, annotation_canvas);
         InvalidateAnnotationCanvas();
+    }
+
+    void CaptureOverlay::BeginMoveAnnotationObject(POINT overlay_point, AnnotationObjectId object_id) noexcept
+    {
+        drag_start_ = overlay_point;
+        drag_current_ = overlay_point;
+        pointer_down_ = true;
+        drag_in_progress_ = false;
+        has_selection_ = false;
+        has_click_candidate_window_ = false;
+        pointer_drag_mode_ = PointerDragMode::MoveAnnotationObject;
+        active_annotation_object_id_ = object_id;
+        active_annotation_object_handle_ = -1;
+        resize_anchor_selection_rect_ = committed_selection_rect_;
+        active_resize_handle_ = ResizeHandle::None;
+        resize_anchor_handle_ = ResizeHandle::None;
+        hovered_toolbar_action_ = ToolbarAction::None;
+        pressed_toolbar_action_ = ToolbarAction::None;
+
+        AnnotationObject const *object = annotation_session_.SelectedObject();
+        annotation_object_drag_anchor_ = object ? object->bounds : NormalizedRectF{};
+        SetCapture(overlay_window_);
+    }
+
+    void CaptureOverlay::UpdateMoveAnnotationObject(POINT overlay_point) noexcept
+    {
+        drag_current_ = overlay_point;
+        RECT annotation_canvas = AnnotationCanvasRect();
+        if (!IsRectNonEmpty(annotation_canvas))
+        {
+            return;
+        }
+
+        float const canvas_width = static_cast<float>(annotation_canvas.right - annotation_canvas.left);
+        float const canvas_height = static_cast<float>(annotation_canvas.bottom - annotation_canvas.top);
+        if (canvas_width <= 0.0F || canvas_height <= 0.0F)
+        {
+            return;
+        }
+
+        float const delta_x = static_cast<float>(overlay_point.x - drag_start_.x) / canvas_width;
+        float const delta_y = static_cast<float>(overlay_point.y - drag_start_.y) / canvas_height;
+
+        if (!drag_in_progress_)
+        {
+            int const pixel_delta_x = overlay_point.x - drag_start_.x;
+            int const pixel_delta_y = overlay_point.y - drag_start_.y;
+            if (std::abs(pixel_delta_x) < kDragThreshold && std::abs(pixel_delta_y) < kDragThreshold)
+            {
+                return;
+            }
+
+            drag_in_progress_ = true;
+        }
+
+        float const obj_width = annotation_object_drag_anchor_.right - annotation_object_drag_anchor_.left;
+        float const obj_height = annotation_object_drag_anchor_.bottom - annotation_object_drag_anchor_.top;
+
+        float new_left = annotation_object_drag_anchor_.left + delta_x;
+        float new_top = annotation_object_drag_anchor_.top + delta_y;
+        new_left = std::clamp(new_left, 0.0F, 1.0F - obj_width);
+        new_top = std::clamp(new_top, 0.0F, 1.0F - obj_height);
+
+        NormalizedRectF new_bounds{
+            .left = new_left,
+            .top = new_top,
+            .right = new_left + obj_width,
+            .bottom = new_top + obj_height,
+        };
+
+        if (annotation_session_.MoveSelectedObject(new_bounds))
+        {
+            InvalidateAnnotationCanvas();
+        }
+    }
+
+    void CaptureOverlay::BeginResizeAnnotationObject(POINT overlay_point, AnnotationObjectId object_id,
+                                                     int handle_index) noexcept
+    {
+        drag_start_ = overlay_point;
+        drag_current_ = overlay_point;
+        pointer_down_ = true;
+        drag_in_progress_ = false;
+        has_selection_ = false;
+        has_click_candidate_window_ = false;
+        pointer_drag_mode_ = PointerDragMode::ResizeAnnotationObject;
+        active_annotation_object_id_ = object_id;
+        active_annotation_object_handle_ = handle_index;
+        resize_anchor_selection_rect_ = committed_selection_rect_;
+        active_resize_handle_ = ResizeHandle::None;
+        resize_anchor_handle_ = ResizeHandle::None;
+        hovered_toolbar_action_ = ToolbarAction::None;
+        pressed_toolbar_action_ = ToolbarAction::None;
+
+        AnnotationObject const *object = annotation_session_.SelectedObject();
+        annotation_object_drag_anchor_ = object ? object->bounds : NormalizedRectF{};
+        SetCapture(overlay_window_);
+    }
+
+    void CaptureOverlay::UpdateResizeAnnotationObject(POINT overlay_point) noexcept
+    {
+        drag_current_ = overlay_point;
+        RECT annotation_canvas = AnnotationCanvasRect();
+        if (!IsRectNonEmpty(annotation_canvas))
+        {
+            return;
+        }
+
+        float const canvas_width = static_cast<float>(annotation_canvas.right - annotation_canvas.left);
+        float const canvas_height = static_cast<float>(annotation_canvas.bottom - annotation_canvas.top);
+        if (canvas_width <= 0.0F || canvas_height <= 0.0F)
+        {
+            return;
+        }
+
+        float const delta_x = static_cast<float>(overlay_point.x - drag_start_.x) / canvas_width;
+        float const delta_y = static_cast<float>(overlay_point.y - drag_start_.y) / canvas_height;
+
+        if (!drag_in_progress_)
+        {
+            int const pixel_delta_x = overlay_point.x - drag_start_.x;
+            int const pixel_delta_y = overlay_point.y - drag_start_.y;
+            if (std::abs(pixel_delta_x) < kDragThreshold && std::abs(pixel_delta_y) < kDragThreshold)
+            {
+                return;
+            }
+
+            drag_in_progress_ = true;
+        }
+
+        constexpr float kMinNormalizedExtent = 0.01F;
+        NormalizedRectF new_bounds = annotation_object_drag_anchor_;
+        int const handle = active_annotation_object_handle_;
+
+        if (handle >= 0 && handle < 4)
+        {
+            if (handle == 0 || handle == 3)
+            {
+                float const new_left = std::clamp(new_bounds.left + delta_x, 0.0F, new_bounds.right - kMinNormalizedExtent);
+                new_bounds.left = new_left;
+            }
+            if (handle == 1 || handle == 2)
+            {
+                float const new_right = std::clamp(new_bounds.right + delta_x, new_bounds.left + kMinNormalizedExtent, 1.0F);
+                new_bounds.right = new_right;
+            }
+            if (handle == 0 || handle == 1)
+            {
+                float const new_top = std::clamp(new_bounds.top + delta_y, 0.0F, new_bounds.bottom - kMinNormalizedExtent);
+                new_bounds.top = new_top;
+            }
+            if (handle == 2 || handle == 3)
+            {
+                float const new_bottom = std::clamp(new_bounds.bottom + delta_y, new_bounds.top + kMinNormalizedExtent, 1.0F);
+                new_bounds.bottom = new_bottom;
+            }
+        }
+        else if (handle >= 4 && handle < 8)
+        {
+            int const edge_index = handle - 4;
+            if (edge_index == 0)
+            {
+                new_bounds.top = std::clamp(new_bounds.top + delta_y, 0.0F, new_bounds.bottom - kMinNormalizedExtent);
+            }
+            else if (edge_index == 1)
+            {
+                new_bounds.right = std::clamp(new_bounds.right + delta_x, new_bounds.left + kMinNormalizedExtent, 1.0F);
+            }
+            else if (edge_index == 2)
+            {
+                new_bounds.bottom = std::clamp(new_bounds.bottom + delta_y, new_bounds.top + kMinNormalizedExtent, 1.0F);
+            }
+            else if (edge_index == 3)
+            {
+                new_bounds.left = std::clamp(new_bounds.left + delta_x, 0.0F, new_bounds.right - kMinNormalizedExtent);
+            }
+        }
+
+        if (annotation_session_.ResizeSelectedObject(new_bounds))
+        {
+            InvalidateAnnotationCanvas();
+        }
     }
 
     void CaptureOverlay::BeginMoveSelection(POINT overlay_point) noexcept
@@ -2229,6 +2636,65 @@ namespace capturezy::feature_capture
             return;
         }
 
+        // 样式颜色按钮
+        AnnotationStyle current_style = annotation_session_.ActiveStyle();
+        bool style_changed = false;
+
+        switch (action)
+        {
+        case ToolbarAction::StyleColorYellow:
+            current_style.color = AnnotationColor::Yellow;
+            style_changed = true;
+            break;
+        case ToolbarAction::StyleColorRed:
+            current_style.color = AnnotationColor::Red;
+            style_changed = true;
+            break;
+        case ToolbarAction::StyleColorGreen:
+            current_style.color = AnnotationColor::Green;
+            style_changed = true;
+            break;
+        case ToolbarAction::StyleColorBlue:
+            current_style.color = AnnotationColor::Blue;
+            style_changed = true;
+            break;
+        case ToolbarAction::StyleColorWhite:
+            current_style.color = AnnotationColor::White;
+            style_changed = true;
+            break;
+        case ToolbarAction::StyleLineWidthThin:
+            current_style.line_width = AnnotationLineWidth::Thin;
+            style_changed = true;
+            break;
+        case ToolbarAction::StyleLineWidthMedium:
+            current_style.line_width = AnnotationLineWidth::Medium;
+            style_changed = true;
+            break;
+        case ToolbarAction::StyleLineWidthThick:
+            current_style.line_width = AnnotationLineWidth::Thick;
+            style_changed = true;
+            break;
+        case ToolbarAction::StyleFillToggle:
+            current_style.fill_enabled = !current_style.fill_enabled;
+            style_changed = true;
+            break;
+        default:
+            break;
+        }
+
+        if (style_changed)
+        {
+            annotation_session_.SetActiveStyle(current_style);
+            // 如果有选中的对象，同时更新其样式
+            if (annotation_session_.HasSelectedObject())
+            {
+                annotation_session_.SetSelectedObjectStyle(current_style);
+            }
+            InvalidateToolbarVisual();
+            InvalidateAnnotationCanvas();
+            return;
+        }
+
         ExecuteEditingAction(ToolbarEditingAction(action));
     }
 
@@ -2326,6 +2792,18 @@ namespace capturezy::feature_capture
             return false;
         }
 
+        // 如果标注工具激活且有选中的标注对象，Delete/Backspace 删除该对象而非重置选区
+        if (IsAnnotationToolActive() && annotation_session_.HasSelectedObject() &&
+            (w_param == VK_DELETE || w_param == VK_BACK))
+        {
+            if (annotation_session_.DeleteSelectedObject())
+            {
+                InvalidateToolbarVisual();
+                InvalidateAnnotationCanvas();
+            }
+            return true;
+        }
+
         if (gesture_action != EditingAction::None)
         {
             ExecuteEditingAction(gesture_action);
@@ -2373,6 +2851,20 @@ namespace capturezy::feature_capture
         {
             if (IsAnnotationToolActive())
             {
+                AnnotationHitTestResult const hit = HitTestAnnotationObjects(overlay_point);
+                if (hit.kind == AnnotationHitKind::ControlPoint || hit.kind == AnnotationHitKind::EdgeMidpoint)
+                {
+                    annotation_session_.SelectObject(hit.object_id);
+                    BeginResizeAnnotationObject(overlay_point, hit.object_id, hit.handle_index);
+                    return;
+                }
+                else if (hit.kind == AnnotationHitKind::Border || hit.kind == AnnotationHitKind::Fill)
+                {
+                    annotation_session_.SelectObject(hit.object_id);
+                    BeginMoveAnnotationObject(overlay_point, hit.object_id);
+                    return;
+                }
+
                 BeginCreateAnnotation(overlay_point);
                 return;
             }
@@ -2421,6 +2913,14 @@ namespace capturezy::feature_capture
             else if (pointer_drag_mode_ == PointerDragMode::CreateAnnotation)
             {
                 UpdateCreateAnnotation(overlay_point);
+            }
+            else if (pointer_drag_mode_ == PointerDragMode::MoveAnnotationObject)
+            {
+                UpdateMoveAnnotationObject(overlay_point);
+            }
+            else if (pointer_drag_mode_ == PointerDragMode::ResizeAnnotationObject)
+            {
+                UpdateResizeAnnotationObject(overlay_point);
             }
             else
             {
@@ -2526,6 +3026,26 @@ namespace capturezy::feature_capture
             return;
         }
 
+        if (pointer_drag_mode == PointerDragMode::MoveAnnotationObject)
+        {
+            drag_in_progress_ = false;
+            active_annotation_object_id_ = 0;
+            active_annotation_object_handle_ = -1;
+            InvalidateAnnotationCanvas();
+            UpdateCursorForOverlayPoint(drag_current_);
+            return;
+        }
+
+        if (pointer_drag_mode == PointerDragMode::ResizeAnnotationObject)
+        {
+            drag_in_progress_ = false;
+            active_annotation_object_id_ = 0;
+            active_annotation_object_handle_ = -1;
+            InvalidateAnnotationCanvas();
+            UpdateCursorForOverlayPoint(drag_current_);
+            return;
+        }
+
         if (pointer_drag_mode == PointerDragMode::CreateAnnotation)
         {
             bool const has_meaningful_annotation = has_draft_annotation_ &&
@@ -2534,7 +3054,10 @@ namespace capturezy::feature_capture
             if (has_meaningful_annotation)
             {
                 annotation_session_.AddObject(
-                    AnnotationObject{.kind = AnnotationKind::Rectangle, .bounds = draft_annotation_bounds_});
+                    AnnotationObject{.id = 0,
+                                     .kind = AnnotationKind::Rectangle,
+                                     .bounds = draft_annotation_bounds_,
+                                     .style = annotation_session_.ActiveStyle()});
                 InvalidateToolbarVisual();
                 InvalidateAnnotationCanvas();
             }
@@ -2655,11 +3178,21 @@ namespace capturezy::feature_capture
             }
             if (has_committed_selection_)
             {
+                AnnotationObjectId const selected_id = annotation_session_.HasSelectedObject()
+                                                          ? annotation_session_.SelectedObject()->id
+                                                          : 0;
+
                 for (AnnotationObject const &annotation_object : annotation_session_.Objects())
                 {
                     RECT annotation_rect = NormalizedRectToClientRect(annotation_object.bounds, preview_rect);
                     OffsetRect(&annotation_rect, -paint_rect.left, -paint_rect.top);
-                    PaintAnnotationRect(buffer_device_context, annotation_rect);
+                    PaintAnnotation(buffer_device_context, annotation_rect, annotation_object);
+
+                    // 如果是选中的对象，绘制选中标记
+                    if (annotation_object.id == selected_id)
+                    {
+                        PaintSelectedAnnotationAdorners(buffer_device_context, annotation_rect);
+                    }
                 }
                 if (has_draft_annotation_)
                 {
@@ -2699,7 +3232,7 @@ namespace capturezy::feature_capture
                     OffsetRect(&local_toolbar_rect, -paint_rect.left, -paint_rect.top);
                     PaintToolbarBackground(buffer_device_context, local_toolbar_rect);
 
-                    constexpr std::array<ToolbarAction, 4> kPlaceholderActions{
+                    constexpr std::array<ToolbarAction, 4> kToolActions{
                         ToolbarAction::ToolShape,
                         ToolbarAction::PlaceholderArrow,
                         ToolbarAction::PlaceholderText,
@@ -2709,6 +3242,19 @@ namespace capturezy::feature_capture
                         ToolbarAction::PlaceholderUndo,
                         ToolbarAction::PlaceholderRedo,
                     };
+                    constexpr std::array<ToolbarAction, 5> kColorActions{
+                        ToolbarAction::StyleColorYellow,
+                        ToolbarAction::StyleColorRed,
+                        ToolbarAction::StyleColorGreen,
+                        ToolbarAction::StyleColorBlue,
+                        ToolbarAction::StyleColorWhite,
+                    };
+                    constexpr std::array<ToolbarAction, 4> kStyleActions{
+                        ToolbarAction::StyleLineWidthThin,
+                        ToolbarAction::StyleLineWidthMedium,
+                        ToolbarAction::StyleLineWidthThick,
+                        ToolbarAction::StyleFillToggle,
+                    };
                     constexpr std::array<ToolbarAction, 4> kResultActions{
                         ToolbarAction::Cancel,
                         ToolbarAction::CopyAndPin,
@@ -2716,25 +3262,44 @@ namespace capturezy::feature_capture
                         ToolbarAction::CopyOnly,
                     };
 
-                    RECT const left_group_last_button = ToolbarButtonRect(toolbar_rect,
-                                                                          ToolbarAction::PlaceholderMosaic);
-                    RECT const middle_group_first_button = ToolbarButtonRect(toolbar_rect,
-                                                                             ToolbarAction::PlaceholderUndo);
-                    RECT const middle_group_last_button = ToolbarButtonRect(toolbar_rect,
-                                                                            ToolbarAction::PlaceholderRedo);
-                    RECT const right_group_first_button = ToolbarButtonRect(toolbar_rect, ToolbarAction::Cancel);
-                    if (IsRectNonEmpty(left_group_last_button) && IsRectNonEmpty(middle_group_first_button))
+                    RECT const tool_group_last_button = ToolbarButtonRect(toolbar_rect,
+                                                                           ToolbarAction::PlaceholderMosaic);
+                    RECT const history_group_first_button = ToolbarButtonRect(toolbar_rect,
+                                                                              ToolbarAction::PlaceholderUndo);
+                    RECT const history_group_last_button = ToolbarButtonRect(toolbar_rect,
+                                                                             ToolbarAction::PlaceholderRedo);
+                    RECT const color_group_first_button = ToolbarButtonRect(toolbar_rect,
+                                                                            ToolbarAction::StyleColorYellow);
+                    RECT const color_group_last_button = ToolbarButtonRect(toolbar_rect,
+                                                                           ToolbarAction::StyleColorWhite);
+                    RECT const style_group_first_button = ToolbarButtonRect(toolbar_rect,
+                                                                            ToolbarAction::StyleLineWidthThin);
+                    RECT const style_group_last_button = ToolbarButtonRect(toolbar_rect,
+                                                                           ToolbarAction::StyleFillToggle);
+                    RECT const result_group_first_button = ToolbarButtonRect(toolbar_rect, ToolbarAction::Cancel);
+
+                    if (IsRectNonEmpty(tool_group_last_button) && IsRectNonEmpty(history_group_first_button))
                     {
-                        int const separator_x = (left_group_last_button.right + middle_group_first_button.left) / 2;
+                        int const separator_x = (tool_group_last_button.right + history_group_first_button.left) / 2;
                         PaintToolbarSeparator(buffer_device_context, local_toolbar_rect, separator_x - paint_rect.left);
                     }
-                    if (IsRectNonEmpty(middle_group_last_button) && IsRectNonEmpty(right_group_first_button))
+                    if (IsRectNonEmpty(history_group_last_button) && IsRectNonEmpty(color_group_first_button))
                     {
-                        int const separator_x = (middle_group_last_button.right + right_group_first_button.left) / 2;
+                        int const separator_x = (history_group_last_button.right + color_group_first_button.left) / 2;
+                        PaintToolbarSeparator(buffer_device_context, local_toolbar_rect, separator_x - paint_rect.left);
+                    }
+                    if (IsRectNonEmpty(color_group_last_button) && IsRectNonEmpty(style_group_first_button))
+                    {
+                        int const separator_x = (color_group_last_button.right + style_group_first_button.left) / 2;
+                        PaintToolbarSeparator(buffer_device_context, local_toolbar_rect, separator_x - paint_rect.left);
+                    }
+                    if (IsRectNonEmpty(style_group_last_button) && IsRectNonEmpty(result_group_first_button))
+                    {
+                        int const separator_x = (style_group_last_button.right + result_group_first_button.left) / 2;
                         PaintToolbarSeparator(buffer_device_context, local_toolbar_rect, separator_x - paint_rect.left);
                     }
 
-                    for (ToolbarAction const action : kPlaceholderActions)
+                    for (ToolbarAction const action : kToolActions)
                     {
                         RECT button_rect = ToolbarButtonRect(toolbar_rect, action);
                         OffsetRect(&button_rect, -paint_rect.left, -paint_rect.top);
@@ -2778,6 +3343,136 @@ namespace capturezy::feature_capture
                             {
                                 visual_state = ToolbarButtonVisualState::Hovered;
                             }
+                        }
+
+                        PaintToolbarButton(buffer_device_context, button_rect, ToolbarActionLabel(action),
+                                           visual_state);
+                    }
+
+                    // 渲染颜色按钮
+                    AnnotationStyle const current_style = annotation_session_.ActiveStyle();
+                    for (ToolbarAction const action : kColorActions)
+                    {
+                        RECT button_rect = ToolbarButtonRect(toolbar_rect, action);
+                        OffsetRect(&button_rect, -paint_rect.left, -paint_rect.top);
+
+                        // 确定当前颜色是否被选中
+                        bool is_selected = false;
+                        switch (action)
+                        {
+                        case ToolbarAction::StyleColorYellow:
+                            is_selected = (current_style.color == AnnotationColor::Yellow);
+                            break;
+                        case ToolbarAction::StyleColorRed:
+                            is_selected = (current_style.color == AnnotationColor::Red);
+                            break;
+                        case ToolbarAction::StyleColorGreen:
+                            is_selected = (current_style.color == AnnotationColor::Green);
+                            break;
+                        case ToolbarAction::StyleColorBlue:
+                            is_selected = (current_style.color == AnnotationColor::Blue);
+                            break;
+                        case ToolbarAction::StyleColorWhite:
+                            is_selected = (current_style.color == AnnotationColor::White);
+                            break;
+                        default:
+                            break;
+                        }
+
+                        ToolbarButtonVisualState visual_state = ToolbarButtonVisualState::Normal;
+                        if (pointer_down_ && pressed_toolbar_action_ == action && hovered_toolbar_action_ == action)
+                        {
+                            visual_state = ToolbarButtonVisualState::Pressed;
+                        }
+                        else if (hovered_toolbar_action_ == action)
+                        {
+                            visual_state = ToolbarButtonVisualState::Hovered;
+                        }
+                        else if (is_selected)
+                        {
+                            visual_state = ToolbarButtonVisualState::Selected;
+                        }
+
+                        PaintToolbarButton(buffer_device_context, button_rect, ToolbarActionLabel(action),
+                                           visual_state);
+
+                        // 在按钮中心绘制颜色圆点
+                        COLORREF color = RGB(0, 0, 0);
+                        switch (action)
+                        {
+                        case ToolbarAction::StyleColorYellow:
+                            color = RGB(255, 255, 0);
+                            break;
+                        case ToolbarAction::StyleColorRed:
+                            color = RGB(255, 0, 0);
+                            break;
+                        case ToolbarAction::StyleColorGreen:
+                            color = RGB(0, 255, 0);
+                            break;
+                        case ToolbarAction::StyleColorBlue:
+                            color = RGB(0, 0, 255);
+                            break;
+                        case ToolbarAction::StyleColorWhite:
+                            color = RGB(255, 255, 255);
+                            break;
+                        default:
+                            break;
+                        }
+
+                        int const center_x = (button_rect.left + button_rect.right) / 2;
+                        int const center_y = (button_rect.top + button_rect.bottom) / 2;
+                        int const radius = 6;
+
+                        HPEN old_pen = static_cast<HPEN>(SelectObject(buffer_device_context, GetStockObject(NULL_PEN)));
+                        HBRUSH color_brush = CreateSolidBrush(color);
+                        HBRUSH old_brush = static_cast<HBRUSH>(SelectObject(buffer_device_context, color_brush));
+
+                        Ellipse(buffer_device_context, center_x - radius, center_y - radius,
+                                center_x + radius, center_y + radius);
+
+                        SelectObject(buffer_device_context, old_brush);
+                        SelectObject(buffer_device_context, old_pen);
+                        DeleteObject(color_brush);
+                    }
+
+                    // 渲染线宽和填充按钮
+                    for (ToolbarAction const action : kStyleActions)
+                    {
+                        RECT button_rect = ToolbarButtonRect(toolbar_rect, action);
+                        OffsetRect(&button_rect, -paint_rect.left, -paint_rect.top);
+
+                        // 确定当前样式是否被选中
+                        bool is_selected = false;
+                        switch (action)
+                        {
+                        case ToolbarAction::StyleLineWidthThin:
+                            is_selected = (current_style.line_width == AnnotationLineWidth::Thin);
+                            break;
+                        case ToolbarAction::StyleLineWidthMedium:
+                            is_selected = (current_style.line_width == AnnotationLineWidth::Medium);
+                            break;
+                        case ToolbarAction::StyleLineWidthThick:
+                            is_selected = (current_style.line_width == AnnotationLineWidth::Thick);
+                            break;
+                        case ToolbarAction::StyleFillToggle:
+                            is_selected = current_style.fill_enabled;
+                            break;
+                        default:
+                            break;
+                        }
+
+                        ToolbarButtonVisualState visual_state = ToolbarButtonVisualState::Normal;
+                        if (pointer_down_ && pressed_toolbar_action_ == action && hovered_toolbar_action_ == action)
+                        {
+                            visual_state = ToolbarButtonVisualState::Pressed;
+                        }
+                        else if (hovered_toolbar_action_ == action)
+                        {
+                            visual_state = ToolbarButtonVisualState::Hovered;
+                        }
+                        else if (is_selected)
+                        {
+                            visual_state = ToolbarButtonVisualState::Selected;
                         }
 
                         PaintToolbarButton(buffer_device_context, button_rect, ToolbarActionLabel(action),
