@@ -241,6 +241,24 @@ namespace capturezy::core
             json_text += "\",\n";
             json_text += "  \"default_capture_countdown_seconds\": ";
             json_text += std::to_string(settings.default_capture_countdown_seconds);
+            json_text += ",\n";
+            json_text += R"(  "default_save_format": ")";
+            switch (settings.default_save_format)
+            {
+            case AppSettings::ImageFileFormat::Jpeg:
+                json_text += "jpeg";
+                break;
+            case AppSettings::ImageFileFormat::Bmp:
+                json_text += "bmp";
+                break;
+            case AppSettings::ImageFileFormat::Png:
+            default:
+                json_text += "png";
+                break;
+            }
+            json_text += "\",\n";
+            json_text += "  \"default_jpeg_quality\": ";
+            json_text += std::to_string(settings.default_jpeg_quality);
             json_text += "\n";
             json_text += "}\n";
             return json_text;
@@ -498,6 +516,26 @@ namespace capturezy::core
             {
                 settings.default_capture_countdown_seconds =
                     static_cast<std::uint32_t>(std::min(countdown_value, static_cast<UINT>(30)));
+            }
+
+            std::wstring format_value;
+            if (TryReadString(settings_json, "default_save_format", format_value))
+            {
+                if (format_value == L"jpeg")
+                {
+                    settings.default_save_format = AppSettings::ImageFileFormat::Jpeg;
+                }
+                else if (format_value == L"bmp")
+                {
+                    settings.default_save_format = AppSettings::ImageFileFormat::Bmp;
+                }
+                // default is Png
+            }
+
+            UINT quality_value = 0;
+            if (TryReadUnsigned(settings_json, "default_jpeg_quality", quality_value))
+            {
+                settings.default_jpeg_quality = static_cast<std::uint8_t>(std::min(quality_value, static_cast<UINT>(100)));
             }
         }
 

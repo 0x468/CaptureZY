@@ -38,8 +38,9 @@ namespace capturezy::feature_capture
             }
         }
 
-        [[nodiscard]] bool WriteBitmapToPng(IWICImagingFactory *imaging_factory, HBITMAP bitmap, SIZE bitmap_size,
-                                            wchar_t const *file_path) noexcept
+        [[nodiscard]] bool WriteBitmapWithWicEncoder(IWICImagingFactory *imaging_factory, HBITMAP bitmap,
+                                                     SIZE bitmap_size, wchar_t const *file_path,
+                                                     REFGUID container_format, float jpeg_quality = 0.9F) noexcept
         {
             ComPtr<IWICBitmap> wic_bitmap;
             HRESULT result = imaging_factory->CreateBitmapFromHBITMAP(bitmap, nullptr, WICBitmapUseAlpha,
@@ -66,7 +67,7 @@ namespace capturezy::feature_capture
             }
 
             ComPtr<IWICBitmapEncoder> encoder;
-            result = imaging_factory->CreateEncoder(GUID_ContainerFormatPng, nullptr, encoder.GetAddressOf());
+            result = imaging_factory->CreateEncoder(container_format, nullptr, encoder.GetAddressOf());
             if (FAILED(result))
             {
                 LogHResultFailure(L"CreateEncoder", result);
@@ -87,6 +88,24 @@ namespace capturezy::feature_capture
             {
                 LogHResultFailure(L"CreateNewFrame", result);
                 return false;
+            }
+
+            // JPEG 编码器需要设置 ImageQuality 属性
+            if (container_format == GUID_ContainerFormatJpeg)
+            {
+                PROPBAG2 property_bag_option{};
+                property_bag_option.pstrName = const_cast<LPOLESTR>(L"ImageQuality");
+                VARIANT quality_option;
+                VariantInit(&quality_option);
+                quality_option.vt = VT_R4;
+                quality_option.fltVal = jpeg_quality;
+                result = property_bag->Write(1, &property_bag_option, &quality_option);
+                VariantClear(&quality_option);
+                if (FAILED(result))
+                {
+                    LogHResultFailure(L"PropertyBag Write ImageQuality", result);
+                    // 继续尝试 — JPEG 默认质量通常可接受
+                }
             }
 
             result = frame->Initialize(property_bag.Get());
@@ -133,6 +152,13 @@ namespace capturezy::feature_capture
             }
 
             return true;
+        }
+
+        [[nodiscard]] bool WriteBitmapToPng(IWICImagingFactory *imaging_factory, HBITMAP bitmap, SIZE bitmap_size,
+                                            wchar_t const *file_path) noexcept
+        {
+            return WriteBitmapWithWicEncoder(imaging_factory, bitmap, bitmap_size, file_path,
+                                             GUID_ContainerFormatPng);
         }
     } // namespace
 
@@ -358,5 +384,50 @@ namespace capturezy::feature_capture
 
         return WriteBitmapToPng(imaging_factory.Get(), capture_result.Bitmap().Get(), capture_result.PixelSize(),
                                 file_path);
+    }
+
+    bool ScreenCapture::SaveBitmapToJpeg(CaptureResult const &capture_result, wchar_t const *file_path,
+                                         float quality) noexcept
+    {
+        if (!capture_result.IsValid() || file_path == nullptr || *file_path == L'\0')
+        {
+            CAPTUREZY_LOG_WARNING(core::LogCategory::FileIO,
+                                  L"Skip JPEG save because capture result or file path is invalid.");
+            return false;
+        }
+
+        ComPtr<IWICImagingFactory> imaging_factory;
+        HRESULT const factory_result = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
+                                                        IID_PPV_ARGS(imaging_factory.GetAddressOf()));
+        if (FAILED(factory_result) || imaging_factory == nullptr)
+        {
+            LogHResultFailure(L"CoCreateInstance(CLSID_WICImagingFactory)", factory_result);
+            return false;
+        }
+
+        return WriteBitmapWithWicEncoder(imaging_factory.Get(), capture_result.Bitmap().Get(),
+                                         capture_result.PixelSize(), file_path, GUID_ContainerFormatJpeg, quality);
+    }
+
+    bool ScreenCapture::SaveBitmapToBmp(CaptureResult const &capture_result, wchar_t const *file_path) noexcept
+    {
+        if (!capture_result.IsValid() || file_path == nullptr || *file_path == L'\0')
+        {
+            CAPTUREZY_LOG_WARNING(core::LogCategory::FileIO,
+                                  L"Skip BMP save because capture result or file path is invalid.");
+            return false;
+        }
+
+        ComPtr<IWICImagingFactory> imaging_factory;
+        HRESULT const factory_result = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
+                                                        IID_PPV_ARGS(imaging_factory.GetAddressOf()));
+        if (FAILED(factory_result) || imaging_factory == nullptr)
+        {
+            LogHResultFailure(L"CoCreateInstance(CLSID_WICImagingFactory)", factory_result);
+            return false;
+        }
+
+        return WriteBitmapWithWicEncoder(imaging_factory.Get(), capture_result.Bitmap().Get(),
+                                         capture_result.PixelSize(), file_path, GUID_ContainerFormatBmp);
     }
 } // namespace capturezy::feature_capture

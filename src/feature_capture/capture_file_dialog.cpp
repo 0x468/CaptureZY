@@ -17,7 +17,8 @@ namespace capturezy::feature_capture
 {
     namespace
     {
-        constexpr auto kSaveDialogFilter = std::to_array(L"PNG Files (*.png)\0*.png\0");
+        constexpr auto kSaveDialogFilter = std::to_array(
+            L"PNG Files (*.png)\0*.png\0JPEG Files (*.jpg;*.jpeg)\0*.jpg;*.jpeg\0BMP Files (*.bmp)\0*.bmp\0");
         constexpr wchar_t const *kDefaultFilePrefix = L"CaptureZY";
 
         [[nodiscard]] std::wstring SanitizeFileNameFragment(std::wstring_view file_name_fragment)
@@ -177,6 +178,7 @@ namespace capturezy::feature_capture
         dialog.lpstrFilter = kSaveDialogFilter.data();
         dialog.lpstrFile = file_path.data();
         dialog.nMaxFile = static_cast<DWORD>(file_path.size());
+        dialog.nFilterIndex = 1; // 默认选中 PNG
         dialog.lpstrDefExt = L"png";
         dialog.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_EXPLORER;
 
@@ -186,9 +188,25 @@ namespace capturezy::feature_capture
             return false;
         }
 
-        if (!ScreenCapture::SaveBitmapToPng(capture_result, file_path.data()))
+        // 根据过滤器索引选择保存格式
+        bool save_result = false;
+        switch (dialog.nFilterIndex)
         {
-            CAPTUREZY_LOG_ERROR(core::LogCategory::FileIO,
+        case 2: // JPEG
+            dialog.lpstrDefExt = L"jpg";
+            save_result = ScreenCapture::SaveBitmapToJpeg(capture_result, file_path.data());
+            break;
+        case 3: // BMP
+            dialog.lpstrDefExt = L"bmp";
+            save_result = ScreenCapture::SaveBitmapToBmp(capture_result, file_path.data());
+            break;
+        case 1: // PNG (default)
+        default:
+            save_result = ScreenCapture::SaveBitmapToPng(capture_result, file_path.data());
+            break;
+        }
+        if (!save_result)
+        {            CAPTUREZY_LOG_ERROR(core::LogCategory::FileIO,
                                 std::wstring(L"Failed to save capture from dialog path: ") + file_path.data() + L".");
             return false;
         }

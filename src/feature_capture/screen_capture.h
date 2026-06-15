@@ -39,5 +39,10 @@ namespace capturezy::feature_capture
                                                         CaptureResult const &capture_result) noexcept;
         [[nodiscard]] static bool SaveBitmapToPng(CaptureResult const &capture_result,
                                                   wchar_t const *file_path) noexcept;
+        [[nodiscard]] static bool SaveBitmapToJpeg(CaptureResult const &capture_result,
+                                                   wchar_t const *file_path,
+                                                   float quality = 0.9F) noexcept;
+        [[nodiscard]] static bool SaveBitmapToBmp(CaptureResult const &capture_result,
+                                                  wchar_t const *file_path) noexcept;
     };
 } // namespace capturezy::feature_capture

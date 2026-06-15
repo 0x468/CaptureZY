@@ -47,6 +47,16 @@ namespace capturezy::core
         std::wstring default_save_file_prefix{L"CaptureZY"};
         std::uint32_t default_capture_countdown_seconds{0};
 
+        enum class ImageFileFormat : std::uint8_t
+        {
+            Png,
+            Jpeg,
+            Bmp,
+        };
+
+        ImageFileFormat default_save_format{ImageFileFormat::Png};
+        std::uint8_t default_jpeg_quality{90};
+
         [[nodiscard]] bool HasValidCaptureHotkey() const noexcept;
     };
 } // namespace capturezy::core
