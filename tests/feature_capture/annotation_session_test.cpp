@@ -450,6 +450,174 @@ namespace capturezy::feature_capture
 
             return true;
         }
+
+        bool TestHitTestLineEndpointStart()
+        {
+            AnnotationObject obj{
+                .id = 10,
+                .kind = AnnotationKind::Line,
+                .bounds = {.left = 0.1F, .top = 0.1F, .right = 0.9F, .bottom = 0.9F},
+                .style = {},
+                .type_data = LineData{.start = {0.1F, 0.1F}, .end = {0.9F, 0.9F}},
+            };
+
+            float const control_radius = 0.03F;
+            float const border_tolerance = 0.01F;
+
+            // Hit near the start endpoint.
+            NormalizedRectF start_point{.left = 0.09F, .top = 0.09F, .right = 0.11F, .bottom = 0.11F};
+            AnnotationHitTestResult result = AnnotationSession::HitTestObject(obj, start_point, control_radius,
+                                                                              border_tolerance);
+            if (!Expect(result.kind == AnnotationHitKind::ControlPoint, "start endpoint should hit ControlPoint"))
+            {
+                return false;
+            }
+            if (!Expect(result.handle_index == 0, "start endpoint should be handle_index 0"))
+            {
+                return false;
+            }
+            if (!Expect(result.object_id == 10U, "object_id should match"))
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        bool TestHitTestLineEndpointEnd()
+        {
+            AnnotationObject obj{
+                .id = 11,
+                .kind = AnnotationKind::Line,
+                .bounds = {.left = 0.1F, .top = 0.1F, .right = 0.9F, .bottom = 0.9F},
+                .style = {},
+                .type_data = LineData{.start = {0.1F, 0.1F}, .end = {0.9F, 0.9F}},
+            };
+
+            float const control_radius = 0.03F;
+            float const border_tolerance = 0.01F;
+
+            // Hit near the end endpoint.
+            NormalizedRectF end_point{.left = 0.89F, .top = 0.89F, .right = 0.91F, .bottom = 0.91F};
+            AnnotationHitTestResult result = AnnotationSession::HitTestObject(obj, end_point, control_radius,
+                                                                              border_tolerance);
+            if (!Expect(result.kind == AnnotationHitKind::ControlPoint, "end endpoint should hit ControlPoint"))
+            {
+                return false;
+            }
+            if (!Expect(result.handle_index == 1, "end endpoint should be handle_index 1"))
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        bool TestHitTestLineMiddle()
+        {
+            AnnotationObject obj{
+                .id = 12,
+                .kind = AnnotationKind::Line,
+                .bounds = {.left = 0.1F, .top = 0.1F, .right = 0.9F, .bottom = 0.9F},
+                .style = {},
+                .type_data = LineData{.start = {0.1F, 0.1F}, .end = {0.9F, 0.9F}},
+            };
+
+            float const control_radius = 0.03F;
+            float const border_tolerance = 0.02F;
+
+            // Hit on the middle of the line segment (midpoint is 0.5, 0.5).
+            NormalizedRectF mid_point{.left = 0.49F, .top = 0.49F, .right = 0.51F, .bottom = 0.51F};
+            AnnotationHitTestResult result = AnnotationSession::HitTestObject(obj, mid_point, control_radius,
+                                                                              border_tolerance);
+            if (!Expect(result.kind == AnnotationHitKind::Border, "middle of line should hit Border"))
+            {
+                return false;
+            }
+            if (!Expect(result.handle_index == -1, "border hit should have handle_index -1"))
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        bool TestHitTestLineMiss()
+        {
+            AnnotationObject obj{
+                .id = 13,
+                .kind = AnnotationKind::Line,
+                .bounds = {.left = 0.1F, .top = 0.1F, .right = 0.9F, .bottom = 0.9F},
+                .style = {},
+                .type_data = LineData{.start = {0.1F, 0.1F}, .end = {0.9F, 0.9F}},
+            };
+
+            float const control_radius = 0.03F;
+            float const border_tolerance = 0.01F;
+
+            // Point far from the line: (0.5, 0.1) is far from the diagonal line (0.1,0.1)-(0.9,0.9).
+            NormalizedRectF far_point{.left = 0.49F, .top = 0.09F, .right = 0.51F, .bottom = 0.11F};
+            AnnotationHitTestResult result = AnnotationSession::HitTestObject(obj, far_point, control_radius,
+                                                                              border_tolerance);
+            if (!Expect(result.kind == AnnotationHitKind::None, "far point should miss the line"))
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        bool TestHitTestArrow()
+        {
+            AnnotationObject obj{
+                .id = 14,
+                .kind = AnnotationKind::Arrow,
+                .bounds = {.left = 0.2F, .top = 0.3F, .right = 0.8F, .bottom = 0.7F},
+                .style = {},
+                .type_data = ArrowData{
+                    .start = {0.2F, 0.3F},
+                    .end = {0.8F, 0.7F},
+                    .head_style = ArrowHeadStyle::Solid,
+                    .head_size = 0.05F,
+                },
+            };
+
+            float const control_radius = 0.03F;
+            float const border_tolerance = 0.02F;
+
+            // Hit near the start endpoint.
+            NormalizedRectF start_point{.left = 0.19F, .top = 0.29F, .right = 0.21F, .bottom = 0.31F};
+            AnnotationHitTestResult start_result = AnnotationSession::HitTestObject(obj, start_point,
+                                                                                     control_radius, border_tolerance);
+            if (!Expect(start_result.kind == AnnotationHitKind::ControlPoint, "arrow start should hit ControlPoint"))
+            {
+                return false;
+            }
+            if (!Expect(start_result.handle_index == 0, "arrow start should be handle_index 0"))
+            {
+                return false;
+            }
+
+            // Hit on the middle of the arrow line.
+            NormalizedRectF mid_point{.left = 0.49F, .top = 0.49F, .right = 0.51F, .bottom = 0.51F};
+            AnnotationHitTestResult mid_result = AnnotationSession::HitTestObject(obj, mid_point,
+                                                                                   control_radius, border_tolerance);
+            if (!Expect(mid_result.kind == AnnotationHitKind::Border, "arrow middle should hit Border"))
+            {
+                return false;
+            }
+
+            // Miss the arrow.
+            NormalizedRectF far_point{.left = 0.49F, .top = 0.09F, .right = 0.51F, .bottom = 0.11F};
+            AnnotationHitTestResult miss_result = AnnotationSession::HitTestObject(obj, far_point,
+                                                                                    control_radius, border_tolerance);
+            if (!Expect(miss_result.kind == AnnotationHitKind::None, "far point should miss the arrow"))
+            {
+                return false;
+            }
+
+            return true;
+        }
     } // namespace
 } // namespace capturezy::feature_capture
 
@@ -494,6 +662,26 @@ int main()
         return 1;
     }
     if (!TestAddLineAnnotation())
+    {
+        return 1;
+    }
+    if (!TestHitTestLineEndpointStart())
+    {
+        return 1;
+    }
+    if (!TestHitTestLineEndpointEnd())
+    {
+        return 1;
+    }
+    if (!TestHitTestLineMiddle())
+    {
+        return 1;
+    }
+    if (!TestHitTestLineMiss())
+    {
+        return 1;
+    }
+    if (!TestHitTestArrow())
     {
         return 1;
     }

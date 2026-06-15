@@ -154,6 +154,11 @@ namespace capturezy::feature_capture
                                                                    float control_point_radius_normalized,
                                                                    float border_tolerance_normalized);
 
+        [[nodiscard]] static AnnotationHitTestResult HitTestLine(AnnotationObject const &object,
+                                                                 NormalizedRectF point_rect,
+                                                                 float control_point_radius_normalized,
+                                                                 float border_tolerance_normalized);
+
       private:
         void PushUndoSnapshot() noexcept;
 
