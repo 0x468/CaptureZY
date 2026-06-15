@@ -244,7 +244,8 @@ namespace capturezy::feature_capture
             return HitTestLine(object, point_rect, control_point_radius_normalized, border_tolerance_normalized);
         }
 
-        if (object.kind == AnnotationKind::Mosaic || object.kind == AnnotationKind::Highlighter)
+        if (object.kind == AnnotationKind::Mosaic || object.kind == AnnotationKind::Highlighter ||
+            object.kind == AnnotationKind::NumberMarker)
         {
             return HitTestRectangle(object, point_rect, control_point_radius_normalized, border_tolerance_normalized);
         }

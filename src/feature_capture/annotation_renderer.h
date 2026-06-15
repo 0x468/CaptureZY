@@ -13,5 +13,6 @@ namespace capturezy::feature_capture
     void PaintText(HDC hdc, RECT const& canvas_rect, AnnotationObject const& obj);
     void PaintMosaic(HDC hdc, RECT const& canvas_rect, AnnotationObject const& obj, HBITMAP source_bitmap);
     void PaintHighlighter(HDC hdc, RECT const& canvas_rect, AnnotationObject const& obj);
+    void PaintNumberMarker(HDC hdc, RECT const& canvas_rect, AnnotationObject const& obj);
     void PaintAnnotation(HDC hdc, RECT const& canvas_rect, AnnotationObject const& obj, HBITMAP source_bitmap = nullptr);
 }

@@ -120,6 +120,12 @@ namespace capturezy::feature_capture
         float brush_width{0.02F}; // 归一化宽度
     };
 
+    struct NumberMarkerData
+    {
+        int number{1};              // 序号数字
+        float radius_normalized{0.02F}; // 归一化半径（相对于选区宽度）
+    };
+
     struct AnnotationObject
     {
         AnnotationObjectId id{0};
@@ -128,7 +134,7 @@ namespace capturezy::feature_capture
         AnnotationStyle style{};
 
         // Type-specific data (only used for certain types)
-        std::variant<std::monostate, LineData, ArrowData, TextData, MosaicData, HighlighterData> type_data{};
+        std::variant<std::monostate, LineData, ArrowData, TextData, MosaicData, HighlighterData, NumberMarkerData> type_data{};
     };
 
     struct AnnotationHitTestResult

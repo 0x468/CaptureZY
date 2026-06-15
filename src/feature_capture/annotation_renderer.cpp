@@ -311,6 +311,82 @@ namespace capturezy::feature_capture
         DeleteObject(pen);
     }
 
+    void PaintNumberMarker(HDC hdc, RECT const& canvas_rect, AnnotationObject const& obj)
+    {
+        auto const* marker_data = std::get_if<NumberMarkerData>(&obj.type_data);
+        if (!marker_data)
+        {
+            return;
+        }
+
+        // 计算 marker 中心点（来自 bounds 的中心）
+        float const center_x = (obj.bounds.left + obj.bounds.right) * 0.5F;
+        float const center_y = (obj.bounds.top + obj.bounds.bottom) * 0.5F;
+        NormalizedPointF center{center_x, center_y};
+        POINT center_px = NormalizedToPixel(canvas_rect, center);
+
+        // 计算像素半径
+        int const canvas_width = canvas_rect.right - canvas_rect.left;
+        int const radius_px = static_cast<int>(marker_data->radius_normalized * static_cast<float>(canvas_width));
+        if (radius_px <= 0)
+        {
+            return;
+        }
+
+        COLORREF const bg_color = GetColorRef(obj.style.color);
+        COLORREF const text_color = RGB(255, 255, 255); // 白色数字
+
+        // 绘制填充圆形背景
+        HBRUSH bg_brush = CreateSolidBrush(bg_color);
+        HPEN bg_pen = CreatePen(PS_SOLID, 1, bg_color); // 同色边框，避免默认黑框
+        HBRUSH old_brush = static_cast<HBRUSH>(SelectObject(hdc, bg_brush));
+        HPEN old_pen = static_cast<HPEN>(SelectObject(hdc, bg_pen));
+
+        Ellipse(hdc,
+                center_px.x - radius_px,
+                center_px.y - radius_px,
+                center_px.x + radius_px,
+                center_px.y + radius_px);
+
+        SelectObject(hdc, old_pen);
+        SelectObject(hdc, old_brush);
+        DeleteObject(bg_pen);
+        DeleteObject(bg_brush);
+
+        // 绘制数字文本
+        std::wstring number_str = std::to_wstring(marker_data->number);
+        HFONT font = CreateFontW(
+            radius_px,               // 高度 = 半径大小，数字占满圆形
+            0, 0, 0,
+            FW_BOLD,
+            FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET,
+            OUT_DEFAULT_PRECIS,
+            CLIP_DEFAULT_PRECIS,
+            DEFAULT_QUALITY,
+            DEFAULT_PITCH,
+            L"Segoe UI"
+        );
+
+        HFONT old_font = static_cast<HFONT>(SelectObject(hdc, font));
+        COLORREF old_color = SetTextColor(hdc, text_color);
+        int old_bk_mode = SetBkMode(hdc, TRANSPARENT);
+
+        RECT text_rect = {
+            center_px.x - radius_px,
+            center_px.y - radius_px,
+            center_px.x + radius_px,
+            center_px.y + radius_px
+        };
+        DrawTextW(hdc, number_str.c_str(), -1, &text_rect,
+                  DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+        SetBkMode(hdc, old_bk_mode);
+        SetTextColor(hdc, old_color);
+        SelectObject(hdc, old_font);
+        DeleteObject(font);
+    }
+
     void PaintAnnotation(HDC hdc, RECT const& canvas_rect, AnnotationObject const& obj, HBITMAP source_bitmap)
     {
         switch (obj.kind)
@@ -338,6 +414,9 @@ namespace capturezy::feature_capture
             break;
         case AnnotationKind::Highlighter:
             PaintHighlighter(hdc, canvas_rect, obj);
+            break;
+        case AnnotationKind::NumberMarker:
+            PaintNumberMarker(hdc, canvas_rect, obj);
             break;
         default:
             break;

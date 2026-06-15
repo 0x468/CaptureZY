@@ -864,6 +864,90 @@ namespace capturezy::feature_capture
 
             return true;
         }
+
+        bool TestAddNumberMarkerAnnotation()
+        {
+            AnnotationSession session;
+            session.Reset();
+
+            NumberMarkerData marker{3, 0.02F};
+            AnnotationObject obj{
+                .id = 0,
+                .kind = AnnotationKind::NumberMarker,
+                .bounds = {.left = 0.4F, .top = 0.4F, .right = 0.44F, .bottom = 0.44F},
+                .style = AnnotationStyle{AnnotationColor::Red, AnnotationLineWidth::Medium, false},
+                .type_data = marker,
+            };
+            session.AddObject(obj);
+
+            if (!Expect(session.Objects().size() == 1U, "adding a number marker should append to the session"))
+            {
+                return false;
+            }
+            if (!Expect(session.Objects()[0].kind == AnnotationKind::NumberMarker, "object kind should be NumberMarker"))
+            {
+                return false;
+            }
+
+            auto const* retrieved = std::get_if<NumberMarkerData>(&session.Objects()[0].type_data);
+            if (!Expect(retrieved != nullptr, "type_data should hold NumberMarkerData"))
+            {
+                return false;
+            }
+            if (retrieved && !Expect(retrieved->number == 3, "number should be 3"))
+            {
+                return false;
+            }
+            if (retrieved && !Expect(std::abs(retrieved->radius_normalized - 0.02F) < 0.001F, "radius should match"))
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        bool TestHitTestNumberMarker()
+        {
+            AnnotationObject obj{
+                .id = 40,
+                .kind = AnnotationKind::NumberMarker,
+                .bounds = {.left = 0.3F, .top = 0.3F, .right = 0.7F, .bottom = 0.7F},
+                .style = {},
+                .type_data = NumberMarkerData{5, 0.02F},
+            };
+
+            float const control_radius = 0.03F;
+            float const border_tolerance = 0.02F;
+
+            // Hit inside the number marker bounds (fill)
+            NormalizedRectF fill_point{.left = 0.49F, .top = 0.49F, .right = 0.51F, .bottom = 0.51F};
+            AnnotationHitTestResult result = AnnotationSession::HitTestObject(obj, fill_point, control_radius,
+                                                                              border_tolerance);
+            if (!Expect(result.kind == AnnotationHitKind::Fill, "center of number marker should hit Fill"))
+            {
+                return false;
+            }
+
+            // Hit near corner (control point)
+            NormalizedRectF corner_point{.left = 0.29F, .top = 0.29F, .right = 0.31F, .bottom = 0.31F};
+            AnnotationHitTestResult corner_result = AnnotationSession::HitTestObject(obj, corner_point, control_radius,
+                                                                                     border_tolerance);
+            if (!Expect(corner_result.kind == AnnotationHitKind::ControlPoint, "corner should hit ControlPoint"))
+            {
+                return false;
+            }
+
+            // Miss the number marker
+            NormalizedRectF outside_point{.left = 0.05F, .top = 0.05F, .right = 0.07F, .bottom = 0.07F};
+            AnnotationHitTestResult miss_result = AnnotationSession::HitTestObject(obj, outside_point,
+                                                                                   control_radius, border_tolerance);
+            if (!Expect(miss_result.kind == AnnotationHitKind::None, "outside point should miss number marker"))
+            {
+                return false;
+            }
+
+            return true;
+        }
     } // namespace
 } // namespace capturezy::feature_capture
 
@@ -952,6 +1036,14 @@ int main()
         return 1;
     }
     if (!TestHitTestHighlighter())
+    {
+        return 1;
+    }
+    if (!TestAddNumberMarkerAnnotation())
+    {
+        return 1;
+    }
+    if (!TestHitTestNumberMarker())
     {
         return 1;
     }
