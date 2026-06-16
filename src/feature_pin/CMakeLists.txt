@@ -2,6 +2,7 @@ add_library(
   capturezy_feature_pin
   STATIC
     pin_manager.cpp
+    pin_state_store.cpp
     pin_window.cpp
 )
 
@@ -20,4 +21,6 @@ target_link_libraries(
   PRIVATE
     user32
     gdi32
+    ole32
+    shell32
 )

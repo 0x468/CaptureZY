@@ -9,6 +9,7 @@
 
 #include "core/app_settings.h"
 #include "feature_capture/capture_result.h"
+#include "feature_pin/pin_state_store.h"
 
 namespace capturezy::feature_pin
 {
@@ -32,6 +33,15 @@ namespace capturezy::feature_pin
         void Show() noexcept;
         void Hide() noexcept;
         [[nodiscard]] bool IsVisible() const noexcept;
+        [[nodiscard]] PinState CaptureState() const noexcept;
+        [[nodiscard]] feature_capture::CaptureResult const &GetCaptureResult() const noexcept;
+        void ApplyRestoredScale(std::int32_t scale_percent) noexcept;
+        void ApplyRestoredOpacity(std::int32_t opacity_percent) noexcept;
+        void SetRestoredPosition(std::int32_t x, std::int32_t y) noexcept;
+        void SetTopmost(bool topmost) noexcept;
+        void SetShadowEnabled(bool enabled) noexcept;
+        void SetClickThrough(bool enabled) noexcept;
+        void SetLocked(bool locked) noexcept;
 
       private:
         [[nodiscard]] static RECT CalculateWindowRect(RECT anchor_rect, SIZE bitmap_size) noexcept;
@@ -42,10 +52,6 @@ namespace capturezy::feature_pin
         bool UpdateScale(short wheel_delta) noexcept;
         bool UpdateOpacity(std::int32_t opacity_delta) noexcept;
         void ApplyOpacity() noexcept;
-        void SetTopmost(bool topmost) noexcept;
-        void SetShadowEnabled(bool enabled) noexcept;
-        void SetClickThrough(bool enabled) noexcept;
-        void SetLocked(bool locked) noexcept;
         void CopyToClipboard() const noexcept;
         void SaveToFile() const;
         void ShowContextMenu(POINT anchor_screen_point) noexcept;

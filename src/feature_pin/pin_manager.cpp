@@ -5,6 +5,8 @@
 #include <utility>
 
 #include "core/log.h"
+#include "feature_capture/screen_capture.h"
+#include "feature_pin/pin_state_store.h"
 
 namespace capturezy::feature_pin
 {
@@ -208,5 +210,136 @@ namespace capturezy::feature_pin
         std::size_t const open_pin_count = OpenPinCount();
         std::size_t const visible_pin_count = VisiblePinCount();
         return open_pin_count >= visible_pin_count ? open_pin_count - visible_pin_count : 0;
+    }
+
+    bool PinManager::SaveAllPinStates() noexcept
+    {
+        PruneClosedPins();
+
+        if (pin_windows_.empty())
+        {
+            // 没有贴图时清空持久化目录
+            (void)PinStateStore::ClearPinStateDirectory();
+            return true;
+        }
+
+        std::filesystem::path const state_dir = PinStateStore::PinStateDirectory();
+        std::filesystem::path const images_dir = state_dir / L"images";
+        std::error_code error_code;
+        std::filesystem::create_directories(images_dir, error_code);
+        if (error_code)
+        {
+            CAPTUREZY_LOG_ERROR(core::LogCategory::Pin, L"Failed to create pin images directory.");
+            return false;
+        }
+
+        std::vector<PinState> pin_states;
+        for (std::size_t index = 0; index < pin_windows_.size(); ++index)
+        {
+            auto const &pin_window = pin_windows_[index];
+            if (pin_window == nullptr || !pin_window->IsOpen())
+            {
+                continue;
+            }
+
+            PinState state = pin_window->CaptureState();
+
+            // 保存位图到 PNG 文件
+            std::wstring image_filename = std::format(L"pin_{}.png", static_cast<std::uint32_t>(index));
+            std::filesystem::path image_path = images_dir / image_filename;
+
+            feature_capture::CaptureResult const &capture_result = pin_window->GetCaptureResult();
+            if (!feature_capture::ScreenCapture::SaveBitmapToPng(capture_result, image_path.wstring().c_str()))
+            {
+                CAPTUREZY_LOG_ERROR(core::LogCategory::Pin, L"Failed to save pin bitmap to file.");
+                continue;
+            }
+
+            // 使用相对路径存储
+            state.image_path = (std::filesystem::path(L"images") / image_filename).wstring();
+            pin_states.push_back(std::move(state));
+        }
+
+        return PinStateStore::SavePinStates(pin_states);
+    }
+
+    bool PinManager::RestorePinStates() noexcept
+    {
+        std::vector<PinState> pin_states = PinStateStore::LoadPinStates();
+        if (pin_states.empty())
+        {
+            CAPTUREZY_LOG_DEBUG(core::LogCategory::Pin, L"No pin states to restore.");
+            return true;
+        }
+
+        std::filesystem::path const state_dir = PinStateStore::PinStateDirectory();
+
+        for (auto const &state : pin_states)
+        {
+            // 从相对路径构建完整路径
+            std::filesystem::path full_image_path = state_dir / state.image_path;
+            feature_capture::LoadedBitmap loaded =
+                feature_capture::ScreenCapture::LoadBitmapFromPng(full_image_path.wstring().c_str());
+            if (!loaded.bitmap.IsValid())
+            {
+                CAPTUREZY_LOG_ERROR(core::LogCategory::Pin, L"Failed to load pin bitmap from file.");
+                continue;
+            }
+
+            feature_capture::CaptureResult capture_result(
+                std::move(loaded.bitmap), RECT{}, std::chrono::system_clock::now());
+
+            auto pin_window = std::make_unique<PinWindow>(instance_, *app_settings_);
+            pin_window->SetStateChangedCallback([this]() { NotifyInventoryChanged(); });
+            if (!pin_window->Create(std::move(capture_result)))
+            {
+                CAPTUREZY_LOG_ERROR(core::LogCategory::Pin, L"Pin window creation from restored state failed.");
+                continue;
+            }
+
+            // 应用恢复的状态
+            if (state.scale_percent != 100)
+            {
+                pin_window->ApplyRestoredScale(state.scale_percent);
+            }
+            if (state.opacity_percent != 100)
+            {
+                pin_window->ApplyRestoredOpacity(state.opacity_percent);
+            }
+            if (!state.topmost)
+            {
+                pin_window->SetTopmost(false);
+            }
+            if (!state.shadow_enabled)
+            {
+                pin_window->SetShadowEnabled(false);
+            }
+            if (state.click_through)
+            {
+                pin_window->SetClickThrough(true);
+            }
+            if (state.locked)
+            {
+                pin_window->SetLocked(true);
+            }
+
+            // 设置位置
+            pin_window->SetRestoredPosition(state.position_x, state.position_y);
+
+            if (!state.visible)
+            {
+                pin_window->Hide();
+            }
+
+            pin_windows_.push_back(std::move(pin_window));
+        }
+
+        NotifyInventoryChanged();
+        CAPTUREZY_LOG_INFO(core::LogCategory::Pin,
+                           std::format(L"Restored {} pin windows.", static_cast<std::uint32_t>(pin_states.size())));
+
+        // 恢复成功后清空持久化数据（避免下次启动重复恢复）
+        (void)PinStateStore::ClearPinStateDirectory();
+        return true;
     }
 } // namespace capturezy::feature_pin

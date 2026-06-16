@@ -31,6 +31,12 @@ namespace capturezy::feature_capture
         SIZE size_{};
     };
 
+    struct LoadedBitmap final
+    {
+        CapturedBitmap bitmap;
+        RECT screen_rect{};
+    };
+
     class ScreenCapture final
     {
       public:
@@ -44,5 +50,6 @@ namespace capturezy::feature_capture
                                                    float quality = 0.9F) noexcept;
         [[nodiscard]] static bool SaveBitmapToBmp(CaptureResult const &capture_result,
                                                   wchar_t const *file_path) noexcept;
+        [[nodiscard]] static LoadedBitmap LoadBitmapFromPng(wchar_t const *file_path) noexcept;
     };
 } // namespace capturezy::feature_capture

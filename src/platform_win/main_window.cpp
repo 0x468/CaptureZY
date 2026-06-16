@@ -61,6 +61,13 @@ namespace capturezy::platform_win
         });
         CAPTUREZY_LOG_DEBUG(core::LogCategory::Platform, L"Pin manager callback installed.");
 
+        // 恢复上次贴图状态（如果设置允许）
+        if (app_settings_->restore_pins_on_startup)
+        {
+            pin_manager_->RestorePinStates();
+            CAPTUREZY_LOG_DEBUG(core::LogCategory::Platform, L"Pin states restored (if any).");
+        }
+
         CAPTUREZY_LOG_DEBUG(core::LogCategory::Tray, L"Creating tray icon.");
         if (!CreateTrayIcon())
         {
@@ -294,6 +301,7 @@ namespace capturezy::platform_win
 
         case WM_DESTROY:
             CancelPendingSingleTrayClickAction();
+            pin_manager_->SaveAllPinStates();
             pin_manager_->CloseAll();
             UnregisterHotkeys();
             RemoveTrayIcon();

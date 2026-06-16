@@ -8,6 +8,7 @@
 #include "core/app_settings.h"
 #include "feature_capture/capture_result.h"
 #include "feature_pin/pin_window.h"
+#include "feature_pin/pin_state_store.h"
 
 namespace capturezy::feature_pin
 {
@@ -27,6 +28,8 @@ namespace capturezy::feature_pin
         [[nodiscard]] std::size_t OpenPinCount() noexcept;
         [[nodiscard]] std::size_t VisiblePinCount() noexcept;
         [[nodiscard]] std::size_t HiddenPinCount() noexcept;
+        bool SaveAllPinStates() noexcept;
+        bool RestorePinStates() noexcept;
 
       private:
         class MutationScope final

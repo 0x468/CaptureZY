@@ -430,4 +430,129 @@ namespace capturezy::feature_capture
         return WriteBitmapWithWicEncoder(imaging_factory.Get(), capture_result.Bitmap().Get(),
                                          capture_result.PixelSize(), file_path, GUID_ContainerFormatBmp);
     }
+
+    LoadedBitmap ScreenCapture::LoadBitmapFromPng(wchar_t const *file_path) noexcept
+    {
+        if (file_path == nullptr || *file_path == L'\0')
+        {
+            CAPTUREZY_LOG_WARNING(core::LogCategory::FileIO, L"Skip PNG load because file path is invalid.");
+            return {};
+        }
+
+        ComPtr<IWICImagingFactory> imaging_factory;
+        HRESULT const factory_result = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
+                                                        IID_PPV_ARGS(imaging_factory.GetAddressOf()));
+        if (FAILED(factory_result) || imaging_factory == nullptr)
+        {
+            LogHResultFailure(L"CoCreateInstance(CLSID_WICImagingFactory)", factory_result);
+            return {};
+        }
+
+        ComPtr<IWICStream> stream;
+        HRESULT result = imaging_factory->CreateStream(stream.GetAddressOf());
+        if (FAILED(result))
+        {
+            LogHResultFailure(L"CreateStream for load", result);
+            return {};
+        }
+
+        result = stream->InitializeFromFilename(file_path, GENERIC_READ);
+        if (FAILED(result))
+        {
+            LogHResultFailure(L"InitializeFromFilename for load", result);
+            return {};
+        }
+
+        ComPtr<IWICBitmapDecoder> decoder;
+        result = imaging_factory->CreateDecoderFromStream(stream.Get(), nullptr, WICDecodeMetadataCacheOnDemand,
+                                                          decoder.GetAddressOf());
+        if (FAILED(result))
+        {
+            LogHResultFailure(L"CreateDecoderFromStream", result);
+            return {};
+        }
+
+        ComPtr<IWICBitmapFrameDecode> frame;
+        result = decoder->GetFrame(0, frame.GetAddressOf());
+        if (FAILED(result))
+        {
+            LogHResultFailure(L"GetFrame for load", result);
+            return {};
+        }
+
+        UINT width = 0;
+        UINT height = 0;
+        result = frame->GetSize(&width, &height);
+        if (FAILED(result))
+        {
+            LogHResultFailure(L"GetSize for load", result);
+            return {};
+        }
+
+        // 转换为 BGRA 32bpp 格式以确保与 GDI 兼容
+        WICPixelFormatGUID source_pixel_format{};
+        result = frame->GetPixelFormat(&source_pixel_format);
+        if (FAILED(result))
+        {
+            LogHResultFailure(L"GetPixelFormat for load", result);
+            return {};
+        }
+
+        ComPtr<IWICFormatConverter> format_converter;
+        result = imaging_factory->CreateFormatConverter(format_converter.GetAddressOf());
+        if (FAILED(result))
+        {
+            LogHResultFailure(L"CreateFormatConverter", result);
+            return {};
+        }
+
+        result = format_converter->Initialize(frame.Get(), GUID_WICPixelFormat32bppBGRA, WICBitmapDitherTypeNone,
+                                               nullptr, 0.0F, WICBitmapPaletteTypeCustom);
+        if (FAILED(result))
+        {
+            LogHResultFailure(L"FormatConverter Initialize", result);
+            return {};
+        }
+
+        // 创建 DIB section 来接收像素数据
+        HDC screen_device_context = GetDC(nullptr);
+        if (screen_device_context == nullptr)
+        {
+            return {};
+        }
+
+        BITMAPINFO bitmap_info{};
+        bitmap_info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+        bitmap_info.bmiHeader.biWidth = static_cast<LONG>(width);
+        bitmap_info.bmiHeader.biHeight = -static_cast<LONG>(height); // top-down DIB
+        bitmap_info.bmiHeader.biPlanes = 1;
+        bitmap_info.bmiHeader.biBitCount = 32;
+        bitmap_info.bmiHeader.biCompression = BI_RGB;
+
+        void *bitmap_bits = nullptr;
+        HBITMAP loaded_bitmap = CreateDIBSection(screen_device_context, &bitmap_info, DIB_RGB_COLORS, &bitmap_bits,
+                                                  nullptr, 0);
+        ReleaseDC(nullptr, screen_device_context);
+
+        if (loaded_bitmap == nullptr || bitmap_bits == nullptr)
+        {
+            LogHResultFailure(L"CreateDIBSection for load", E_FAIL);
+            return {};
+        }
+
+        // 将解码后的像素数据复制到 DIB section
+        UINT const row_stride = width * 4; // 32bpp = 4 bytes per pixel
+        HRESULT copy_result = format_converter->CopyPixels(nullptr, row_stride,
+                                                           static_cast<UINT>(row_stride * height),
+                                                           static_cast<BYTE *>(bitmap_bits));
+        if (FAILED(copy_result))
+        {
+            LogHResultFailure(L"CopyPixels for load", copy_result);
+            DeleteObject(loaded_bitmap);
+            return {};
+        }
+
+        SIZE const bitmap_size{.cx = static_cast<LONG>(width), .cy = static_cast<LONG>(height)};
+        return {CapturedBitmap(loaded_bitmap, bitmap_size), RECT{}};
+    }
 } // namespace capturezy::feature_capture

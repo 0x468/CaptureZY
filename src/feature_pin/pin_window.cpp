@@ -325,6 +325,59 @@ namespace capturezy::feature_pin
                            locked_ ? L"Pin window locked." : L"Pin window unlocked.");
     }
 
+    PinState PinWindow::CaptureState() const noexcept
+    {
+        PinState state;
+        state.scale_percent = scale_percent_;
+        state.opacity_percent = opacity_percent_;
+        state.topmost = topmost_;
+        state.shadow_enabled = shadow_enabled_;
+        state.click_through = click_through_;
+        state.locked = locked_;
+        state.visible = IsVisible();
+
+        RECT window_rect{};
+        if (GetWindowRect(window_, &window_rect) != FALSE)
+        {
+            state.position_x = window_rect.left;
+            state.position_y = window_rect.top;
+        }
+
+        return state;
+    }
+
+    feature_capture::CaptureResult const &PinWindow::GetCaptureResult() const noexcept
+    {
+        return capture_result_;
+    }
+
+    void PinWindow::ApplyRestoredScale(std::int32_t scale_percent) noexcept
+    {
+        scale_percent_ = ClampScalePercent(scale_percent);
+        ResetScaledBitmapCache();
+        ResetPaintBuffer();
+
+        // 重新计算并调整窗口大小
+        SIZE original_size = capture_result_.PixelSize();
+        SIZE scaled_size{.cx = static_cast<int>(original_size.cx * scale_percent_ / 100),
+                         .cy = static_cast<int>(original_size.cy * scale_percent_ / 100)};
+        SetWindowPos(window_, nullptr, 0, 0, scaled_size.cx, scaled_size.cy, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+        UpdateShadowWindowPosition();
+        InvalidateRect(window_, nullptr, FALSE);
+    }
+
+    void PinWindow::ApplyRestoredOpacity(std::int32_t opacity_percent) noexcept
+    {
+        opacity_percent_ = ClampOpacityPercent(opacity_percent);
+        ApplyOpacity();
+    }
+
+    void PinWindow::SetRestoredPosition(std::int32_t x, std::int32_t y) noexcept
+    {
+        SetWindowPos(window_, nullptr, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        UpdateShadowWindowPosition();
+    }
+
     void PinWindow::SetShadowEnabled(bool enabled) noexcept
     {
         if (shadow_enabled_ == enabled)

@@ -259,6 +259,9 @@ namespace capturezy::core
             json_text += "\",\n";
             json_text += "  \"default_jpeg_quality\": ";
             json_text += std::to_string(settings.default_jpeg_quality);
+            json_text += ",\n";
+            json_text += R"(  "restore_pins_on_startup": )";
+            json_text += settings.restore_pins_on_startup ? "true" : "false";
             json_text += "\n";
             json_text += "}\n";
             return json_text;
@@ -536,6 +539,12 @@ namespace capturezy::core
             if (TryReadUnsigned(settings_json, "default_jpeg_quality", quality_value))
             {
                 settings.default_jpeg_quality = static_cast<std::uint8_t>(std::min(quality_value, static_cast<UINT>(100)));
+            }
+
+            bool restore_pins = true;
+            if (TryReadBoolean(settings_json, "restore_pins_on_startup", restore_pins))
+            {
+                settings.restore_pins_on_startup = restore_pins;
             }
         }
 
