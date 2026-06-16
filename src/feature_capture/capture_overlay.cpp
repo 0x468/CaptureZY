@@ -551,24 +551,36 @@ namespace capturezy::feature_capture
             return digit_count;
         }
 
-        [[nodiscard]] int SelectionMetricsLabelWidth(RECT selection_rect) noexcept
+        [[nodiscard]] int SelectionMetricsLabelWidth(RECT selection_rect, POINT cursor_point, bool show_color) noexcept
         {
             LONG const selection_width = std::max<LONG>(selection_rect.right - selection_rect.left, 0);
             LONG const selection_height = std::max<LONG>(selection_rect.bottom - selection_rect.top, 0);
             int const label_character_count = DecimalDigitCount(selection_width) + DecimalDigitCount(selection_height) +
-                                              7;
-            return std::max(kSelectionMetricsMinWidth,
-                            (label_character_count * kSelectionMetricsCharWidth) + (kSelectionMetricsPaddingX * 2));
+                                              7; // "NNN x NNN px"
+            int total_width = (label_character_count * kSelectionMetricsCharWidth) + (kSelectionMetricsPaddingX * 2);
+
+            // 添加鼠标坐标的宽度: "  (NNN, NNN)"
+            total_width += (DecimalDigitCount(cursor_point.x) + DecimalDigitCount(cursor_point.y) + 7) *
+                           kSelectionMetricsCharWidth;
+
+            // 如果显示颜色信息，添加 "  #RRGGBB" 的宽度
+            if (show_color)
+            {
+                total_width += 9 * kSelectionMetricsCharWidth;
+            }
+
+            return std::max(kSelectionMetricsMinWidth, total_width);
         }
 
-        [[nodiscard]] RECT SelectionMetricsRect(RECT selection_rect, RECT bounds_rect) noexcept
+        [[nodiscard]] RECT SelectionMetricsRect(RECT selection_rect, RECT bounds_rect, POINT cursor_point,
+                                                bool show_color) noexcept
         {
             if (!IsRectNonEmpty(selection_rect))
             {
                 return {};
             }
 
-            int const label_width = SelectionMetricsLabelWidth(selection_rect);
+            int const label_width = SelectionMetricsLabelWidth(selection_rect, cursor_point, show_color);
             RECT metrics_rect{
                 .left = selection_rect.left,
                 .top = selection_rect.top - kSelectionMetricsHeight - kSelectionMetricsMargin,
@@ -602,7 +614,9 @@ namespace capturezy::feature_capture
             return metrics_rect;
         }
 
-        void PaintSelectionMetrics(HDC destination_device_context, RECT destination_rect, RECT selection_rect) noexcept
+        void PaintSelectionMetrics(HDC destination_device_context, RECT destination_rect, RECT selection_rect,
+                                   LONG cursor_screen_x, LONG cursor_screen_y,
+                                   COLORREF pixel_color, bool show_color) noexcept
         {
             if (!IsRectNonEmpty(destination_rect))
             {
@@ -611,8 +625,21 @@ namespace capturezy::feature_capture
 
             LONG const selection_width = std::max<LONG>(selection_rect.right - selection_rect.left, 0);
             LONG const selection_height = std::max<LONG>(selection_rect.bottom - selection_rect.top, 0);
-            std::wstring const metrics_text = std::to_wstring(selection_width) + L" x " +
-                                              std::to_wstring(selection_height) + L" px";
+            std::wstring metrics_text = std::to_wstring(selection_width) + L" x " +
+                                        std::to_wstring(selection_height) + L" px  (" +
+                                        std::to_wstring(cursor_screen_x) + L", " +
+                                        std::to_wstring(cursor_screen_y) + L")";
+            if (show_color)
+            {
+                int const r = static_cast<int>(GetRValue(pixel_color));
+                int const g = static_cast<int>(GetGValue(pixel_color));
+                int const b = static_cast<int>(GetBValue(pixel_color));
+                wchar_t hex_buffer[8]{};
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg-h)
+                swprintf(hex_buffer, 8, L"#%02X%02X%02X", r, g, b);
+                metrics_text += L"  ";
+                metrics_text += hex_buffer;
+            }
 
             HPEN frame_pen = CreatePen(PS_SOLID, 1, RGB(255, 255, 255));
             HBRUSH background_brush = CreateSolidBrush(RGB(0, 0, 0));
@@ -2146,12 +2173,12 @@ namespace capturezy::feature_capture
         RECT new_toolbar_rect{};
         if (had_old_preview)
         {
-            old_metrics_rect = SelectionMetricsRect(old_preview_rect, client_rect);
+            old_metrics_rect = SelectionMetricsRect(old_preview_rect, client_rect, cursor_overlay_point_, false);
             old_toolbar_rect = ToolbarRect(old_preview_rect, client_rect);
         }
         if (had_new_preview)
         {
-            new_metrics_rect = SelectionMetricsRect(new_preview_rect, client_rect);
+            new_metrics_rect = SelectionMetricsRect(new_preview_rect, client_rect, cursor_overlay_point_, false);
             new_toolbar_rect = ToolbarRect(new_preview_rect, client_rect);
         }
         if (!TryUnionRect(had_old_preview ? ExpandedRect(old_preview_rect, kPreviewInvalidationPadding) : RECT{},
@@ -2276,6 +2303,31 @@ namespace capturezy::feature_capture
 
         active_resize_handle_ = ResizeHandle::None;
         SetCursor(CursorForResizeHandle(ResizeHandle::None));
+    }
+
+    void CaptureOverlay::UpdatePixelColor(POINT overlay_point) noexcept
+    {
+        if (!frozen_background_.IsValid() || overlay_window_ == nullptr)
+        {
+            return;
+        }
+
+        // 从冻结背景位图中读取像素颜色
+        HDC bitmap_dc = CreateCompatibleDC(nullptr);
+        if (bitmap_dc == nullptr)
+        {
+            return;
+        }
+
+        HGDIOBJ old_bitmap = SelectObject(bitmap_dc, frozen_background_.Get());
+        COLORREF color = GetPixel(bitmap_dc, overlay_point.x + origin_left_, overlay_point.y + origin_top_);
+        SelectObject(bitmap_dc, old_bitmap);
+        DeleteDC(bitmap_dc);
+
+        if (color != CLR_INVALID)
+        {
+            cursor_pixel_color_ = color;
+        }
     }
 
     void CaptureOverlay::ResetCommittedSelection() noexcept
@@ -2987,6 +3039,10 @@ namespace capturezy::feature_capture
 
     void CaptureOverlay::UpdatePointerSelection(LPARAM l_param)
     {
+        // 更新鼠标位置和像素颜色
+        cursor_overlay_point_ = POINT{.x = GET_X_LPARAM(l_param), .y = GET_Y_LPARAM(l_param)};
+        UpdatePixelColor(cursor_overlay_point_);
+
         RECT old_preview_rect{};
         bool const had_old_preview = TryGetCurrentPreviewRect(old_preview_rect);
 
@@ -3309,12 +3365,15 @@ namespace capturezy::feature_capture
             OffsetRect(&local_preview_rect, -paint_rect.left, -paint_rect.top);
             PaintOverlayPreviewRect(buffer_device_context, local_preview_rect, preview_rect, frozen_background_,
                                     border_color);
-            RECT metrics_rect = SelectionMetricsRect(preview_rect, client_rect);
+            RECT metrics_rect = SelectionMetricsRect(preview_rect, client_rect, cursor_overlay_point_, true);
             if (IsRectNonEmpty(metrics_rect))
             {
                 RECT local_metrics_rect = metrics_rect;
                 OffsetRect(&local_metrics_rect, -paint_rect.left, -paint_rect.top);
-                PaintSelectionMetrics(buffer_device_context, local_metrics_rect, preview_rect);
+                PaintSelectionMetrics(buffer_device_context, local_metrics_rect, preview_rect,
+                                      cursor_overlay_point_.x + origin_left_,
+                                      cursor_overlay_point_.y + origin_top_,
+                                      cursor_pixel_color_, true);
             }
             if (has_committed_selection_)
             {

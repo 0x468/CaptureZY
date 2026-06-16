@@ -120,6 +120,8 @@ namespace capturezy::platform_win
 
         if (capture_result.IsValid())
         {
+            PlayCaptureSound();
+
             switch (action)
             {
             case CaptureAction::SaveToFile:
@@ -128,6 +130,7 @@ namespace capturezy::platform_win
                 {
                     capture_completed = true;
                     capture_saved = true;
+                    ShowToastNotification(L"CaptureZY", L"截图已保存到文件。");
                 }
                 break;
 
@@ -135,6 +138,7 @@ namespace capturezy::platform_win
                 if (feature_capture::ScreenCapture::CopyBitmapToClipboard(window_, capture_result))
                 {
                     capture_completed = true;
+                    ShowToastNotification(L"CaptureZY", L"截图已复制到剪贴板。");
                 }
                 break;
 
@@ -144,6 +148,14 @@ namespace capturezy::platform_win
                 {
                     capture_completed = true;
                     pin_created = pin_manager_->CreatePin(std::move(capture_result));
+                    if (pin_created)
+                    {
+                        ShowToastNotification(L"CaptureZY", L"截图已复制并贴图。");
+                    }
+                    else
+                    {
+                        ShowToastNotification(L"CaptureZY", L"截图已复制到剪贴板。");
+                    }
                 }
                 break;
             }

@@ -1,6 +1,7 @@
 #include "platform_win/main_window.h"
 
 #include <memory>
+#include <mmsystem.h>
 
 #include "core/app_metadata.h"
 #include "core/log.h"
@@ -133,6 +134,34 @@ namespace capturezy::platform_win
     void MainWindow::HideToTray() noexcept
     {
         ShowWindow(window_, SW_HIDE);
+    }
+
+    void MainWindow::ShowToastNotification(wchar_t const *title, wchar_t const *message) noexcept
+    {
+        if (!app_settings_->notification_enabled || !tray_icon_added_)
+        {
+            return;
+        }
+
+        NOTIFYICONDATAW notify_data = tray_icon_;
+        notify_data.uFlags = NIF_INFO;
+        wcsncpy_s(notify_data.szInfoTitle, title, _TRUNCATE);
+        wcsncpy_s(notify_data.szInfo, message, _TRUNCATE);
+        notify_data.uTimeout = 3000;
+        notify_data.dwInfoFlags = NIIF_INFO;
+
+        Shell_NotifyIconW(NIM_MODIFY, &notify_data);
+    }
+
+    void MainWindow::PlayCaptureSound() noexcept
+    {
+        if (!app_settings_->capture_sound_enabled)
+        {
+            return;
+        }
+
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-cstyle-cast)
+        PlaySoundW(L"SystemDefault", nullptr, SND_ALIAS | SND_ASYNC | SND_NODEFAULT);
     }
 
     bool MainWindow::HandleCommand(WPARAM w_param)

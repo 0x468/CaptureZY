@@ -29,4 +29,5 @@ target_link_libraries(
     shell32
     user32
     gdi32
+    winmm
 )

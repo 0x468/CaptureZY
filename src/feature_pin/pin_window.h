@@ -74,6 +74,7 @@ namespace capturezy::feature_pin
         void UpdateDrag(POINT cursor_screen_point) noexcept;
         void EndDrag() noexcept;
         [[nodiscard]] LRESULT HandleCommand(WORD command_id);
+        [[nodiscard]] bool HandleKeyDown(WPARAM w_param);
         void ResetScaleToDefault() noexcept;
         void ShowContextMenuFromClientPoint(LPARAM l_param) noexcept;
         void HandleWindowPosChanged() noexcept;

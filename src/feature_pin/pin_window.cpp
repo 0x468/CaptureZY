@@ -1149,6 +1149,35 @@ namespace capturezy::feature_pin
         }
     }
 
+    bool PinWindow::HandleKeyDown(WPARAM w_param)
+    {
+        switch (w_param)
+        {
+        case VK_DELETE:
+            CAPTUREZY_LOG_DEBUG(core::LogCategory::Pin, L"Pin window closed by Delete key.");
+            DestroyWindow(window_);
+            return true;
+
+        case VK_ESCAPE:
+            CAPTUREZY_LOG_DEBUG(core::LogCategory::Pin, L"Pin window hidden by Escape key.");
+            Hide();
+            return true;
+
+        case VK_OEM_PLUS:
+        case VK_ADD:
+            UpdateScale(WHEEL_DELTA);
+            return true;
+
+        case VK_OEM_MINUS:
+        case VK_SUBTRACT:
+            UpdateScale(-WHEEL_DELTA);
+            return true;
+
+        default:
+            return false;
+        }
+    }
+
     void PinWindow::ResetScaleToDefault() noexcept
     {
         if (scale_percent_ == kDefaultScalePercent)
@@ -1230,6 +1259,13 @@ namespace capturezy::feature_pin
 
         case WM_MOUSEACTIVATE:
             return MA_ACTIVATE;
+
+        case WM_KEYDOWN:
+            if (HandleKeyDown(w_param))
+            {
+                return 0;
+            }
+            break;
 
         case WM_ACTIVATE:
             if (LOWORD(w_param) != WA_INACTIVE && !dragging_ && (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0)

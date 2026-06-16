@@ -57,6 +57,8 @@ namespace capturezy::core
         ImageFileFormat default_save_format{ImageFileFormat::Png};
         std::uint8_t default_jpeg_quality{90};
         bool restore_pins_on_startup{true};
+        bool capture_sound_enabled{true};
+        bool notification_enabled{true};
 
         [[nodiscard]] bool HasValidCaptureHotkey() const noexcept;
     };

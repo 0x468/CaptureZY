@@ -20,7 +20,7 @@ namespace capturezy::platform_win
     {
         constexpr wchar_t const *kSettingsDialogClassName = L"CaptureZY.SettingsDialog";
         constexpr int kSettingsDialogWidth = 560;
-        constexpr int kSettingsDialogHeight = 648;
+        constexpr int kSettingsDialogHeight = 680;
         constexpr int kScopeComboId = 3001;
         constexpr int kActionComboId = 3002;
         constexpr int kHotkeyControlId = 3003;
@@ -35,6 +35,8 @@ namespace capturezy::platform_win
         constexpr int kCountdownComboId = 3012;
         constexpr int kSaveFormatComboId = 3013;
         constexpr int kRestorePinsCheckboxId = 3014;
+        constexpr int kSoundCheckboxId = 3015;
+        constexpr int kNotificationCheckboxId = 3016;
         constexpr int kDialogOkButtonId = IDOK;
         constexpr int kDialogCancelButtonId = IDCANCEL;
 
@@ -564,18 +566,32 @@ namespace capturezy::platform_win
                     nullptr);
                 SendMessageW(restore_pins_checkbox_, WM_SETFONT, FontMessageParam(font), TRUE);
 
+                // 截图音效
+                sound_checkbox_ = CreateWindowExW(
+                    0, L"BUTTON", L"截图音效", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+                    kControlX, 540, kControlWidth, 20, window_, ControlMenuHandle(kSoundCheckboxId), instance_,
+                    nullptr);
+                SendMessageW(sound_checkbox_, WM_SETFONT, FontMessageParam(font), TRUE);
+
+                // Toast 通知
+                notification_checkbox_ = CreateWindowExW(
+                    0, L"BUTTON", L"操作完成通知", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+                    kControlX + 140, 540, kControlWidth, 20, window_, ControlMenuHandle(kNotificationCheckboxId),
+                    instance_, nullptr);
+                SendMessageW(notification_checkbox_, WM_SETFONT, FontMessageParam(font), TRUE);
+
                 HWND reset_button = CreateWindowExW(
-                    0, L"BUTTON", L"恢复默认", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, 210, 546, 88, 28,
+                    0, L"BUTTON", L"恢复默认", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, 210, 576, 88, 28,
                     window_, ControlMenuHandle(kResetDefaultsButtonId), instance_, nullptr);
                 SendMessageW(reset_button, WM_SETFONT, FontMessageParam(font), TRUE);
 
                 HWND ok_button = CreateWindowExW(0, L"BUTTON", L"确定",
-                                                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON, 310, 546, 88,
+                                                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON, 310, 576, 88,
                                                  28, window_, ControlMenuHandle(kDialogOkButtonId), instance_, nullptr);
                 SendMessageW(ok_button, WM_SETFONT, FontMessageParam(font), TRUE);
 
                 HWND cancel_button = CreateWindowExW(
-                    0, L"BUTTON", L"取消", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, 410, 546, 88, 28,
+                    0, L"BUTTON", L"取消", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, 410, 576, 88, 28,
                     window_, ControlMenuHandle(kDialogCancelButtonId), instance_, nullptr);
                 SendMessageW(cancel_button, WM_SETFONT, FontMessageParam(font), TRUE);
 
@@ -627,6 +643,10 @@ namespace capturezy::platform_win
 
                 // 恢复贴图
                 SetCheckboxState(restore_pins_checkbox_, settings.restore_pins_on_startup);
+
+                // 音效与通知
+                SetCheckboxState(sound_checkbox_, settings.capture_sound_enabled);
+                SetCheckboxState(notification_checkbox_, settings.notification_enabled);
             }
 
             void BrowseForSaveDirectory()
@@ -698,6 +718,10 @@ namespace capturezy::platform_win
 
                 // 恢复贴图
                 settings.restore_pins_on_startup = IsCheckboxChecked(restore_pins_checkbox_);
+
+                // 音效与通知
+                settings.capture_sound_enabled = IsCheckboxChecked(sound_checkbox_);
+                settings.notification_enabled = IsCheckboxChecked(notification_checkbox_);
 
                 CAPTUREZY_LOG_DEBUG(core::LogCategory::SettingsDialog,
                                     std::wstring(L"Accept settings. single=") +
@@ -825,6 +849,8 @@ namespace capturezy::platform_win
             HWND countdown_combo_{};
             HWND save_format_combo_{};
             HWND restore_pins_checkbox_{};
+            HWND sound_checkbox_{};
+            HWND notification_checkbox_{};
             core::AppSettings initial_settings_{};
             core::AppSettings result_settings_{};
             bool accepted_{false};

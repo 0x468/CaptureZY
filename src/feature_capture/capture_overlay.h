@@ -155,6 +155,7 @@ namespace capturezy::feature_capture
                                          bool had_new_preview) noexcept;
         void InvalidateAnnotationCanvas() noexcept;
         void UpdateCursorForOverlayPoint(POINT overlay_point) noexcept;
+        void UpdatePixelColor(POINT overlay_point) noexcept;
         void ResetCommittedSelection() noexcept;
         void BeginCreateAnnotation(POINT overlay_point) noexcept;
         void UpdateCreateAnnotation(POINT overlay_point) noexcept;
@@ -219,5 +220,7 @@ namespace capturezy::feature_capture
         AnnotationSession annotation_session_{};
         std::wstring hover_debug_text_;
         std::wstring cached_overflow_tray_debug_text_;
+        POINT cursor_overlay_point_{};
+        COLORREF cursor_pixel_color_{RGB(0, 0, 0)};
     };
 } // namespace capturezy::feature_capture

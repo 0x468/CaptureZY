@@ -262,6 +262,12 @@ namespace capturezy::core
             json_text += ",\n";
             json_text += R"(  "restore_pins_on_startup": )";
             json_text += settings.restore_pins_on_startup ? "true" : "false";
+            json_text += ",\n";
+            json_text += R"(  "capture_sound_enabled": )";
+            json_text += settings.capture_sound_enabled ? "true" : "false";
+            json_text += ",\n";
+            json_text += R"(  "notification_enabled": )";
+            json_text += settings.notification_enabled ? "true" : "false";
             json_text += "\n";
             json_text += "}\n";
             return json_text;
@@ -545,6 +551,18 @@ namespace capturezy::core
             if (TryReadBoolean(settings_json, "restore_pins_on_startup", restore_pins))
             {
                 settings.restore_pins_on_startup = restore_pins;
+            }
+
+            bool sound_enabled = true;
+            if (TryReadBoolean(settings_json, "capture_sound_enabled", sound_enabled))
+            {
+                settings.capture_sound_enabled = sound_enabled;
+            }
+
+            bool notification_enabled = true;
+            if (TryReadBoolean(settings_json, "notification_enabled", notification_enabled))
+            {
+                settings.notification_enabled = notification_enabled;
             }
         }
 

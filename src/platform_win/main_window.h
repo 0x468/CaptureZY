@@ -8,7 +8,6 @@
 
 #include <cstdint>
 #include <shellapi.h>
-#include <string>
 
 #include "core/app_settings.h"
 #include "core/app_state.h"
@@ -92,6 +91,8 @@ namespace capturezy::platform_win
         [[nodiscard]] bool HandleHotkey(WPARAM w_param);
         [[nodiscard]] bool HandleTrayMessage(LPARAM l_param);
         void HandleCountdownComplete();
+        void ShowToastNotification(wchar_t const *title, wchar_t const *message) noexcept;
+        void PlayCaptureSound() noexcept;
         [[nodiscard]] ATOM RegisterWindowClass() const;
         [[nodiscard]] LRESULT HandleMessage(UINT message, WPARAM w_param, LPARAM l_param);
 
