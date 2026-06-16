@@ -20,7 +20,7 @@ namespace capturezy::platform_win
     {
         constexpr wchar_t const *kSettingsDialogClassName = L"CaptureZY.SettingsDialog";
         constexpr int kSettingsDialogWidth = 560;
-        constexpr int kSettingsDialogHeight = 548;
+        constexpr int kSettingsDialogHeight = 648;
         constexpr int kScopeComboId = 3001;
         constexpr int kActionComboId = 3002;
         constexpr int kHotkeyControlId = 3003;
@@ -32,6 +32,9 @@ namespace capturezy::platform_win
         constexpr int kTraySingleClickComboId = 3009;
         constexpr int kTrayDoubleClickComboId = 3010;
         constexpr int kConfirmExitCheckboxId = 3011;
+        constexpr int kCountdownComboId = 3012;
+        constexpr int kSaveFormatComboId = 3013;
+        constexpr int kRestorePinsCheckboxId = 3014;
         constexpr int kDialogOkButtonId = IDOK;
         constexpr int kDialogCancelButtonId = IDCANCEL;
 
@@ -520,18 +523,59 @@ namespace capturezy::platform_win
                     446, kControlWidth, 20, window_, ControlMenuHandle(kConfirmExitCheckboxId), instance_, nullptr);
                 SendMessageW(confirm_exit_checkbox_, WM_SETFONT, FontMessageParam(font), TRUE);
 
+                // 延迟截图时间
+                HWND countdown_label = CreateWindowExW(0, L"STATIC", L"延迟截图时间", WS_CHILD | WS_VISIBLE, kLabelX,
+                                                      482, kLabelWidth, 20, window_, nullptr, instance_, nullptr);
+                SendMessageW(countdown_label, WM_SETFONT, FontMessageParam(font), TRUE);
+
+                countdown_combo_ = CreateWindowExW(
+                    0, L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
+                    kControlX, 478, 120, 120, window_, ControlMenuHandle(kCountdownComboId), instance_, nullptr);
+                SendMessageW(countdown_combo_, WM_SETFONT, FontMessageParam(font), TRUE);
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast,performance-no-int-to-ptr)
+                SendMessageW(countdown_combo_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"0秒"));
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast,performance-no-int-to-ptr)
+                SendMessageW(countdown_combo_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"3秒"));
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast,performance-no-int-to-ptr)
+                SendMessageW(countdown_combo_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"5秒"));
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast,performance-no-int-to-ptr)
+                SendMessageW(countdown_combo_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"10秒"));
+
+                // 默认保存格式
+                HWND format_label = CreateWindowExW(0, L"STATIC", L"默认保存格式", WS_CHILD | WS_VISIBLE, kLabelX + 140,
+                                                    482, 100, 20, window_, nullptr, instance_, nullptr);
+                SendMessageW(format_label, WM_SETFONT, FontMessageParam(font), TRUE);
+
+                save_format_combo_ = CreateWindowExW(
+                    0, L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
+                    kControlX + 140, 478, 150, 120, window_, ControlMenuHandle(kSaveFormatComboId), instance_, nullptr);
+                SendMessageW(save_format_combo_, WM_SETFONT, FontMessageParam(font), TRUE);
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast,performance-no-int-to-ptr)
+                SendMessageW(save_format_combo_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"PNG"));
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast,performance-no-int-to-ptr)
+                SendMessageW(save_format_combo_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"JPEG"));
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast,performance-no-int-to-ptr)
+                SendMessageW(save_format_combo_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"BMP"));
+
+                // 恢复贴图
+                restore_pins_checkbox_ = CreateWindowExW(
+                    0, L"BUTTON", L"启动时恢复上次贴图", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+                    kControlX, 510, kControlWidth, 20, window_, ControlMenuHandle(kRestorePinsCheckboxId), instance_,
+                    nullptr);
+                SendMessageW(restore_pins_checkbox_, WM_SETFONT, FontMessageParam(font), TRUE);
+
                 HWND reset_button = CreateWindowExW(
-                    0, L"BUTTON", L"恢复默认", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, 210, 486, 88, 28,
+                    0, L"BUTTON", L"恢复默认", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, 210, 546, 88, 28,
                     window_, ControlMenuHandle(kResetDefaultsButtonId), instance_, nullptr);
                 SendMessageW(reset_button, WM_SETFONT, FontMessageParam(font), TRUE);
 
                 HWND ok_button = CreateWindowExW(0, L"BUTTON", L"确定",
-                                                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON, 310, 486, 88,
+                                                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON, 310, 546, 88,
                                                  28, window_, ControlMenuHandle(kDialogOkButtonId), instance_, nullptr);
                 SendMessageW(ok_button, WM_SETFONT, FontMessageParam(font), TRUE);
 
                 HWND cancel_button = CreateWindowExW(
-                    0, L"BUTTON", L"取消", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, 410, 486, 88, 28,
+                    0, L"BUTTON", L"取消", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, 410, 546, 88, 28,
                     window_, ControlMenuHandle(kDialogCancelButtonId), instance_, nullptr);
                 SendMessageW(cancel_button, WM_SETFONT, FontMessageParam(font), TRUE);
 
@@ -552,6 +596,37 @@ namespace capturezy::platform_win
                 SetWindowTextW(save_directory_edit_, settings.default_save_directory.c_str());
                 SetWindowTextW(save_prefix_edit_, settings.default_save_file_prefix.c_str());
                 SetCheckboxState(confirm_exit_checkbox_, settings.confirm_exit);
+
+                // 延迟截图时间
+                int countdown_index = 0;
+                if (settings.default_capture_countdown_seconds == 3)
+                {
+                    countdown_index = 1;
+                }
+                else if (settings.default_capture_countdown_seconds == 5)
+                {
+                    countdown_index = 2;
+                }
+                else if (settings.default_capture_countdown_seconds == 10)
+                {
+                    countdown_index = 3;
+                }
+                SendMessageW(countdown_combo_, CB_SETCURSEL, countdown_index, 0);
+
+                // 保存格式
+                int format_index = 0;
+                if (settings.default_save_format == core::AppSettings::ImageFileFormat::Jpeg)
+                {
+                    format_index = 1;
+                }
+                else if (settings.default_save_format == core::AppSettings::ImageFileFormat::Bmp)
+                {
+                    format_index = 2;
+                }
+                SendMessageW(save_format_combo_, CB_SETCURSEL, format_index, 0);
+
+                // 恢复贴图
+                SetCheckboxState(restore_pins_checkbox_, settings.restore_pins_on_startup);
             }
 
             void BrowseForSaveDirectory()
@@ -588,6 +663,41 @@ namespace capturezy::platform_win
                 settings.capture_hotkey = HotkeySettingFromDialog(
                     static_cast<WORD>(SendMessageW(hotkey_control_, HKM_GETHOTKEY, 0, 0)),
                     IsCheckboxChecked(win_modifier_checkbox_));
+
+                // 延迟截图时间
+                int const countdown_index = static_cast<int>(SendMessageW(countdown_combo_, CB_GETCURSEL, 0, 0));
+                std::uint32_t countdown_seconds = 0;
+                if (countdown_index == 1)
+                {
+                    countdown_seconds = 3;
+                }
+                else if (countdown_index == 2)
+                {
+                    countdown_seconds = 5;
+                }
+                else if (countdown_index == 3)
+                {
+                    countdown_seconds = 10;
+                }
+                settings.default_capture_countdown_seconds = countdown_seconds;
+
+                // 保存格式
+                int const format_index = static_cast<int>(SendMessageW(save_format_combo_, CB_GETCURSEL, 0, 0));
+                if (format_index == 1)
+                {
+                    settings.default_save_format = core::AppSettings::ImageFileFormat::Jpeg;
+                }
+                else if (format_index == 2)
+                {
+                    settings.default_save_format = core::AppSettings::ImageFileFormat::Bmp;
+                }
+                else
+                {
+                    settings.default_save_format = core::AppSettings::ImageFileFormat::Png;
+                }
+
+                // 恢复贴图
+                settings.restore_pins_on_startup = IsCheckboxChecked(restore_pins_checkbox_);
 
                 CAPTUREZY_LOG_DEBUG(core::LogCategory::SettingsDialog,
                                     std::wstring(L"Accept settings. single=") +
@@ -712,6 +822,9 @@ namespace capturezy::platform_win
             HWND save_directory_edit_{};
             HWND save_prefix_edit_{};
             HWND confirm_exit_checkbox_{};
+            HWND countdown_combo_{};
+            HWND save_format_combo_{};
+            HWND restore_pins_checkbox_{};
             core::AppSettings initial_settings_{};
             core::AppSettings result_settings_{};
             bool accepted_{false};
