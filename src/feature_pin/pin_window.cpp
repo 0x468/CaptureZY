@@ -48,6 +48,8 @@ namespace capturezy::feature_pin
         constexpr UINT_PTR kClosePinCommandId = 2005;
         constexpr UINT_PTR kResetScaleCommandId = 2006;
         constexpr UINT_PTR kToggleShadowCommandId = 2007;
+        constexpr UINT_PTR kToggleClickThroughCommandId = 2008;
+        constexpr UINT_PTR kToggleLockedCommandId = 2009;
         constexpr int kShadowMargin = 8;
         constexpr BYTE kShadowAlpha = 72;
         constexpr COLORREF kShadowColor = RGB(0, 0, 0);
@@ -284,6 +286,45 @@ namespace capturezy::feature_pin
                            topmost_ ? L"Pin window topmost changed to on." : L"Pin window topmost changed to off.");
     }
 
+    void PinWindow::SetClickThrough(bool enabled) noexcept
+    {
+        if (window_ == nullptr || click_through_ == enabled)
+        {
+            return;
+        }
+
+        click_through_ = enabled;
+        LONG_PTR ex_style = GetWindowLongPtrW(window_, GWL_EXSTYLE);
+        if (enabled)
+        {
+            ex_style |= WS_EX_TRANSPARENT;
+        }
+        else
+        {
+            ex_style &= ~static_cast<LONG_PTR>(WS_EX_TRANSPARENT);
+        }
+        SetWindowLongPtrW(window_, GWL_EXSTYLE, ex_style);
+        InvalidateRect(window_, nullptr, FALSE);
+
+        CAPTUREZY_LOG_INFO(core::LogCategory::Pin,
+                           click_through_ ? L"Pin window click-through enabled."
+                                          : L"Pin window click-through disabled.");
+    }
+
+    void PinWindow::SetLocked(bool locked) noexcept
+    {
+        if (locked_ == locked)
+        {
+            return;
+        }
+
+        locked_ = locked;
+        InvalidateRect(window_, nullptr, FALSE);
+
+        CAPTUREZY_LOG_INFO(core::LogCategory::Pin,
+                           locked_ ? L"Pin window locked." : L"Pin window unlocked.");
+    }
+
     void PinWindow::SetShadowEnabled(bool enabled) noexcept
     {
         if (shadow_enabled_ == enabled)
@@ -377,6 +418,10 @@ namespace capturezy::feature_pin
                     L"\u59cb\u7ec8\u7f6e\u9876");
         AppendMenuW(menu, shadow_enabled_ ? MF_STRING | MF_CHECKED : MF_STRING, kToggleShadowCommandId,
                     L"\u663e\u793a\u9634\u5f71");
+        AppendMenuW(menu, click_through_ ? MF_STRING | MF_CHECKED : MF_STRING, kToggleClickThroughCommandId,
+                    L"\u9f20\u6807\u7b79\u900f");
+        AppendMenuW(menu, locked_ ? MF_STRING | MF_CHECKED : MF_STRING, kToggleLockedCommandId,
+                    L"\u9501\u5b9a\u8d34\u56fe");
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
         AppendMenuW(menu, MF_STRING, kHidePinCommandId, L"\u9690\u85cf\u6b64\u8d34\u56fe");
         AppendMenuW(menu, MF_STRING, kClosePinCommandId, L"\u5173\u95ed\u6b64\u8d34\u56fe");
@@ -524,7 +569,7 @@ namespace capturezy::feature_pin
 
     void PinWindow::BeginDrag(POINT cursor_screen_point) noexcept
     {
-        if (window_ == nullptr || dragging_)
+        if (window_ == nullptr || dragging_ || locked_)
         {
             return;
         }
@@ -754,6 +799,14 @@ namespace capturezy::feature_pin
         if (!DrawScaledBitmap(paint_device_context, target_size))
         {
             FillRect(paint_device_context, &client_rect, GetSysColorBrush(COLOR_WINDOW));
+        }
+
+        // 锁定状态下绘制红色边框提示
+        if (locked_)
+        {
+            HBRUSH locked_brush = CreateSolidBrush(RGB(220, 50, 50));
+            FrameRect(paint_device_context, &client_rect, locked_brush);
+            DeleteObject(locked_brush);
         }
 
         if (buffer_device_context != nullptr)
@@ -1020,6 +1073,14 @@ namespace capturezy::feature_pin
 
         case kToggleShadowCommandId:
             SetShadowEnabled(!shadow_enabled_);
+            return 0;
+
+        case kToggleClickThroughCommandId:
+            SetClickThrough(!click_through_);
+            return 0;
+
+        case kToggleLockedCommandId:
+            SetLocked(!locked_);
             return 0;
 
         case kHidePinCommandId:

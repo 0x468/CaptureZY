@@ -44,6 +44,8 @@ namespace capturezy::feature_pin
         void ApplyOpacity() noexcept;
         void SetTopmost(bool topmost) noexcept;
         void SetShadowEnabled(bool enabled) noexcept;
+        void SetClickThrough(bool enabled) noexcept;
+        void SetLocked(bool locked) noexcept;
         void CopyToClipboard() const noexcept;
         void SaveToFile() const;
         void ShowContextMenu(POINT anchor_screen_point) noexcept;
@@ -93,6 +95,8 @@ namespace capturezy::feature_pin
         std::int32_t opacity_percent_{100};
         bool topmost_{true};
         bool shadow_enabled_{true};
+        bool click_through_{false};
+        bool locked_{false};
         bool dragging_{false};
         bool scale_interaction_active_{false};
     };
